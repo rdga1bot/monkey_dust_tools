@@ -15,8 +15,8 @@ struct FactionEntry {
     uint32_t id;
     char     name[32];
     int      default_rel;
-    int      rel_to[8];   // rel_to[j] = відношення до faction з індексом j
-    int      rel_count;   // скільки "relations" записів
+    int      rel_to[8];
+    int      rel_count;
 };
 
 namespace FactionEditor {
@@ -27,7 +27,7 @@ static int          g_sel   = -1;
 
 static char g_buf_name  [32]   = {};
 static char g_buf_defrel[8]    = {};
-static char g_buf_rels  [8][8] = {};  // [faction_index][str buffer]
+static char g_buf_rels  [8][8] = {};
 
 // ── Мінімальний JSON-парсер ───────────────────────────────
 
@@ -81,7 +81,6 @@ inline bool Load(const char* path) {
         v = strstr(st, "\"default_relation\"");
         if (v&&v<en) { v=strchr(v,':'); if(v) fe.default_rel=(int)strtol(v+1,nullptr,10); }
 
-        // relations масив
         const char* ra = strstr(st, "\"relations\"");
         if (ra && ra < en) {
             ra = strchr(ra, '['); if (ra && ra < en) { ++ra;
@@ -158,19 +157,24 @@ inline bool Draw(Rectangle list_r, Rectangle edit_r, const char* path) {
 
     // ── List panel ────────────────────────────────────────
     Panel(list_r);
-    Label((int)list_r.x + 8, (int)list_r.y + 8, "Factions", 14, {170, 195, 255, 255});
-    HSep((int)list_r.x, (int)list_r.y + 28, (int)list_r.width);
+    Label((int)list_r.x + S(8), (int)list_r.y + S(8), "Factions", 14,
+          {170, 195, 255, 255});
+    HSep((int)list_r.x, (int)list_r.y + S(28), (int)list_r.width);
 
-    static constexpr int ROW_H = 30;
+    int row_h = S(30);
     for (int i = 0; i < g_count; ++i) {
-        Rectangle rr = { list_r.x, list_r.y + 32 + (float)(i * ROW_H),
-                         list_r.width, (float)ROW_H };
+        Rectangle rr = { list_r.x, list_r.y + S(32) + (float)(i * row_h),
+                         list_r.width, (float)row_h };
         bool sel = (i == g_sel);
         bool hov = MouseIn(rr);
         if (sel)      DrawRectangleRec(rr, {48, 68, 120, 255});
         else if (hov) DrawRectangleRec(rr, {30, 35, 56, 255});
-        char rb[40]; snprintf(rb, sizeof(rb), "%u: %s", g_factions[i].id, g_factions[i].name);
-        DrawText(rb, (int)rr.x + 8, (int)rr.y + 8, 13, sel ? WHITE : Color{195, 200, 215, 255});
+
+        char rb[40]; snprintf(rb, sizeof(rb), "%u: %s",
+                              g_factions[i].id, g_factions[i].name);
+        UiText(rb, (int)rr.x + S(8), (int)rr.y + S(8), 13,
+               sel ? WHITE : Color{195, 200, 215, 255});
+
         if (hov && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !sel) {
             ApplyEdit(); g_sel = i; FillEdit(i); g_active_id = -1;
         }
@@ -178,68 +182,74 @@ inline bool Draw(Rectangle list_r, Rectangle edit_r, const char* path) {
 
     // ── Edit panel ────────────────────────────────────────
     Panel(edit_r);
-    Label((int)edit_r.x + 12, (int)edit_r.y + 10, "Edit Faction", 14, {170, 195, 255, 255});
-    HSep((int)edit_r.x, (int)edit_r.y + 30, (int)edit_r.width);
+    Label((int)edit_r.x + S(12), (int)edit_r.y + S(10), "Edit Faction", 14,
+          {170, 195, 255, 255});
+    HSep((int)edit_r.x, (int)edit_r.y + S(30), (int)edit_r.width);
 
     bool saved = false;
 
     if (g_sel < 0) {
-        Label((int)edit_r.x + 14, (int)edit_r.y + 52,
-              "← Select a faction from the list", 13, {110, 115, 140, 255});
+        Label((int)edit_r.x + S(14), (int)edit_r.y + S(52),
+              "\xe2\x86\x90 Select a faction from the list", 13, {110, 115, 140, 255});
         return false;
     }
 
-    int ex = (int)edit_r.x + 14;
-    int ey = (int)edit_r.y + 42;
+    int ex = (int)edit_r.x + S(14);
+    int ey = (int)edit_r.y + S(42);
 
     // id (read-only)
     char id_buf[16]; snprintf(id_buf, sizeof(id_buf), "%u", g_factions[g_sel].id);
-    Label(ex, ey, "id :", 13); Label(ex + 40, ey, id_buf, 13, YELLOW);
-    ey += 32;
+    Label(ex, ey, "id :", 13);
+    Label(ex + S(40), ey, id_buf, 13, YELLOW);
+    ey += S(32);
 
     // name
     Label(ex, ey, "name :", 13);
-    TextBox(2001, {(float)(ex + 70), (float)ey, 200, 26}, g_buf_name, 32);
-    ey += 36;
+    TextBox(2001, {(float)(ex + S(70)), (float)ey, (float)S(200), (float)S(26)},
+            g_buf_name, 32);
+    ey += S(36);
 
     // default_relation
     Label(ex, ey, "default_rel :", 13);
-    TextBox(2002, {(float)(ex + 110), (float)ey, 72, 26}, g_buf_defrel, 8);
-    Label(ex + 190, ey + 6, "(-100…+100)", 11, {100, 105, 130, 255});
-    ey += 44;
+    TextBox(2002, {(float)(ex + S(110)), (float)ey, (float)S(72), (float)S(26)},
+            g_buf_defrel, 8);
+    Label(ex + S(190), ey + S(6), "(-100\xe2\x80\xa6+100)", 11, {100, 105, 130, 255});
+    ey += S(44);
 
-    HSep(ex, ey, (int)edit_r.width - 28); ey += 12;
+    HSep(ex, ey, (int)edit_r.width - S(28)); ey += S(12);
 
     // Relations matrix
-    Label(ex, ey, "Relations to other factions:", 13, {170, 195, 255, 255}); ey += 22;
+    Label(ex, ey, "Relations to other factions:", 13, {170, 195, 255, 255});
+    ey += S(22);
 
     for (int j = 0; j < g_count && j < 8; ++j) {
-        // Highlight self-relation (should be 100)
         bool is_self = (g_factions[j].id == g_factions[g_sel].id);
         Color lc = is_self ? Color{120, 200, 120, 255} : Color{170, 175, 195, 255};
 
         char lbl[40];
-        snprintf(lbl, sizeof(lbl), "  → %-14s :", g_factions[j].name);
+        snprintf(lbl, sizeof(lbl), "  \xe2\x86\x92 %-14s :", g_factions[j].name);
         Label(ex, ey, lbl, 12, lc);
-        int lw = MeasureText(lbl, 12);
+        int lw = UiMeasure(lbl, 12);
 
-        TextBox(2010 + j, {(float)(ex + lw + 4), (float)ey, 65, 22}, g_buf_rels[j], 8);
+        TextBox(2010 + j,
+                {(float)(ex + lw + S(4)), (float)ey, (float)S(65), (float)S(22)},
+                g_buf_rels[j], 8);
 
-        // Відображаємо поточне значення як колір
         int rel_val = (int)strtol(g_buf_rels[j], nullptr, 10);
-        Color vc = (rel_val >= 25)  ? Color{80,200,80,255}   :
-                   (rel_val <= -25) ? Color{220,70,70,255}   :
-                                     Color{180,180,80,255};
+        Color vc = (rel_val >= 25)  ? Color{80,200,80,255}  :
+                   (rel_val <= -25) ? Color{220,70,70,255}  :
+                                      Color{180,180,80,255};
         char val_disp[8]; snprintf(val_disp, sizeof(val_disp), "%+d", rel_val);
-        DrawText(val_disp, ex + lw + 74, ey + 4, 11, vc);
+        UiText(val_disp, ex + lw + S(74), ey + S(4), 11, vc);
 
-        ey += 26;
+        ey += S(26);
     }
 
-    ey += 10;
-    HSep(ex, ey, (int)edit_r.width - 28); ey += 14;
+    ey += S(10);
+    HSep(ex, ey, (int)edit_r.width - S(28)); ey += S(14);
 
-    if (Button({(float)ex, (float)ey, 110, 28}, "Save File", {36, 110, 55, 255})) {
+    if (Button({(float)ex, (float)ey, (float)S(110), (float)S(28)},
+               "Save File", {36, 110, 55, 255})) {
         ApplyEdit();
         saved = Save(path);
     }

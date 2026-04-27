@@ -24,7 +24,6 @@ static ItemEntry g_items[32];
 static int       g_count = 0;
 static int       g_sel   = -1;
 
-// Edit buffers (string representations для TextBox)
 static char g_buf_name  [32] = {};
 static char g_buf_weight[16] = {};
 
@@ -118,7 +117,6 @@ static void ApplyEdit() {
     if (g_sel < 0 || g_sel >= g_count) return;
     strncpy(g_items[g_sel].name, g_buf_name, 31);
     g_items[g_sel].name[31] = '\0';
-    // Trim trailing spaces
     for (int i = 30; i >= 0 && g_items[g_sel].name[i] == ' '; --i)
         g_items[g_sel].name[i] = '\0';
     g_items[g_sel].weight = (float)atof(g_buf_weight);
@@ -130,21 +128,19 @@ static void FillEdit(int idx) {
 }
 
 // ── Draw ──────────────────────────────────────────────────
-// list_r — ліва панель, edit_r — права панель.
-// Повертає true якщо була успішна операція Save.
 inline bool Draw(Rectangle list_r, Rectangle edit_r, const char* path) {
     using namespace EditorUI;
 
     // ── List panel ────────────────────────────────────────
     Panel(list_r);
-    Label((int)list_r.x + 8, (int)list_r.y + 8, "Items", 14, {170, 195, 255, 255});
-    HSep((int)list_r.x, (int)list_r.y + 28, (int)list_r.width);
+    Label((int)list_r.x + S(8), (int)list_r.y + S(8), "Items", 14, {170, 195, 255, 255});
+    HSep((int)list_r.x, (int)list_r.y + S(28), (int)list_r.width);
 
-    static constexpr int ROW_H = 28;
-    int max_vis = (int)((list_r.height - 36) / ROW_H);
+    int row_h   = S(28);
+    int max_vis = (int)((list_r.height - S(36)) / row_h);
     for (int i = 0; i < g_count && i < max_vis; ++i) {
-        Rectangle rr = { list_r.x, list_r.y + 32 + (float)(i * ROW_H),
-                         list_r.width, (float)ROW_H };
+        Rectangle rr = { list_r.x, list_r.y + S(32) + (float)(i * row_h),
+                         list_r.width, (float)row_h };
         bool sel = (i == g_sel);
         bool hov = MouseIn(rr);
         if (sel)       DrawRectangleRec(rr, {48, 68, 120, 255});
@@ -153,7 +149,8 @@ inline bool Draw(Rectangle list_r, Rectangle edit_r, const char* path) {
         char rb[48];
         snprintf(rb, sizeof(rb), "%u: %-12s  %.1f kg",
                  g_items[i].id, g_items[i].name, g_items[i].weight);
-        DrawText(rb, (int)rr.x + 8, (int)rr.y + 7, 12, sel ? WHITE : Color{195, 200, 215, 255});
+        UiText(rb, (int)rr.x + S(8), (int)rr.y + S(7), 12,
+               sel ? WHITE : Color{195, 200, 215, 255});
 
         if (hov && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !sel) {
             ApplyEdit();
@@ -165,57 +162,61 @@ inline bool Draw(Rectangle list_r, Rectangle edit_r, const char* path) {
 
     // ── Edit panel ────────────────────────────────────────
     Panel(edit_r);
-    Label((int)edit_r.x + 12, (int)edit_r.y + 10, "Edit Item", 14, {170, 195, 255, 255});
-    HSep((int)edit_r.x, (int)edit_r.y + 30, (int)edit_r.width);
+    Label((int)edit_r.x + S(12), (int)edit_r.y + S(10), "Edit Item", 14,
+          {170, 195, 255, 255});
+    HSep((int)edit_r.x, (int)edit_r.y + S(30), (int)edit_r.width);
 
     bool saved = false;
 
     if (g_sel < 0) {
-        Label((int)edit_r.x + 14, (int)edit_r.y + 52,
-              "← Select an item from the list", 13, {110, 115, 140, 255});
+        Label((int)edit_r.x + S(14), (int)edit_r.y + S(52),
+              "\xe2\x86\x90 Select an item from the list", 13, {110, 115, 140, 255});
         return false;
     }
 
-    int ex = (int)edit_r.x + 14;
-    int ey = (int)edit_r.y + 42;
+    int ex = (int)edit_r.x + S(14);
+    int ey = (int)edit_r.y + S(42);
 
     // id (read-only)
     char id_buf[16]; snprintf(id_buf, sizeof(id_buf), "%u", g_items[g_sel].id);
     Label(ex, ey, "id :", 13);
-    Label(ex + 40, ey, id_buf, 13, YELLOW);
-    ey += 32;
+    Label(ex + S(40), ey, id_buf, 13, YELLOW);
+    ey += S(32);
 
     // name
     Label(ex, ey, "name :", 13);
-    TextBox(1001, {(float)(ex + 70), (float)ey, 200, 26}, g_buf_name, 32);
-    ey += 38;
+    TextBox(1001, {(float)(ex + S(70)), (float)ey, (float)S(200), (float)S(26)},
+            g_buf_name, 32);
+    ey += S(38);
 
     // weight
     Label(ex, ey, "weight :", 13);
-    TextBox(1002, {(float)(ex + 70), (float)ey, 90, 26}, g_buf_weight, 16);
-    Label(ex + 170, ey + 6, "kg", 12, {130, 135, 155, 255});
-    ey += 50;
+    TextBox(1002, {(float)(ex + S(70)), (float)ey, (float)S(90), (float)S(26)},
+            g_buf_weight, 16);
+    Label(ex + S(170), ey + S(6), "kg", 12, {130, 135, 155, 255});
+    ey += S(50);
 
-    HSep(ex, ey, (int)edit_r.width - 28); ey += 16;
+    HSep(ex, ey, (int)edit_r.width - S(28)); ey += S(16);
 
     // Buttons row
-    if (Button({(float)ex, (float)ey, 80, 28}, "Add")) {
+    if (Button({(float)ex, (float)ey, (float)S(80), (float)S(28)}, "Add")) {
         ApplyEdit();
         if (g_count < 32) {
             ItemEntry& ne = g_items[g_count];
             memset(&ne, 0, sizeof(ne));
-            // Next id = max existing + 1
             uint32_t next_id = 0;
-            for (int i = 0; i < g_count; ++i) if (g_items[i].id > next_id) next_id = g_items[i].id;
+            for (int i = 0; i < g_count; ++i)
+                if (g_items[i].id > next_id) next_id = g_items[i].id;
             ne.id = next_id + 1;
             strncpy(ne.name, "new_item", 31);
             ne.weight = 1.0f;
             g_sel = g_count++;
             FillEdit(g_sel);
-            g_active_id = 1001; // фокус на ім'я
+            g_active_id = 1001;
         }
     }
-    if (Button({(float)(ex + 90), (float)ey, 80, 28}, "Delete", {150, 50, 50, 255})) {
+    if (Button({(float)(ex + S(90)), (float)ey, (float)S(80), (float)S(28)},
+               "Delete", {150, 50, 50, 255})) {
         if (g_count > 1) {
             for (int i = g_sel; i < g_count - 1; ++i) g_items[i] = g_items[i+1];
             --g_count;
@@ -224,7 +225,8 @@ inline bool Draw(Rectangle list_r, Rectangle edit_r, const char* path) {
             g_active_id = -1;
         }
     }
-    if (Button({(float)(ex + 190), (float)ey, 110, 28}, "Save File", {36, 110, 55, 255})) {
+    if (Button({(float)(ex + S(190)), (float)ey, (float)S(110), (float)S(28)},
+               "Save File", {36, 110, 55, 255})) {
         ApplyEdit();
         saved = Save(path);
     }
