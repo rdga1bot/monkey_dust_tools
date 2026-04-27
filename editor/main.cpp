@@ -17,6 +17,7 @@
 int main(void)
 {
     SetTraceLogLevel(LOG_WARNING);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(1280, 720, "monkey_dust EDITOR v0.1");
 
     // ── Авто-розмір під монітор ───────────────────────────
