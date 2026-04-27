@@ -133,10 +133,10 @@ inline bool Draw(Rectangle list_r, Rectangle edit_r, const char* path) {
 
     // ── List panel ────────────────────────────────────────
     Panel(list_r);
-    Label((int)list_r.x + S(8), (int)list_r.y + S(8), "Items", 14, {170, 195, 255, 255});
+    Label((int)list_r.x + S(8), (int)list_r.y + S(8), "Items", 10, {170, 195, 255, 255});
     HSep((int)list_r.x, (int)list_r.y + S(28), (int)list_r.width);
 
-    int row_h   = S(28);
+    int row_h   = S(26);
     int max_vis = (int)((list_r.height - S(36)) / row_h);
     for (int i = 0; i < g_count && i < max_vis; ++i) {
         Rectangle rr = { list_r.x, list_r.y + S(32) + (float)(i * row_h),
@@ -149,8 +149,8 @@ inline bool Draw(Rectangle list_r, Rectangle edit_r, const char* path) {
         char rb[48];
         snprintf(rb, sizeof(rb), "%u: %-12s  %.1f kg",
                  g_items[i].id, g_items[i].name, g_items[i].weight);
-        UiText(rb, (int)rr.x + S(8), (int)rr.y + S(7), 12,
-               sel ? WHITE : Color{195, 200, 215, 255});
+        UiTextMono(rb, (int)rr.x + S(8), (int)rr.y + S(6), 11,
+                   sel ? WHITE : Color{195, 200, 215, 255});
 
         if (hov && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !sel) {
             ApplyEdit();
@@ -162,7 +162,7 @@ inline bool Draw(Rectangle list_r, Rectangle edit_r, const char* path) {
 
     // ── Edit panel ────────────────────────────────────────
     Panel(edit_r);
-    Label((int)edit_r.x + S(12), (int)edit_r.y + S(10), "Edit Item", 14,
+    Label((int)edit_r.x + S(12), (int)edit_r.y + S(10), "Edit Item", 10,
           {170, 195, 255, 255});
     HSep((int)edit_r.x, (int)edit_r.y + S(30), (int)edit_r.width);
 
@@ -179,21 +179,21 @@ inline bool Draw(Rectangle list_r, Rectangle edit_r, const char* path) {
 
     // id (read-only)
     char id_buf[16]; snprintf(id_buf, sizeof(id_buf), "%u", g_items[g_sel].id);
-    Label(ex, ey, "id :", 13);
-    Label(ex + S(40), ey, id_buf, 13, YELLOW);
-    ey += S(32);
+    Label(ex, ey, "id :", 10);
+    UiTextMono(id_buf, ex + S(40), ey, 11, YELLOW);
+    ey += S(30);
 
     // name
-    Label(ex, ey, "name :", 13);
-    TextBox(1001, {(float)(ex + S(70)), (float)ey, (float)S(200), (float)S(26)},
+    Label(ex, ey, "name :", 10);
+    TextBox(1001, {(float)(ex + S(70)), (float)ey, (float)S(200), (float)S(24)},
             g_buf_name, 32);
-    ey += S(38);
+    ey += S(34);
 
     // weight
-    Label(ex, ey, "weight :", 13);
-    TextBox(1002, {(float)(ex + S(70)), (float)ey, (float)S(90), (float)S(26)},
+    Label(ex, ey, "weight :", 10);
+    TextBox(1002, {(float)(ex + S(70)), (float)ey, (float)S(90), (float)S(24)},
             g_buf_weight, 16);
-    Label(ex + S(170), ey + S(6), "kg", 12, {130, 135, 155, 255});
+    Label(ex + S(170), ey + S(5), "kg", 10, {130, 135, 155, 255});
     ey += S(50);
 
     HSep(ex, ey, (int)edit_r.width - S(28)); ey += S(16);

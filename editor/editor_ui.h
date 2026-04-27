@@ -6,22 +6,24 @@
 // ─────────────────────────────────────────────────────────
 // EditorUI — мінімальний immediate-mode UI поверх raylib.
 //
-// Всі функції — inline, без зовнішніх залежностей.
-// ID-based focus: g_active_id = який TextBox зараз активний.
-// Font: Arimo-Regular, завантажується в main.cpp після InitWindow.
+// Fonts:
+//   g_ui_font      — Arimo Regular, розмір 10  (labels, buttons, tabs)
+//   g_ui_font_mono — Ubuntu Mono Regular, розмір 11  (TextBox, числа)
 // Scale: g_ui_scale = screen_height / 720.0f (авто-detect монітора).
 // ─────────────────────────────────────────────────────────
 
 namespace EditorUI {
 
-static int   g_active_id = -1;
-static Font  g_ui_font   = {0};
-static float g_ui_scale  = 1.0f;
+static int   g_active_id    = -1;
+static Font  g_ui_font      = {0};   // Arimo Regular 10
+static Font  g_ui_font_mono = {0};   // Ubuntu Mono Regular 11
+static float g_ui_scale     = 1.0f;
 
-// ── Scale helper: масштабує пікселі до поточного DPI ─────
+// ── Scale helper ─────────────────────────────────────────
 inline int S(int px) { return (int)(px * g_ui_scale); }
 
-// ── Text helpers (замінюють DrawText/MeasureText) ─────────
+// ── Text helpers ─────────────────────────────────────────
+// Proportional (Arimo): labels, buttons, tabs
 inline void UiText(const char* t, int x, int y, int sz, Color c) {
     if (g_ui_font.texture.id != 0)
         DrawTextEx(g_ui_font, t, {(float)x, (float)y}, sz * g_ui_scale, 0, c);
@@ -31,6 +33,19 @@ inline void UiText(const char* t, int x, int y, int sz, Color c) {
 inline int UiMeasure(const char* t, int sz) {
     if (g_ui_font.texture.id != 0)
         return (int)MeasureTextEx(g_ui_font, t, sz * g_ui_scale, 0).x;
+    return MeasureText(t, sz);
+}
+
+// Monospace (Ubuntu Mono): TextBox content, numeric values
+inline void UiTextMono(const char* t, int x, int y, int sz, Color c) {
+    if (g_ui_font_mono.texture.id != 0)
+        DrawTextEx(g_ui_font_mono, t, {(float)x, (float)y}, sz * g_ui_scale, 0, c);
+    else
+        DrawText(t, x, y, sz, c);
+}
+inline int UiMeasureMono(const char* t, int sz) {
+    if (g_ui_font_mono.texture.id != 0)
+        return (int)MeasureTextEx(g_ui_font_mono, t, sz * g_ui_scale, 0).x;
     return MeasureText(t, sz);
 }
 
@@ -50,11 +65,11 @@ inline bool Button(Rectangle r, const char* label,
     Color c  = hov ? Color{85, 140, 230, 255} : bg;
     DrawRectangleRec(r, c);
     DrawRectangleLinesEx(r, 1, {110, 150, 210, 255});
-    int tw = UiMeasure(label, 14);
+    int tw = UiMeasure(label, 10);
     UiText(label,
            (int)(r.x + (r.width  - tw) * 0.5f),
-           (int)(r.y + (r.height - 14 * g_ui_scale) * 0.5f),
-           14, WHITE);
+           (int)(r.y + (r.height - 10 * g_ui_scale) * 0.5f),
+           10, WHITE);
     return clk;
 }
 
@@ -101,16 +116,17 @@ inline bool TextBox(int id, Rectangle r, char* buf, int maxlen) {
             disp[dlen+1] = '\0';
         }
     }
-    UiText(disp,
-           (int)r.x + S(5),
-           (int)(r.y + (r.height - 14 * g_ui_scale) * 0.5f),
-           14, WHITE);
+    // Ubuntu Mono для вмісту TextBox
+    UiTextMono(disp,
+               (int)r.x + S(5),
+               (int)(r.y + (r.height - 11 * g_ui_scale) * 0.5f),
+               11, WHITE);
     return changed;
 }
 
 // ── Label ─────────────────────────────────────────────────
 inline void Label(int x, int y, const char* text,
-                  int sz = 13, Color c = {195, 200, 215, 255}) {
+                  int sz = 10, Color c = {195, 200, 215, 255}) {
     UiText(text, x, y, sz, c);
 }
 
@@ -142,12 +158,12 @@ inline int TabBar(int x, int y, int tab_w, int tab_h,
             DrawLine((int)r.x+1, (int)(r.y+r.height-2),
                      (int)(r.x+r.width-2), (int)(r.y+r.height-2),
                      {80, 160, 255, 255});
-        int tw = UiMeasure(labels[i], 14);
+        int tw = UiMeasure(labels[i], 10);
         Color tc = is_act ? Color{255, 255, 255, 255} : Color{140, 148, 172, 255};
         UiText(labels[i],
                (int)(r.x + (r.width  - tw) * 0.5f),
-               (int)(r.y + (r.height - 14 * g_ui_scale) * 0.5f),
-               14, tc);
+               (int)(r.y + (r.height - 10 * g_ui_scale) * 0.5f),
+               10, tc);
         if (MouseIn(r) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
             clicked = i;
     }

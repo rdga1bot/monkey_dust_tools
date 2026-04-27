@@ -41,14 +41,18 @@ int main(void)
     // Масштаб — основа 720p, все масштабується пропорційно
     EditorUI::g_ui_scale = wh / 720.0f;
 
-    // ── Шрифт Arimo ───────────────────────────────────────
-    // Завантажуємо після SetWindowSize щоб scale вже відомий.
-    // Розмір атласу = 36px * scale → 1:1 пікселів на екрані.
-    int font_atlas_px = (int)(36 * EditorUI::g_ui_scale);
-    if (font_atlas_px < 20) font_atlas_px = 20;
+    // ── Шрифти — завантажуємо після SetWindowSize ─────────
+    // Atlas = 40px * scale (достатньо для рендерингу 10–12px * scale).
+    int atlas_px = (int)(40 * EditorUI::g_ui_scale);
+    if (atlas_px < 20) atlas_px = 20;
+
     EditorUI::g_ui_font = LoadFontEx(
-        "data/fonts/Arimo-Regular.ttf", font_atlas_px, NULL, 0);
+        "data/fonts/Arimo-Regular.ttf", atlas_px, NULL, 0);
     SetTextureFilter(EditorUI::g_ui_font.texture, TEXTURE_FILTER_BILINEAR);
+
+    EditorUI::g_ui_font_mono = LoadFontEx(
+        "data/fonts/UbuntuMono-R.ttf", atlas_px, NULL, 0);
+    SetTextureFilter(EditorUI::g_ui_font_mono.texture, TEXTURE_FILTER_BILINEAR);
 
     SetTargetFPS(60);
     SetExitKey(KEY_ESCAPE);
@@ -85,7 +89,7 @@ int main(void)
         DrawRectangle(0, 0, sw, top_h, {22, 27, 44, 255});
         DrawLine(0, top_h - 1, sw, top_h - 1, {48, 54, 78, 255});
 
-        EditorUI::UiText("monkey_dust EDITOR", S(10), S(13), 14,
+        EditorUI::UiText("monkey_dust EDITOR", S(10), S(14), 10,
                          {150, 170, 220, 255});
 
         // Tabs
@@ -98,12 +102,12 @@ int main(void)
             int smw = EditorUI::UiMeasure(status_msg, 14);
             DrawRectangle(sw - smw - S(20), S(8), smw + S(14), S(24),
                           {30, 80, 40, 200});
-            EditorUI::UiText(status_msg, sw - smw - S(13), S(13), 14,
+            EditorUI::UiText(status_msg, sw - smw - S(13), S(14), 10,
                              {100, 230, 120, 255});
         }
 
         // Підказка ESC
-        EditorUI::UiText("ESC: exit", sw - S(90), S(14), 12,
+        EditorUI::UiText("ESC: exit", sw - S(80), S(14), 10,
                          {75, 80, 105, 255});
 
         // ── Панелі ────────────────────────────────────────
@@ -128,6 +132,7 @@ int main(void)
     }
 
     UnloadFont(EditorUI::g_ui_font);
+    UnloadFont(EditorUI::g_ui_font_mono);
     CloseWindow();
     return 0;
 }

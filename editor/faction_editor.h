@@ -157,11 +157,11 @@ inline bool Draw(Rectangle list_r, Rectangle edit_r, const char* path) {
 
     // ── List panel ────────────────────────────────────────
     Panel(list_r);
-    Label((int)list_r.x + S(8), (int)list_r.y + S(8), "Factions", 14,
+    Label((int)list_r.x + S(8), (int)list_r.y + S(8), "Factions", 10,
           {170, 195, 255, 255});
     HSep((int)list_r.x, (int)list_r.y + S(28), (int)list_r.width);
 
-    int row_h = S(30);
+    int row_h = S(26);
     for (int i = 0; i < g_count; ++i) {
         Rectangle rr = { list_r.x, list_r.y + S(32) + (float)(i * row_h),
                          list_r.width, (float)row_h };
@@ -172,8 +172,8 @@ inline bool Draw(Rectangle list_r, Rectangle edit_r, const char* path) {
 
         char rb[40]; snprintf(rb, sizeof(rb), "%u: %s",
                               g_factions[i].id, g_factions[i].name);
-        UiText(rb, (int)rr.x + S(8), (int)rr.y + S(8), 13,
-               sel ? WHITE : Color{195, 200, 215, 255});
+        UiTextMono(rb, (int)rr.x + S(8), (int)rr.y + S(6), 11,
+                   sel ? WHITE : Color{195, 200, 215, 255});
 
         if (hov && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !sel) {
             ApplyEdit(); g_sel = i; FillEdit(i); g_active_id = -1;
@@ -182,7 +182,7 @@ inline bool Draw(Rectangle list_r, Rectangle edit_r, const char* path) {
 
     // ── Edit panel ────────────────────────────────────────
     Panel(edit_r);
-    Label((int)edit_r.x + S(12), (int)edit_r.y + S(10), "Edit Faction", 14,
+    Label((int)edit_r.x + S(12), (int)edit_r.y + S(10), "Edit Faction", 10,
           {170, 195, 255, 255});
     HSep((int)edit_r.x, (int)edit_r.y + S(30), (int)edit_r.width);
 
@@ -199,28 +199,28 @@ inline bool Draw(Rectangle list_r, Rectangle edit_r, const char* path) {
 
     // id (read-only)
     char id_buf[16]; snprintf(id_buf, sizeof(id_buf), "%u", g_factions[g_sel].id);
-    Label(ex, ey, "id :", 13);
-    Label(ex + S(40), ey, id_buf, 13, YELLOW);
-    ey += S(32);
+    Label(ex, ey, "id :", 10);
+    UiTextMono(id_buf, ex + S(40), ey, 11, YELLOW);
+    ey += S(30);
 
     // name
-    Label(ex, ey, "name :", 13);
-    TextBox(2001, {(float)(ex + S(70)), (float)ey, (float)S(200), (float)S(26)},
+    Label(ex, ey, "name :", 10);
+    TextBox(2001, {(float)(ex + S(70)), (float)ey, (float)S(200), (float)S(24)},
             g_buf_name, 32);
-    ey += S(36);
+    ey += S(34);
 
     // default_relation
-    Label(ex, ey, "default_rel :", 13);
-    TextBox(2002, {(float)(ex + S(110)), (float)ey, (float)S(72), (float)S(26)},
+    Label(ex, ey, "default_rel :", 10);
+    TextBox(2002, {(float)(ex + S(110)), (float)ey, (float)S(72), (float)S(24)},
             g_buf_defrel, 8);
-    Label(ex + S(190), ey + S(6), "(-100\xe2\x80\xa6+100)", 11, {100, 105, 130, 255});
+    Label(ex + S(190), ey + S(5), "(-100\xe2\x80\xa6+100)", 10, {100, 105, 130, 255});
     ey += S(44);
 
     HSep(ex, ey, (int)edit_r.width - S(28)); ey += S(12);
 
     // Relations matrix
-    Label(ex, ey, "Relations to other factions:", 13, {170, 195, 255, 255});
-    ey += S(22);
+    Label(ex, ey, "Relations to other factions:", 10, {170, 195, 255, 255});
+    ey += S(20);
 
     for (int j = 0; j < g_count && j < 8; ++j) {
         bool is_self = (g_factions[j].id == g_factions[g_sel].id);
@@ -228,8 +228,8 @@ inline bool Draw(Rectangle list_r, Rectangle edit_r, const char* path) {
 
         char lbl[40];
         snprintf(lbl, sizeof(lbl), "  \xe2\x86\x92 %-14s :", g_factions[j].name);
-        Label(ex, ey, lbl, 12, lc);
-        int lw = UiMeasure(lbl, 12);
+        Label(ex, ey, lbl, 10, lc);
+        int lw = UiMeasure(lbl, 10);
 
         TextBox(2010 + j,
                 {(float)(ex + lw + S(4)), (float)ey, (float)S(65), (float)S(22)},
@@ -240,7 +240,7 @@ inline bool Draw(Rectangle list_r, Rectangle edit_r, const char* path) {
                    (rel_val <= -25) ? Color{220,70,70,255}  :
                                       Color{180,180,80,255};
         char val_disp[8]; snprintf(val_disp, sizeof(val_disp), "%+d", rel_val);
-        UiText(val_disp, ex + lw + S(74), ey + S(4), 11, vc);
+        UiTextMono(val_disp, ex + lw + S(74), ey + S(4), 11, vc);
 
         ey += S(26);
     }
