@@ -1,131 +1,154 @@
 #include "raylib.h"
+#include "rlImGui.h"
+#include "imgui.h"
 #include "editor_ui.h"
 #include "item_editor.h"
 #include "faction_editor.h"
 #include "settings_editor.h"
 #include <cstdio>
+#include <cstring>
 
 // ─────────────────────────────────────────────────────────
-// monkey_dust EDITOR — окремий бінарник для редагування JSON.
+// monkey_dust EDITOR — Dear ImGui via rlImGui.
 //
 // Вкладки:  [Items]  [Factions]  [Settings]
-// Запуск:   ./build/tools/monkey_dust_editor
-// Читає/пише data/ відносно CWD (запускати з кореня репо).
-// Конфіг:   data/editor_config.json  (шляхи/розміри шрифтів)
+// Запуск:   ./build/tools/monkey_dust_editor  (з кореня репо)
+// Конфіг:   data/editor_config.json
 // ─────────────────────────────────────────────────────────
 
 static constexpr const char* CFG_PATH = "data/editor_config.json";
 
-int main(void)
-{
+int main(void) {
     SetTraceLogLevel(LOG_WARNING);
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT);
     InitWindow(1280, 720, "monkey_dust EDITOR v0.1");
 
     // ── Авто-розмір під монітор ───────────────────────────
     int mon = GetCurrentMonitor();
     int mw  = GetMonitorWidth(mon);
     int mh  = GetMonitorHeight(mon);
-
-    int wh = (mh * 85) / 100;
-    int ww = (wh * 16) / 9;
-    if (ww > (mw * 90) / 100) {
-        ww = (mw * 90) / 100;
-        wh = (ww * 9) / 16;
-    }
+    int wh  = (mh * 85) / 100;
+    int ww  = (wh * 16) / 9;
+    if (ww > (mw * 90) / 100) { ww = (mw * 90) / 100; wh = (ww * 9) / 16; }
     if (wh < 480) { wh = 480; ww = 854; }
-
     SetWindowSize(ww, wh);
     SetWindowPosition((mw - ww) / 2, (mh - wh) / 2);
+    EditorUI::ui_scale = wh / 720.0f;
 
-    EditorUI::g_ui_scale = wh / 720.0f;
+    // ── Конфіг шрифтів ────────────────────────────────────
+    SettingsEditor::Load(CFG_PATH);
+    SettingsEditor::Config& cfg = SettingsEditor::g_cfg;
 
-    // ── Завантаження конфігу шрифтів ──────────────────────
-    SettingsEditor::Load(CFG_PATH);   // заповнює g_cfg + буфери
+    // ── ImGui init ────────────────────────────────────────
+    rlImGuiBeginInitImGui();
 
-    // ── Завантаження шрифтів за конфігом ──────────────────
-    SettingsEditor::ApplyFonts();     // перший раз — ініціалізація
+    ImGuiIO& io = ImGui::GetIO();
+    io.IniFilename = nullptr;   // не зберігати imgui.ini
+
+    // Очищаємо дефолтний шрифт доданий rlImGuiBeginInitImGui
+    io.Fonts->Clear();
+
+    // Glyph ranges: Basic Latin + Cyrillic
+    static const ImWchar ranges[] = { 0x0020, 0x00FF, 0x0400, 0x04FF, 0 };
+
+    float sc = EditorUI::ui_scale;
+    auto load_font = [&](const char* path, float base_sz) -> ImFont* {
+        float sz = base_sz * sc;
+        if (sz < 8.0f) sz = 8.0f;
+        ImFont* f = io.Fonts->AddFontFromFileTTF(path, sz, nullptr, ranges);
+        return f ? f : io.Fonts->AddFontDefault();
+    };
+
+    EditorUI::font_regular = load_font(cfg.label.path,  (float)cfg.label.size);
+    EditorUI::font_bold    = load_font(cfg.header.path, (float)cfg.header.size);
+    EditorUI::font_mono    = load_font(cfg.mono.path,   (float)cfg.mono.size);
+
+    rlImGuiEndInitImGui();
+    EditorUI::SetupTheme();
+
+    // ── Дані ─────────────────────────────────────────────
+    ItemEditor::Load("data/items/items.json");
+    FactionEditor::Load("data/factions/factions.json");
 
     SetTargetFPS(60);
     SetExitKey(KEY_ESCAPE);
 
-    // ── Завантаження даних ────────────────────────────────
-    ItemEditor::Load("data/items/items.json");
-    FactionEditor::Load("data/factions/factions.json");
-
-    int  active_tab   = 0;
-    char status_msg   [64] = "";
+    char  status_msg  [64] = "";
     float status_timer     = 0.0f;
 
-    const char* tab_names[] = { "Items", "Factions", "Settings" };
-
-    while (!WindowShouldClose())
-    {
+    while (!WindowShouldClose()) {
         float dt = GetFrameTime();
         if (status_timer > 0.0f) status_timer -= dt;
 
-        int sw = GetScreenWidth();
-        int sh = GetScreenHeight();
-
-        using EditorUI::S;
-
-        int top_h  = S(40);
-        int list_w = S(270);
-        int tab_w  = S(110);
-
         BeginDrawing();
         ClearBackground({14, 18, 30, 255});
+        rlImGuiBegin();
+
+        // Повноекранне вікно ImGui
+        ImGuiIO& fio = ImGui::GetIO();
+        ImGui::SetNextWindowPos({0, 0});
+        ImGui::SetNextWindowSize(fio.DisplaySize);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
+        ImGui::Begin("##editor", nullptr,
+            ImGuiWindowFlags_NoTitleBar  | ImGuiWindowFlags_NoResize  |
+            ImGuiWindowFlags_NoMove      | ImGuiWindowFlags_NoScrollbar|
+            ImGuiWindowFlags_NoBringToFrontOnFocus);
+        ImGui::PopStyleVar();
 
         // ── Top bar ───────────────────────────────────────
-        DrawRectangle(0, 0, sw, top_h, {22, 27, 44, 255});
-        DrawLine(0, top_h - 1, sw, top_h - 1, {48, 54, 78, 255});
+        ImGui::SetCursorPos({10, 8});
+        if (EditorUI::font_bold) ImGui::PushFont(EditorUI::font_bold);
+        ImGui::Text("monkey_dust EDITOR");
+        if (EditorUI::font_bold) ImGui::PopFont();
 
-        EditorUI::UiTextHeader("monkey_dust EDITOR", S(10), S(11), 12,
-                               {150, 170, 220, 255});
-
-        active_tab = EditorUI::TabBar(
-            S(220), 0, tab_w, top_h,
-            tab_names, 3, active_tab);
-
-        // Статус-повідомлення (праворуч)
+        // Status (праворуч у top bar)
         if (status_timer > 0.0f && status_msg[0] != '\0') {
-            int smw = EditorUI::UiMeasure(status_msg, 10);
-            DrawRectangle(sw - smw - S(20), S(8), smw + S(14), S(24),
-                          {30, 80, 40, 200});
-            EditorUI::UiText(status_msg, sw - smw - S(13), S(14), 10,
-                             {100, 230, 120, 255});
+            float alpha = (status_timer > 1.0f) ? 1.0f : status_timer;
+            ImGui::SameLine(fio.DisplaySize.x - 280);
+            ImGui::TextColored({0.40f, 0.90f, 0.50f, alpha}, "%s", status_msg);
         }
 
-        EditorUI::UiText("ESC: exit", sw - S(80), S(14), 10,
-                         {75, 80, 105, 255});
+        ImGui::SetCursorPosX(0);
+        ImGui::Separator();
 
-        // ── Панелі ────────────────────────────────────────
-        Rectangle list_r = { 0,          (float)top_h,
-                              (float)list_w, (float)(sh - top_h) };
-        Rectangle edit_r = { (float)list_w, (float)top_h,
-                              (float)(sw - list_w), (float)(sh - top_h) };
-        Rectangle full_r = { 0, (float)top_h,
-                              (float)sw, (float)(sh - top_h) };
+        // ── Tab bar ───────────────────────────────────────
+        ImGui::SetCursorPosX(4);
+        if (ImGui::BeginTabBar("##tabs", ImGuiTabBarFlags_None)) {
 
-        bool saved = false;
-        if (active_tab == 0)
-            saved = ItemEditor::Draw(list_r, edit_r, "data/items/items.json");
-        else if (active_tab == 1)
-            saved = FactionEditor::Draw(list_r, edit_r,
-                                        "data/factions/factions.json");
-        else
-            SettingsEditor::Draw(full_r, CFG_PATH, status_msg, &status_timer);
+            if (ImGui::BeginTabItem("Items")) {
+                ImGui::SetCursorPos({8, ImGui::GetCursorPosY() + 4});
+                if (ItemEditor::Draw("data/items/items.json")) {
+                    snprintf(status_msg, sizeof(status_msg), "Items saved!");
+                    status_timer = 3.0f;
+                }
+                ImGui::EndTabItem();
+            }
 
-        if (saved) {
-            snprintf(status_msg, sizeof(status_msg), "Saved!");
-            status_timer = 3.0f;
+            if (ImGui::BeginTabItem("Factions")) {
+                ImGui::SetCursorPos({8, ImGui::GetCursorPosY() + 4});
+                if (FactionEditor::Draw("data/factions/factions.json")) {
+                    snprintf(status_msg, sizeof(status_msg), "Factions saved!");
+                    status_timer = 3.0f;
+                }
+                ImGui::EndTabItem();
+            }
+
+            if (ImGui::BeginTabItem("Settings")) {
+                ImGui::SetCursorPos({12, ImGui::GetCursorPosY() + 6});
+                SettingsEditor::Draw(CFG_PATH, status_msg, &status_timer);
+                ImGui::EndTabItem();
+            }
+
+            ImGui::EndTabBar();
         }
 
+        ImGui::End();
+
+        rlImGuiEnd();
         EndDrawing();
     }
 
-    for (int i = 0; i < EditorUI::FONT_COUNT; ++i)
-        UnloadFont(EditorUI::g_font[i]);
+    rlImGuiShutdown();
     CloseWindow();
     return 0;
 }

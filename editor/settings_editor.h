@@ -5,71 +5,41 @@
 #include <cstdlib>
 
 // ─────────────────────────────────────────────────────────
-// SettingsEditor — вкладка налаштувань редактора.
-//
-// Три шрифти:
-//   Label  (мітки, кнопки, вкладки)
-//   Header (заголовки панелей — Bold)
-//   Mono   (TextBox, числові значення)
-//
-// Apply  — перезавантажує шрифти без перезапуску.
-// Save   — записує data/editor_config.json.
+// SettingsEditor — вкладка налаштувань (ImGui).
+// Зберігає/читає data/editor_config.json.
+// Зміни шрифтів застосовуються після перезапуску.
 // ─────────────────────────────────────────────────────────
 
 namespace SettingsEditor {
 
-struct FontSlot {
-    char path[256];
-    int  size;
-};
-
+struct FontSlot { char path[256]; int size; };
 struct Config {
-    FontSlot label;
-    FontSlot header;
-    FontSlot mono;
+    FontSlot label;   // Arimo Regular
+    FontSlot header;  // Arimo Bold
+    FontSlot mono;    // Ubuntu Mono
 };
 
 static Config g_cfg = {
-    {"data/fonts/Arimo-Regular.ttf", 10},
-    {"data/fonts/Arimo-Bold.ttf",    12},
-    {"data/fonts/UbuntuMono-R.ttf",  11},
+    {"data/fonts/Arimo-Regular.ttf", 15},
+    {"data/fonts/Arimo-Bold.ttf",    16},
+    {"data/fonts/UbuntuMono-R.ttf",  14},
 };
-
-// Буфери для TextBox-ів
-static char g_buf[3][2][256] = {};  // [role][0=path/1=size]
-
-static void ConfigToBuffers() {
-    FontSlot* slots[3] = {&g_cfg.label, &g_cfg.header, &g_cfg.mono};
-    for (int i = 0; i < 3; ++i) {
-        strncpy(g_buf[i][0], slots[i]->path, 255);
-        snprintf(g_buf[i][1], 8, "%d", slots[i]->size);
-    }
-}
-static void BuffersToConfig() {
-    FontSlot* slots[3] = {&g_cfg.label, &g_cfg.header, &g_cfg.mono};
-    for (int i = 0; i < 3; ++i) {
-        strncpy(slots[i]->path, g_buf[i][0], 255);
-        int s = (int)strtol(g_buf[i][1], nullptr, 10);
-        if (s > 0) slots[i]->size = s;
-    }
-}
 
 // ── Load / Save ───────────────────────────────────────────
 
 inline bool Load(const char* path) {
     FILE* f = fopen(path, "rb");
-    if (!f) { ConfigToBuffers(); return false; }
+    if (!f) return false;
     fseek(f,0,SEEK_END); long sz=ftell(f); fseek(f,0,SEEK_SET);
     static char buf[4096];
-    if (sz >= (long)sizeof(buf)) { fclose(f); ConfigToBuffers(); return false; }
+    if (sz >= (long)sizeof(buf)) { fclose(f); return false; }
     (void)fread(buf, 1, (size_t)sz, f); buf[sz]='\0'; fclose(f);
 
     auto rstr = [&](const char* key, char* out) {
         const char* p = strstr(buf, key); if (!p) return;
         p = strchr(p, ':');  if (!p) return;
         p = strchr(p, '"');  if (!p) return; ++p;
-        int i = 0;
-        while (*p && *p != '"' && i < 255) out[i++] = *p++;
+        int i = 0; while (*p && *p != '"' && i < 255) out[i++] = *p++;
         out[i] = '\0';
     };
     auto rint = [&](const char* key) -> int {
@@ -84,8 +54,6 @@ inline bool Load(const char* path) {
     int ls = rint("\"label_size\"");  if (ls > 0) g_cfg.label.size  = ls;
     int hs = rint("\"header_size\""); if (hs > 0) g_cfg.header.size = hs;
     int ms = rint("\"mono_size\"");   if (ms > 0) g_cfg.mono.size   = ms;
-
-    ConfigToBuffers();
     return true;
 }
 
@@ -108,88 +76,84 @@ inline bool Save(const char* path) {
     return true;
 }
 
-// ── ApplyFonts ────────────────────────────────────────────
-inline void ApplyFonts() {
-    using namespace EditorUI;
-    BuffersToConfig();
-
-    FontSlot* slots[FONT_COUNT] = {&g_cfg.label, &g_cfg.header, &g_cfg.mono};
-    for (int i = 0; i < FONT_COUNT; ++i) {
-        if (slots[i]->size < 6) slots[i]->size = 6;
-        UnloadFont(g_font[i]);
-        int atlas = (int)(slots[i]->size * 3 * g_ui_scale);
-        if (atlas < 20) atlas = 20;
-        g_font[i]    = LoadFontEx(slots[i]->path, atlas, NULL, 0);
-        g_font_sz[i] = slots[i]->size;
-        SetTextureFilter(g_font[i].texture, TEXTURE_FILTER_BILINEAR);
-    }
-    ConfigToBuffers();
-}
-
 // ── Draw ──────────────────────────────────────────────────
-// Повертає true якщо натиснуто Save.
-inline bool Draw(Rectangle area, const char* config_path,
+inline void Draw(const char* config_path,
                  char* status_msg, float* status_timer)
 {
-    using namespace EditorUI;
-    Panel(area);
+    ImGui::Spacing();
 
-    int x  = (int)area.x + S(24);
-    int y  = (int)area.y + S(20);
-    int pw = (int)area.width - S(200);   // ширина поля path
-    int sw_num = S(48);                  // ширина поля size
+    // ── Label font ────────────────────────────────────────
+    if (EditorUI::font_bold) ImGui::PushFont(EditorUI::font_bold);
+    ImGui::SeparatorText("Label font  (мітки, кнопки)");
+    if (EditorUI::font_bold) ImGui::PopFont();
 
-    // Підпис колонок
-    int lx = x + S(62);
-    Label(lx,           y, "Path", g_font_sz[FONT_LABEL], {100,108,140,255});
-    Label(lx + pw + S(8), y, "Size", g_font_sz[FONT_LABEL], {100,108,140,255});
-    y += S(18);
-    HSep(x, y, (int)area.width - S(48)); y += S(10);
+    ImGui::SetNextItemWidth(-120);
+    ImGui::InputText("##label_path", g_cfg.label.path, 255);
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(60);
+    ImGui::InputInt("px##ls", &g_cfg.label.size, 0);
+    if (g_cfg.label.size < 6) g_cfg.label.size = 6;
 
-    // Три рядки шрифтів
-    struct Row { const char* title; int path_id; int size_id; int role_idx; };
-    Row rows[3] = {
-        {"Label  (мітки, кнопки)",       4001, 4002, FONT_LABEL},
-        {"Header (заголовки — Bold)",     4003, 4004, FONT_HEADER},
-        {"Mono   (TextBox, числа)",       4005, 4006, FONT_MONO},
-    };
+    ImGui::Spacing();
 
-    for (int i = 0; i < 3; ++i) {
-        LabelHeader(x, y, rows[i].title);
-        y += S(20);
+    // ── Header font ───────────────────────────────────────
+    if (EditorUI::font_bold) ImGui::PushFont(EditorUI::font_bold);
+    ImGui::SeparatorText("Header font  (заголовки — Bold)");
+    if (EditorUI::font_bold) ImGui::PopFont();
 
-        TextBox(rows[i].path_id,
-                {(float)(x + S(62)), (float)y, (float)pw, (float)S(24)},
-                g_buf[rows[i].role_idx][0], 255);
+    ImGui::SetNextItemWidth(-120);
+    ImGui::InputText("##header_path", g_cfg.header.path, 255);
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(60);
+    ImGui::InputInt("px##hs", &g_cfg.header.size, 0);
+    if (g_cfg.header.size < 6) g_cfg.header.size = 6;
 
-        TextBox(rows[i].size_id,
-                {(float)(x + S(62) + pw + S(8)), (float)y,
-                 (float)sw_num, (float)S(24)},
-                g_buf[rows[i].role_idx][1], 8);
+    ImGui::Spacing();
 
-        y += S(34);
+    // ── Mono font ─────────────────────────────────────────
+    if (EditorUI::font_bold) ImGui::PushFont(EditorUI::font_bold);
+    ImGui::SeparatorText("Mono font  (InputText, числа)");
+    if (EditorUI::font_bold) ImGui::PopFont();
+
+    ImGui::SetNextItemWidth(-120);
+    ImGui::InputText("##mono_path", g_cfg.mono.path, 255);
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(60);
+    ImGui::InputInt("px##ms", &g_cfg.mono.size, 0);
+    if (g_cfg.mono.size < 6) g_cfg.mono.size = 6;
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    // ── Save ──────────────────────────────────────────────
+    ImGui::PushStyleColor(ImGuiCol_Button,        {0.14f, 0.43f, 0.22f, 1.0f});
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {0.20f, 0.58f, 0.30f, 1.0f});
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive,  {0.10f, 0.32f, 0.16f, 1.0f});
+    if (ImGui::Button("Save config", {120, 0})) {
+        if (Save(config_path)) {
+            snprintf(status_msg, 64, "Config saved — restart to apply");
+            *status_timer = 4.0f;
+        } else {
+            snprintf(status_msg, 64, "Save failed!");
+            *status_timer = 3.0f;
+        }
     }
+    ImGui::PopStyleColor(3);
 
-    HSep(x, y, (int)area.width - S(48)); y += S(16);
+    ImGui::SameLine();
+    ImGui::TextDisabled("(перезапустити редактор для застосування шрифтів)");
 
-    bool saved = false;
+    // ── Current fonts info ────────────────────────────────
+    ImGui::Spacing();
+    ImGui::Spacing();
+    if (EditorUI::font_bold) ImGui::PushFont(EditorUI::font_bold);
+    ImGui::SeparatorText("Активні шрифти");
+    if (EditorUI::font_bold) ImGui::PopFont();
 
-    if (Button({(float)x, (float)y, (float)S(90), (float)S(28)},
-               "Apply", {60, 100, 170, 255})) {
-        ApplyFonts();
-        snprintf(status_msg, 64, "Fonts reloaded");
-        *status_timer = 3.0f;
-    }
-
-    if (Button({(float)(x + S(102)), (float)y, (float)S(110), (float)S(28)},
-               "Save config", {36, 110, 55, 255})) {
-        BuffersToConfig();
-        saved = Save(config_path);
-        snprintf(status_msg, 64, saved ? "Config saved" : "Save failed!");
-        *status_timer = 3.0f;
-    }
-
-    return saved;
+    ImGui::TextDisabled("Label:  %s  %dpx", g_cfg.label.path,  g_cfg.label.size);
+    ImGui::TextDisabled("Header: %s  %dpx", g_cfg.header.path, g_cfg.header.size);
+    ImGui::TextDisabled("Mono:   %s  %dpx", g_cfg.mono.path,   g_cfg.mono.size);
 }
 
 } // namespace SettingsEditor

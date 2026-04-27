@@ -1,208 +1,95 @@
 #pragma once
-#include "raylib.h"
-#include <cstring>
-#include <cstdio>
+#include "imgui.h"
 
 // ─────────────────────────────────────────────────────────
-// EditorUI — immediate-mode UI поверх raylib.
+// EditorUI — ImGui font globals + WickedEngine-style theme.
 //
-// Три ролі шрифтів:
-//   FONT_LABEL  — Arimo Regular 10   (мітки, кнопки, вкладки)
-//   FONT_HEADER — Arimo Bold   12   (заголовки панелей, секцій)
-//   FONT_MONO   — Ubuntu Mono  11   (TextBox, числові значення)
+// Три шрифти (завантажуються в main.cpp):
+//   font_regular — Arimo Regular  (body text, labels)
+//   font_bold    — Arimo Bold     (panel headers, titles)
+//   font_mono    — Ubuntu Mono    (InputText, IDs, values)
 //
-// Налаштовуються у вкладці Settings редактора.
-// Конфіг зберігається у data/editor_config.json.
+// Кирилиця підтримується через кастомний glyph range.
 // ─────────────────────────────────────────────────────────
 
 namespace EditorUI {
 
-enum FontRole { FONT_LABEL = 0, FONT_HEADER = 1, FONT_MONO = 2, FONT_COUNT = 3 };
+static ImFont* font_regular = nullptr;
+static ImFont* font_bold    = nullptr;
+static ImFont* font_mono    = nullptr;
+static float   ui_scale     = 1.0f;
 
-static Font  g_font    [FONT_COUNT] = {};
-static int   g_font_sz [FONT_COUNT] = {10, 12, 11};   // базові розміри
-static float g_ui_scale             = 1.0f;
-
-static int   g_active_id    = -1;
-static int   g_select_all_id = -1;   // TextBox із "select all" після кліку
-
-// ── Scale helper ─────────────────────────────────────────
-inline int S(int px) { return (int)(px * g_ui_scale); }
-
-// ── Text helpers ─────────────────────────────────────────
-inline void UiText(const char* t, int x, int y, int sz, Color c,
-                   FontRole role = FONT_LABEL) {
-    Font& f = g_font[role];
-    if (f.texture.id != 0)
-        DrawTextEx(f, t, {(float)x, (float)y}, sz * g_ui_scale, 0, c);
-    else
-        DrawText(t, x, y, sz, c);
-}
-inline int UiMeasure(const char* t, int sz, FontRole role = FONT_LABEL) {
-    Font& f = g_font[role];
-    if (f.texture.id != 0)
-        return (int)MeasureTextEx(f, t, sz * g_ui_scale, 0).x;
-    return MeasureText(t, sz);
+// Basic Latin + Latin Supplement + Cyrillic
+inline const ImWchar* GlyphRanges() {
+    static const ImWchar r[] = {
+        0x0020, 0x00FF,
+        0x0400, 0x04FF,
+        0,
+    };
+    return r;
 }
 
-inline void UiTextHeader(const char* t, int x, int y, int sz, Color c) {
-    UiText(t, x, y, sz, c, FONT_HEADER);
-}
-inline void UiTextMono(const char* t, int x, int y, int sz, Color c) {
-    UiText(t, x, y, sz, c, FONT_MONO);
-}
-inline int UiMeasureMono(const char* t, int sz) {
-    return UiMeasure(t, sz, FONT_MONO);
-}
+inline void SetupTheme() {
+    ImGui::StyleColorsDark();
+    ImGuiStyle& s = ImGui::GetStyle();
 
-// ── Helpers ───────────────────────────────────────────────
-inline bool MouseIn(Rectangle r) {
-    Vector2 m = GetMousePosition();
-    return m.x >= r.x && m.x < r.x + r.width
-        && m.y >= r.y && m.y < r.y + r.height;
-}
+    s.WindowRounding    = 4.0f;
+    s.ChildRounding     = 4.0f;
+    s.FrameRounding     = 3.0f;
+    s.ScrollbarRounding = 3.0f;
+    s.GrabRounding      = 3.0f;
+    s.TabRounding       = 4.0f;
+    s.PopupRounding     = 3.0f;
 
-// ── Button ────────────────────────────────────────────────
-inline bool Button(Rectangle r, const char* label,
-                   Color bg = {55, 100, 180, 255})
-{
-    bool hov = MouseIn(r);
-    bool clk = hov && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
-    Color c  = hov ? Color{85, 140, 230, 255} : bg;
-    DrawRectangleRec(r, c);
-    DrawRectangleLinesEx(r, 1, {110, 150, 210, 255});
-    int sz = g_font_sz[FONT_LABEL];
-    int tw = UiMeasure(label, sz);
-    UiText(label,
-           (int)(r.x + (r.width  - tw) * 0.5f),
-           (int)(r.y + (r.height - sz * g_ui_scale) * 0.5f),
-           sz, WHITE);
-    return clk;
-}
+    s.FramePadding      = {6, 4};
+    s.ItemSpacing       = {8, 6};
+    s.ItemInnerSpacing  = {4, 4};
+    s.WindowPadding     = {12, 10};
+    s.ScrollbarSize     = 14.0f;
+    s.GrabMinSize       = 8.0f;
+    s.IndentSpacing     = 16.0f;
+    s.SeparatorTextPadding = {6, 6};
 
-// ── TextBox ───────────────────────────────────────────────
-// Клік → виділяє весь вміст (підсвічення).
-// Перший символ або Backspace → замінює вміст.
-inline bool TextBox(int id, Rectangle r, char* buf, int maxlen) {
-    bool focused = (g_active_id == id);
-    bool hov     = MouseIn(r);
-
-    if (hov && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-        g_active_id     = id;
-        g_select_all_id = id;   // select-all при новому фокусі
-    }
-    if (!hov && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && focused) {
-        g_active_id     = -1;
-        g_select_all_id = -1;
-    }
-
-    bool changed  = false;
-    bool sel_all  = (g_select_all_id == id);
-
-    if (focused) {
-        int len = (int)strlen(buf);
-        int ch;
-        while ((ch = GetCharPressed()) > 0) {
-            if (sel_all) {
-                buf[0] = '\0'; len = 0;
-                g_select_all_id = -1; sel_all = false;
-            }
-            if (len < maxlen - 1 && ch >= 32) {
-                buf[len++] = (char)ch; buf[len] = '\0';
-                changed = true;
-            }
-        }
-        if (IsKeyPressed(KEY_BACKSPACE)) {
-            if (sel_all) {
-                buf[0] = '\0';
-                g_select_all_id = -1; sel_all = false;
-            } else if (len > 0) {
-                buf[--len] = '\0';
-            }
-            changed = true;
-        }
-        if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_TAB)) {
-            g_active_id = -1; g_select_all_id = -1;
-        }
-    }
-
-    // Відрисовка
-    Color bg  = focused ? Color{38, 48, 72, 255} : Color{24, 28, 44, 255};
-    Color brd = focused ? Color{80, 160, 255, 255} : Color{65, 72, 98, 255};
-    DrawRectangleRec(r, bg);
-    // Select-all підсвічення
-    if (sel_all && focused)
-        DrawRectangleRec({r.x + 1, r.y + 1, r.width - 2, r.height - 2},
-                         {60, 120, 200, 80});
-    DrawRectangleLinesEx(r, 1, brd);
-
-    int sz = g_font_sz[FONT_MONO];
-    char disp[260];
-    snprintf(disp, sizeof(disp), "%s", buf);
-    if (focused && !sel_all && (int)(GetTime() * 2) % 2 == 0) {
-        int dlen = (int)strlen(disp);
-        if (dlen < (int)sizeof(disp) - 1) { disp[dlen] = '|'; disp[dlen+1] = '\0'; }
-    }
-    UiTextMono(disp,
-               (int)r.x + S(5),
-               (int)(r.y + (r.height - sz * g_ui_scale) * 0.5f),
-               sz, WHITE);
-    return changed;
-}
-
-// ── Label (Regular) ───────────────────────────────────────
-inline void Label(int x, int y, const char* text,
-                  int sz = -1, Color c = {195, 200, 215, 255}) {
-    if (sz < 0) sz = g_font_sz[FONT_LABEL];
-    UiText(text, x, y, sz, c, FONT_LABEL);
-}
-
-// ── LabelHeader (Bold) ────────────────────────────────────
-inline void LabelHeader(int x, int y, const char* text,
-                        int sz = -1, Color c = {170, 195, 255, 255}) {
-    if (sz < 0) sz = g_font_sz[FONT_HEADER];
-    UiTextHeader(text, x, y, sz, c);
-}
-
-// ── Horizontal separator ──────────────────────────────────
-inline void HSep(int x, int y, int w) {
-    DrawLine(x, y, x + w, y, {55, 60, 82, 255});
-}
-
-// ── Panel background ──────────────────────────────────────
-inline void Panel(Rectangle r, Color bg = {18, 22, 36, 255}) {
-    DrawRectangleRec(r, bg);
-    DrawRectangleLinesEx(r, 1, {48, 54, 76, 255});
-}
-
-// ── Tab bar ───────────────────────────────────────────────
-inline int TabBar(int x, int y, int tab_w, int tab_h,
-                  const char** labels, int count, int active)
-{
-    int clicked = active;
-    int sz = g_font_sz[FONT_LABEL];
-    for (int i = 0; i < count; ++i) {
-        Rectangle r = { (float)(x + i * tab_w), (float)y,
-                        (float)tab_w, (float)tab_h };
-        bool is_act = (i == active);
-        Color bg    = is_act ? Color{45, 55, 88, 255}  : Color{28, 33, 52, 255};
-        Color brd   = is_act ? Color{80, 160, 255, 255} : Color{50, 56, 78, 255};
-        DrawRectangleRec(r, bg);
-        DrawRectangleLinesEx(r, 1, brd);
-        if (is_act)
-            DrawLine((int)r.x+1, (int)(r.y+r.height-2),
-                     (int)(r.x+r.width-2), (int)(r.y+r.height-2),
-                     {80, 160, 255, 255});
-        int tw = UiMeasure(labels[i], sz);
-        Color tc = is_act ? WHITE : Color{140, 148, 172, 255};
-        UiText(labels[i],
-               (int)(r.x + (r.width  - tw) * 0.5f),
-               (int)(r.y + (r.height - sz * g_ui_scale) * 0.5f),
-               sz, tc);
-        if (MouseIn(r) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-            clicked = i;
-    }
-    return clicked;
+    ImVec4* c = s.Colors;
+    c[ImGuiCol_Text]                  = {0.87f, 0.89f, 0.95f, 1.00f};
+    c[ImGuiCol_TextDisabled]          = {0.42f, 0.46f, 0.58f, 1.00f};
+    c[ImGuiCol_WindowBg]              = {0.09f, 0.11f, 0.17f, 1.00f};
+    c[ImGuiCol_ChildBg]               = {0.07f, 0.09f, 0.14f, 1.00f};
+    c[ImGuiCol_PopupBg]               = {0.09f, 0.11f, 0.17f, 0.96f};
+    c[ImGuiCol_Border]                = {0.20f, 0.24f, 0.38f, 1.00f};
+    c[ImGuiCol_BorderShadow]          = {0.00f, 0.00f, 0.00f, 0.00f};
+    c[ImGuiCol_FrameBg]               = {0.13f, 0.16f, 0.25f, 1.00f};
+    c[ImGuiCol_FrameBgHovered]        = {0.18f, 0.23f, 0.36f, 1.00f};
+    c[ImGuiCol_FrameBgActive]         = {0.22f, 0.29f, 0.46f, 1.00f};
+    c[ImGuiCol_TitleBg]               = {0.07f, 0.09f, 0.14f, 1.00f};
+    c[ImGuiCol_TitleBgActive]         = {0.12f, 0.16f, 0.28f, 1.00f};
+    c[ImGuiCol_TitleBgCollapsed]      = {0.07f, 0.09f, 0.14f, 0.75f};
+    c[ImGuiCol_MenuBarBg]             = {0.07f, 0.09f, 0.14f, 1.00f};
+    c[ImGuiCol_ScrollbarBg]           = {0.07f, 0.09f, 0.14f, 1.00f};
+    c[ImGuiCol_ScrollbarGrab]         = {0.18f, 0.27f, 0.46f, 1.00f};
+    c[ImGuiCol_ScrollbarGrabHovered]  = {0.26f, 0.38f, 0.60f, 1.00f};
+    c[ImGuiCol_ScrollbarGrabActive]   = {0.35f, 0.50f, 0.75f, 1.00f};
+    c[ImGuiCol_CheckMark]             = {0.40f, 0.70f, 1.00f, 1.00f};
+    c[ImGuiCol_SliderGrab]            = {0.30f, 0.56f, 0.90f, 1.00f};
+    c[ImGuiCol_SliderGrabActive]      = {0.45f, 0.70f, 1.00f, 1.00f};
+    c[ImGuiCol_Button]                = {0.19f, 0.35f, 0.65f, 1.00f};
+    c[ImGuiCol_ButtonHovered]         = {0.29f, 0.50f, 0.85f, 1.00f};
+    c[ImGuiCol_ButtonActive]          = {0.14f, 0.27f, 0.52f, 1.00f};
+    c[ImGuiCol_Header]                = {0.19f, 0.35f, 0.65f, 0.55f};
+    c[ImGuiCol_HeaderHovered]         = {0.24f, 0.43f, 0.75f, 0.80f};
+    c[ImGuiCol_HeaderActive]          = {0.24f, 0.43f, 0.75f, 1.00f};
+    c[ImGuiCol_Separator]             = {0.20f, 0.24f, 0.38f, 1.00f};
+    c[ImGuiCol_SeparatorHovered]      = {0.30f, 0.48f, 0.80f, 1.00f};
+    c[ImGuiCol_SeparatorActive]       = {0.40f, 0.60f, 0.90f, 1.00f};
+    c[ImGuiCol_ResizeGrip]            = {0.19f, 0.35f, 0.65f, 0.30f};
+    c[ImGuiCol_ResizeGripHovered]     = {0.26f, 0.46f, 0.80f, 0.60f};
+    c[ImGuiCol_ResizeGripActive]      = {0.35f, 0.58f, 0.90f, 1.00f};
+    c[ImGuiCol_Tab]                   = {0.10f, 0.12f, 0.20f, 1.00f};
+    c[ImGuiCol_TabHovered]            = {0.24f, 0.43f, 0.75f, 1.00f};
+    c[ImGuiCol_TabSelected]           = {0.16f, 0.28f, 0.54f, 1.00f};
+    c[ImGuiCol_TabSelectedOverline]   = {0.30f, 0.56f, 0.90f, 1.00f};
+    c[ImGuiCol_TabDimmed]             = {0.07f, 0.09f, 0.15f, 1.00f};
+    c[ImGuiCol_TabDimmedSelected]     = {0.12f, 0.18f, 0.34f, 1.00f};
 }
 
 } // namespace EditorUI
