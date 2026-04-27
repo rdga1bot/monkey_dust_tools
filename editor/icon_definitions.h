@@ -1,0 +1,11 @@
+#pragma once
+#define ICON_NEW_SCENE  "+"
+#define ICON_TRANSLATE  "[W]"
+#define ICON_ROTATE     "[E]"
+#define ICON_SCALE      "[R]"
+#define ICON_PHYSICS    "[P]"
+#define ICON_GLOBAL     "[G]"
+#define ICON_SAVE       "[F5]"
+#define ICON_LOAD       "[F9]"
+#define ICON_UNDO       "[Ctrl+Z]"
+#define ICON_REDO       "[Ctrl+Y]"
