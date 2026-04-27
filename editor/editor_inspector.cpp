@@ -223,7 +223,7 @@ void EditorInspector::DrawAddComponent(entt::entity e) {
             inv.Clear();
         }
         if (ImGui::MenuItem("PlayerController") && !reg.all_of<PlayerController>(e))
-            reg.emplace<PlayerController>(e, PlayerController{5.f, 0.f, 800u, 1u});
+            reg.emplace<PlayerController>(e, PlayerController{true, 5.f, 0.f, 800u, 1u});
         if (ImGui::MenuItem("AIScript") && !reg.all_of<AIScript>(e)) {
             auto& sc = reg.emplace<AIScript>(e);
             sc.script_func[0] = '\0';
