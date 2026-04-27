@@ -2,17 +2,19 @@
 #include "editor_ui.h"
 #include "item_editor.h"
 #include "faction_editor.h"
+#include "settings_editor.h"
 #include <cstdio>
 
 // ─────────────────────────────────────────────────────────
 // monkey_dust EDITOR — окремий бінарник для редагування JSON.
 //
-// Вкладки:  [Items]  [Factions]
+// Вкладки:  [Items]  [Factions]  [Settings]
 // Запуск:   ./build/tools/monkey_dust_editor
 // Читає/пише data/ відносно CWD (запускати з кореня репо).
-// Розмір вікна: авто-підбір під поточний монітор (85% висоти).
-// Шрифт:   data/fonts/Arimo-Regular.ttf
+// Конфіг:   data/editor_config.json  (шляхи/розміри шрифтів)
 // ─────────────────────────────────────────────────────────
+
+static constexpr const char* CFG_PATH = "data/editor_config.json";
 
 int main(void)
 {
@@ -25,34 +27,24 @@ int main(void)
     int mw  = GetMonitorWidth(mon);
     int mh  = GetMonitorHeight(mon);
 
-    // 85% висоти монітора, 16:9, не більше 90% ширини
     int wh = (mh * 85) / 100;
     int ww = (wh * 16) / 9;
     if (ww > (mw * 90) / 100) {
         ww = (mw * 90) / 100;
         wh = (ww * 9) / 16;
     }
-    // Мінімальний розмір
     if (wh < 480) { wh = 480; ww = 854; }
 
     SetWindowSize(ww, wh);
     SetWindowPosition((mw - ww) / 2, (mh - wh) / 2);
 
-    // Масштаб — основа 720p, все масштабується пропорційно
     EditorUI::g_ui_scale = wh / 720.0f;
 
-    // ── Шрифти — завантажуємо після SetWindowSize ─────────
-    // Atlas = 40px * scale (достатньо для рендерингу 10–12px * scale).
-    int atlas_px = (int)(40 * EditorUI::g_ui_scale);
-    if (atlas_px < 20) atlas_px = 20;
+    // ── Завантаження конфігу шрифтів ──────────────────────
+    SettingsEditor::Load(CFG_PATH);   // заповнює g_cfg + буфери
 
-    EditorUI::g_ui_font = LoadFontEx(
-        "data/fonts/Arimo-Regular.ttf", atlas_px, NULL, 0);
-    SetTextureFilter(EditorUI::g_ui_font.texture, TEXTURE_FILTER_BILINEAR);
-
-    EditorUI::g_ui_font_mono = LoadFontEx(
-        "data/fonts/UbuntuMono-R.ttf", atlas_px, NULL, 0);
-    SetTextureFilter(EditorUI::g_ui_font_mono.texture, TEXTURE_FILTER_BILINEAR);
+    // ── Завантаження шрифтів за конфігом ──────────────────
+    SettingsEditor::ApplyFonts();     // перший раз — ініціалізація
 
     SetTargetFPS(60);
     SetExitKey(KEY_ESCAPE);
@@ -61,18 +53,17 @@ int main(void)
     ItemEditor::Load("data/items/items.json");
     FactionEditor::Load("data/factions/factions.json");
 
-    int  active_tab  = 0;
-    char status_msg  [64] = "";
-    float status_timer    = 0.0f;
+    int  active_tab   = 0;
+    char status_msg   [64] = "";
+    float status_timer     = 0.0f;
 
-    const char* tab_names[] = { "Items", "Factions" };
+    const char* tab_names[] = { "Items", "Factions", "Settings" };
 
     while (!WindowShouldClose())
     {
         float dt = GetFrameTime();
         if (status_timer > 0.0f) status_timer -= dt;
 
-        // Поточний розмір вікна (користувач міг переміститись між моніторами)
         int sw = GetScreenWidth();
         int sh = GetScreenHeight();
 
@@ -92,21 +83,19 @@ int main(void)
         EditorUI::UiText("monkey_dust EDITOR", S(10), S(14), 10,
                          {150, 170, 220, 255});
 
-        // Tabs
         active_tab = EditorUI::TabBar(
             S(220), 0, tab_w, top_h,
-            tab_names, 2, active_tab);
+            tab_names, 3, active_tab);
 
         // Статус-повідомлення (праворуч)
         if (status_timer > 0.0f && status_msg[0] != '\0') {
-            int smw = EditorUI::UiMeasure(status_msg, 14);
+            int smw = EditorUI::UiMeasure(status_msg, 10);
             DrawRectangle(sw - smw - S(20), S(8), smw + S(14), S(24),
                           {30, 80, 40, 200});
             EditorUI::UiText(status_msg, sw - smw - S(13), S(14), 10,
                              {100, 230, 120, 255});
         }
 
-        // Підказка ESC
         EditorUI::UiText("ESC: exit", sw - S(80), S(14), 10,
                          {75, 80, 105, 255});
 
@@ -115,13 +104,17 @@ int main(void)
                               (float)list_w, (float)(sh - top_h) };
         Rectangle edit_r = { (float)list_w, (float)top_h,
                               (float)(sw - list_w), (float)(sh - top_h) };
+        Rectangle full_r = { 0, (float)top_h,
+                              (float)sw, (float)(sh - top_h) };
 
         bool saved = false;
         if (active_tab == 0)
             saved = ItemEditor::Draw(list_r, edit_r, "data/items/items.json");
-        else
+        else if (active_tab == 1)
             saved = FactionEditor::Draw(list_r, edit_r,
                                         "data/factions/factions.json");
+        else
+            SettingsEditor::Draw(full_r, CFG_PATH, status_msg, &status_timer);
 
         if (saved) {
             snprintf(status_msg, sizeof(status_msg), "Saved!");
