@@ -80,8 +80,8 @@ int main(void)
         DrawRectangle(0, 0, sw, top_h, {22, 27, 44, 255});
         DrawLine(0, top_h - 1, sw, top_h - 1, {48, 54, 78, 255});
 
-        EditorUI::UiText("monkey_dust EDITOR", S(10), S(14), 10,
-                         {150, 170, 220, 255});
+        EditorUI::UiTextHeader("monkey_dust EDITOR", S(10), S(11), 12,
+                               {150, 170, 220, 255});
 
         active_tab = EditorUI::TabBar(
             S(220), 0, tab_w, top_h,
@@ -124,8 +124,8 @@ int main(void)
         EndDrawing();
     }
 
-    UnloadFont(EditorUI::g_ui_font);
-    UnloadFont(EditorUI::g_ui_font_mono);
+    for (int i = 0; i < EditorUI::FONT_COUNT; ++i)
+        UnloadFont(EditorUI::g_font[i]);
     CloseWindow();
     return 0;
 }

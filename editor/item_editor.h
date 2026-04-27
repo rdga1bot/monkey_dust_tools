@@ -133,7 +133,7 @@ inline bool Draw(Rectangle list_r, Rectangle edit_r, const char* path) {
 
     // ── List panel ────────────────────────────────────────
     Panel(list_r);
-    Label((int)list_r.x + S(8), (int)list_r.y + S(8), "Items", 10, {170, 195, 255, 255});
+    LabelHeader((int)list_r.x + S(8), (int)list_r.y + S(8), "Items");
     HSep((int)list_r.x, (int)list_r.y + S(28), (int)list_r.width);
 
     int row_h   = S(26);
@@ -162,8 +162,7 @@ inline bool Draw(Rectangle list_r, Rectangle edit_r, const char* path) {
 
     // ── Edit panel ────────────────────────────────────────
     Panel(edit_r);
-    Label((int)edit_r.x + S(12), (int)edit_r.y + S(10), "Edit Item", 10,
-          {170, 195, 255, 255});
+    LabelHeader((int)edit_r.x + S(12), (int)edit_r.y + S(10), "Edit Item");
     HSep((int)edit_r.x, (int)edit_r.y + S(30), (int)edit_r.width);
 
     bool saved = false;
