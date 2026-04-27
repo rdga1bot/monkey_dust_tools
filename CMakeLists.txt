@@ -39,3 +39,20 @@ target_include_directories(md_flare_convert PRIVATE
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     target_compile_options(md_flare_convert PRIVATE -O2 -march=native)
 endif()
+
+# ── md_flare_demo ─────────────────────────────────────────
+add_executable(md_flare_demo
+    flare_demo/main.cpp
+)
+target_link_libraries(md_flare_demo PRIVATE
+    monkey_dust::engine
+    Recast Detour
+)
+target_include_directories(md_flare_demo PRIVATE
+    ${CMAKE_SOURCE_DIR}/third_party/raylib/src
+    ${CMAKE_SOURCE_DIR}/third_party/recastnavigation/Recast/Include
+    ${CMAKE_SOURCE_DIR}/third_party/recastnavigation/Detour/Include
+)
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    target_compile_options(md_flare_demo PRIVATE -O2 -march=native)
+endif()
