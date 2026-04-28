@@ -67,13 +67,17 @@ static void FindAtlas(const char* mods_root, const md::flare::FlareMap& map,
 
 // ── Camera ────────────────────────────────────────────────────────────────────
 
-static MdCamera MakeCamera(float cx, float cz, float dist) {
+static MdCamera MakeCamera(float cx, float cz, float ortho_size) {
     MdCamera cam;
-    // Isometric-like overhead angle: high Y, slight Z-back offset
-    cam.pos    = { cx,          dist * 1.2f, cz - dist * 0.5f };
-    cam.target = { cx,          0.0f,        cz               };
-    cam.up     = { 0.0f,        1.0f,        0.0f             };
-    cam.fovy   = 45.0f;
+    // Isometric angle: 30° elevation from the horizontal plane.
+    // For ortho projection the camera distance only determines direction,
+    // so we use ortho_size * 4 to place it well outside the visible volume.
+    constexpr float ELEV = 30.0f * 3.14159265f / 180.0f;
+    const float dist = ortho_size * 4.0f;
+    cam.pos    = { cx, dist * sinf(ELEV), cz + dist * cosf(ELEV) };
+    cam.target = { cx, 0.0f, cz };
+    cam.up     = { 0.0f, 1.0f, 0.0f };
+    cam.fovy   = 45.0f;   // unused by ortho path; kept for ToRaylib() compatibility
     return cam;
 }
 
@@ -121,9 +125,9 @@ int main(int argc, char** argv) {
     const auto& map = rt.GetMap();
     float map_cx = 0.0f;  // isometric maps are symmetric around X=0
     float map_cz = (map.width + map.height) * 0.5f * 0.5f;
-    float cam_dist = (float)(map.width > map.height ? map.width : map.height) * 0.5f;
+    float ortho_size = (float)(map.width > map.height ? map.width : map.height) * 0.5f;
 
-    MdCamera cam  = MakeCamera(map_cx, map_cz, cam_dist);
+    MdCamera cam  = MakeCamera(map_cx, map_cz, ortho_size);
     const float PAN_SPEED  = 0.1f;
     const float ZOOM_STEP  = 1.5f;
 
@@ -133,21 +137,25 @@ int main(int argc, char** argv) {
         rt.Tick(dt);
 
         // Camera pan
-        if (IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT))  { cam.pos.x -= PAN_SPEED * cam_dist; cam.target.x -= PAN_SPEED * cam_dist; }
-        if (IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT)) { cam.pos.x += PAN_SPEED * cam_dist; cam.target.x += PAN_SPEED * cam_dist; }
-        if (IsKeyDown(KEY_W) || IsKeyDown(KEY_UP))    { cam.pos.z -= PAN_SPEED * cam_dist; cam.target.z -= PAN_SPEED * cam_dist; }
-        if (IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN))  { cam.pos.z += PAN_SPEED * cam_dist; cam.target.z += PAN_SPEED * cam_dist; }
+        if (IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT))  { cam.pos.x -= PAN_SPEED * ortho_size; cam.target.x -= PAN_SPEED * ortho_size; }
+        if (IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT)) { cam.pos.x += PAN_SPEED * ortho_size; cam.target.x += PAN_SPEED * ortho_size; }
+        if (IsKeyDown(KEY_W) || IsKeyDown(KEY_UP))    { cam.pos.z -= PAN_SPEED * ortho_size; cam.target.z -= PAN_SPEED * ortho_size; }
+        if (IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN))  { cam.pos.z += PAN_SPEED * ortho_size; cam.target.z += PAN_SPEED * ortho_size; }
 
-        // Zoom (change camera distance)
+        // Zoom: change ortho_size and reposition camera at the same isometric angle
         float scroll = GetMouseWheelMove();
-        if (IsKeyPressed(KEY_Q) || scroll < 0) cam_dist = fminf(cam_dist + ZOOM_STEP, 100.0f);
-        if (IsKeyPressed(KEY_E) || scroll > 0) cam_dist = fmaxf(cam_dist - ZOOM_STEP,  5.0f);
-        cam.pos.y   = cam_dist * 0.8f;
-        cam.pos.z   = cam.target.z - cam_dist * 0.6f;
+        if (IsKeyPressed(KEY_Q) || scroll < 0) ortho_size = fminf(ortho_size + ZOOM_STEP, 200.0f);
+        if (IsKeyPressed(KEY_E) || scroll > 0) ortho_size = fmaxf(ortho_size - ZOOM_STEP,  10.0f);
+        {
+            constexpr float ELEV = 30.0f * 3.14159265f / 180.0f;
+            const float dist = ortho_size * 4.0f;
+            cam.pos.y = dist * sinf(ELEV);
+            cam.pos.z = cam.target.z + dist * cosf(ELEV);
+        }
 
         // Reset
         if (IsKeyPressed(KEY_R)) {
-            cam = MakeCamera(map_cx, map_cz, cam_dist);
+            cam = MakeCamera(map_cx, map_cz, ortho_size);
         }
 
         float aspect = (float)GetScreenWidth() / (float)GetScreenHeight();
@@ -155,7 +163,7 @@ int main(int argc, char** argv) {
         BeginDrawing();
         ClearBackground({ 20, 20, 30, 255 });
 
-        rt.Render(cam, aspect);
+        tmr.Render(rt.GetMap(), cam, aspect, rt.TileWorldSize(), ortho_size);
 
         // HUD
         DrawFPS(8, 8);
