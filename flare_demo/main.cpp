@@ -69,7 +69,8 @@ static void FindAtlas(const char* mods_root, const md::flare::FlareMap& map,
 
 static MdCamera MakeCamera(float cx, float cz, float dist) {
     MdCamera cam;
-    cam.pos    = { cx,          dist * 0.8f, cz - dist * 0.6f };
+    // Isometric-like overhead angle: high Y, slight Z-back offset
+    cam.pos    = { cx,          dist * 1.2f, cz - dist * 0.5f };
     cam.target = { cx,          0.0f,        cz               };
     cam.up     = { 0.0f,        1.0f,        0.0f             };
     cam.fovy   = 45.0f;
@@ -120,7 +121,7 @@ int main(int argc, char** argv) {
     const auto& map = rt.GetMap();
     float map_cx = 0.0f;  // isometric maps are symmetric around X=0
     float map_cz = (map.width + map.height) * 0.5f * 0.5f;
-    float cam_dist = (float)(map.width > map.height ? map.width : map.height) * 0.7f;
+    float cam_dist = (float)(map.width > map.height ? map.width : map.height) * 0.5f;
 
     MdCamera cam  = MakeCamera(map_cx, map_cz, cam_dist);
     const float PAN_SPEED  = 0.1f;
