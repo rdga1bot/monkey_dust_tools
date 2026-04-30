@@ -131,20 +131,21 @@ int main(int argc, char** argv) {
     auto& tmr = md::flare::TileMapRenderer::Get();
     tmr.Init();
 
-    char atlas_path[512] = {};
-    // Prefer the per-tile atlas from tilesetdef (exact per-tile UV coordinates).
-    // Fall back to the grid-based tiled/tilesheets atlas if not found.
-    if (rt.GetMap().tileset_atlas[0]) {
-        snprintf(atlas_path, sizeof(atlas_path), "%s", rt.GetMap().tileset_atlas);
-        fprintf(stdout, "[demo] Atlas (per-tile): %s\n", atlas_path);
+    // M7.23: load all atlas textures resolved during LoadFlareMap().
+    // Falls back to grid atlas if tilesetdef had no img= sections.
+    if (rt.GetMap().tileset_atlas_count > 0) {
+        tmr.SetAtlases(rt.GetMap());
+        fprintf(stdout, "[demo] %d atlas(es) loaded\n", rt.GetMap().tileset_atlas_count);
     } else {
+        char atlas_path[512] = {};
         FindAtlas(mods_root, rt.GetMap(), atlas_path, sizeof(atlas_path));
-        if (atlas_path[0])
-            fprintf(stdout, "[demo] Atlas (grid): %s\n", atlas_path);
-        else
-            fprintf(stderr, "[demo] Warning: atlas not found — tiles will be white\n");
+        if (atlas_path[0]) {
+            tmr.SetAtlas(atlas_path);
+            fprintf(stdout, "[demo] Atlas (grid fallback): %s\n", atlas_path);
+        } else {
+            fprintf(stderr, "[demo] Warning: no atlas found — tiles will be white\n");
+        }
     }
-    if (atlas_path[0]) tmr.SetAtlas(atlas_path);
 
     // ── billboard renderer + sprite atlases ──────────────────────────────────
     auto& br  = md::flare::BillboardRenderer::Get();
@@ -258,7 +259,7 @@ int main(int argc, char** argv) {
             DrawText(TextFormat("Cam target: (%.1f, %.1f, %.1f)", cam.target.x, cam.target.y, cam.target.z), LX, dy, 13, WHITE); dy += 16;
             DrawText(TextFormat("OrthoSize:  %.1f", ortho_size),                                       LX, dy, 13, WHITE); dy += 20;
             DrawText(TextFormat("Map:  %dx%d  tilesets: %d", map.width, map.height, map.tileset_count), LX, dy, 13, WHITE); dy += 16;
-            DrawText(TextFormat("Atlas: %s", atlas_path[0] ? atlas_path : "(none)"),                   LX, dy, 13, WHITE); dy += 16;
+            DrawText(TextFormat("Atlases: %d", map.tileset_atlas_count),                               LX, dy, 13, WHITE); dy += 16;
             DrawText(TextFormat("Sprite atlas: %dx%d", br.AtlasWidth(), br.AtlasHeight()),             LX, dy, 13, WHITE); dy += 20;
             DrawText(TextFormat("Spawns: %d   Billboards: %d", map.spawn_count, br.SubmittedCount()),  LX, dy, 13, YELLOW); dy += 16;
             for (int i = 0; i < map.spawn_count && i < 8; ++i) {
