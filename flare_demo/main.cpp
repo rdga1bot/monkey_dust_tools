@@ -21,6 +21,7 @@
 #include "raylib.h"
 #include <cstdio>
 #include <cstring>
+#include <unistd.h>
 
 // ── Atlas path resolution ─────────────────────────────────────────────────────
 // TileMapRenderer needs the grassland atlas that comes with flare-game.
@@ -85,7 +86,24 @@ static MdCamera MakeCamera(float cx, float cz, float ortho_size) {
 
 // ── main ──────────────────────────────────────────────────────────────────────
 
+// Resolve the repo root from the binary path and chdir to it so that
+// relative paths ("shaders/", "third_party/") work regardless of CWD.
+static void ChdirToRepoRoot() {
+    char exe[512] = {};
+    if (readlink("/proc/self/exe", exe, sizeof(exe) - 1) <= 0) return;
+    // Binary is at <repo>/build/tools/md_flare_demo — strip 3 components.
+    for (int i = 0; i < 3; ++i) {
+        char* p = strrchr(exe, '/');
+        if (!p) return;
+        *p = '\0';
+    }
+    if (exe[0] && chdir(exe) == 0)
+        fprintf(stdout, "[demo] repo root: %s\n", exe);
+}
+
 int main(int argc, char** argv) {
+    ChdirToRepoRoot();
+
     const char* mods_root = (argc > 1) ? argv[1]
                                        : "third_party/flare-game/mods";
     const char* mod_name  = (argc > 2) ? argv[2] : "empyrean_campaign";
@@ -114,13 +132,19 @@ int main(int argc, char** argv) {
     tmr.Init();
 
     char atlas_path[512] = {};
-    FindAtlas(mods_root, rt.GetMap(), atlas_path, sizeof(atlas_path));
-    if (atlas_path[0]) {
-        tmr.SetAtlas(atlas_path);
-        fprintf(stdout, "[demo] Atlas: %s\n", atlas_path);
+    // Prefer the per-tile atlas from tilesetdef (exact per-tile UV coordinates).
+    // Fall back to the grid-based tiled/tilesheets atlas if not found.
+    if (rt.GetMap().tileset_atlas[0]) {
+        snprintf(atlas_path, sizeof(atlas_path), "%s", rt.GetMap().tileset_atlas);
+        fprintf(stdout, "[demo] Atlas (per-tile): %s\n", atlas_path);
     } else {
-        fprintf(stderr, "[demo] Warning: atlas not found — tiles will be white\n");
+        FindAtlas(mods_root, rt.GetMap(), atlas_path, sizeof(atlas_path));
+        if (atlas_path[0])
+            fprintf(stdout, "[demo] Atlas (grid): %s\n", atlas_path);
+        else
+            fprintf(stderr, "[demo] Warning: atlas not found — tiles will be white\n");
     }
+    if (atlas_path[0]) tmr.SetAtlas(atlas_path);
 
     // ── billboard renderer + sprite atlases ──────────────────────────────────
     auto& br  = md::flare::BillboardRenderer::Get();
@@ -143,11 +167,13 @@ int main(int argc, char** argv) {
     const auto& map = rt.GetMap();
     float map_cx = 0.0f;  // isometric maps are symmetric around X=0
     float map_cz = (map.width + map.height) * 0.5f * 0.5f;
-    float ortho_size = (float)(map.width > map.height ? map.width : map.height) * 0.5f;
+    // ortho_size = half the isometric diamond width so the map fills ~60% of screen.
+    float ortho_size = (float)(map.width + map.height) * 0.5f * 0.4f;
 
     MdCamera cam  = MakeCamera(map_cx, map_cz, ortho_size);
     const float PAN_SPEED  = 0.1f;
     const float ZOOM_STEP  = 1.5f;
+    bool show_debug = false;
 
     // ── game loop ─────────────────────────────────────────────────────────────
     while (!WindowShouldClose()) {
@@ -171,10 +197,9 @@ int main(int argc, char** argv) {
             cam.pos.z = cam.target.z + dist * cosf(ELEV);
         }
 
-        // Reset
-        if (IsKeyPressed(KEY_R)) {
-            cam = MakeCamera(map_cx, map_cz, ortho_size);
-        }
+        // Reset / debug toggle
+        if (IsKeyPressed(KEY_R))  cam = MakeCamera(map_cx, map_cz, ortho_size);
+        if (IsKeyPressed(KEY_F3)) show_debug = !show_debug;
 
         float aspect = (float)GetScreenWidth() / (float)GetScreenHeight();
 
@@ -219,7 +244,31 @@ int main(int argc, char** argv) {
                  rt.GetEnemies().count, rt.GetItems().count,
                  rt.GetPowers().count, rt.GetFactions().count),
                  8, 54, 16, LIGHTGRAY);
-        DrawText("WASD=pan  Q/E or scroll=zoom  R=reset", 8, H - 24, 14, DARKGRAY);
+        DrawText("WASD=pan  Q/E or scroll=zoom  R=reset  F3=debug", 8, GetScreenHeight() - 24, 14, DARKGRAY);
+
+        // F3 debug overlay
+        if (show_debug) {
+            const int PW = 340;
+            const int SW = GetScreenWidth();
+            DrawRectangle(SW - PW - 4, 0, PW + 4, 310, { 0, 0, 0, 180 });
+            int dy = 8;
+            const int LX = SW - PW;
+            DrawText("── DEBUG ──────────────────────", LX, dy, 14, YELLOW); dy += 20;
+            DrawText(TextFormat("Cam pos:    (%.1f, %.1f, %.1f)", cam.pos.x, cam.pos.y, cam.pos.z),    LX, dy, 13, WHITE); dy += 16;
+            DrawText(TextFormat("Cam target: (%.1f, %.1f, %.1f)", cam.target.x, cam.target.y, cam.target.z), LX, dy, 13, WHITE); dy += 16;
+            DrawText(TextFormat("OrthoSize:  %.1f", ortho_size),                                       LX, dy, 13, WHITE); dy += 20;
+            DrawText(TextFormat("Map:  %dx%d  tilesets: %d", map.width, map.height, map.tileset_count), LX, dy, 13, WHITE); dy += 16;
+            DrawText(TextFormat("Atlas: %s", atlas_path[0] ? atlas_path : "(none)"),                   LX, dy, 13, WHITE); dy += 16;
+            DrawText(TextFormat("Sprite atlas: %dx%d", br.AtlasWidth(), br.AtlasHeight()),             LX, dy, 13, WHITE); dy += 20;
+            DrawText(TextFormat("Spawns: %d   Billboards: %d", map.spawn_count, br.SubmittedCount()),  LX, dy, 13, YELLOW); dy += 16;
+            for (int i = 0; i < map.spawn_count && i < 8; ++i) {
+                DrawText(TextFormat("  [%d] %s @ (%.0f,%.0f)", i,
+                         map.spawns[i].category, map.spawns[i].center_x, map.spawns[i].center_y),
+                         LX, dy, 12, LIGHTGRAY); dy += 14;
+            }
+            if (map.spawn_count > 8)
+                DrawText(TextFormat("  ... +%d more", map.spawn_count - 8), LX, dy, 12, DARKGRAY);
+        }
 
         EndDrawing();
     }
