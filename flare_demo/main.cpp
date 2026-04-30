@@ -15,6 +15,8 @@
 
 #include <monkey_dust/flare/flare_runtime.h>
 #include <monkey_dust/flare/tile_map_renderer.h>
+#include <monkey_dust/flare/billboard_renderer.h>
+#include <monkey_dust/flare/sprite_resolver.h>
 #include <monkey_dust/render/md_camera.h>
 #include "raylib.h"
 #include <cstdio>
@@ -87,7 +89,7 @@ int main(int argc, char** argv) {
     const char* mods_root = (argc > 1) ? argv[1]
                                        : "third_party/flare-game/mods";
     const char* mod_name  = (argc > 2) ? argv[2] : "empyrean_campaign";
-    const char* map_name  = (argc > 3) ? argv[3] : "maps/perdition_harbor.txt";
+    const char* map_name  = (argc > 3) ? argv[3] : "maps/goblin_camp.txt";
 
     // ── window init ───────────────────────────────────────────────────────────
     const int W = 1280, H = 720;
@@ -118,6 +120,22 @@ int main(int argc, char** argv) {
         fprintf(stdout, "[demo] Atlas: %s\n", atlas_path);
     } else {
         fprintf(stderr, "[demo] Warning: atlas not found — tiles will be white\n");
+    }
+
+    // ── billboard renderer + sprite atlases ──────────────────────────────────
+    auto& br  = md::flare::BillboardRenderer::Get();
+    auto& sr  = md::flare::SpriteResolver::Get();
+    br.Init();
+    sr.Clear();
+    {
+        const auto& spawn_map = rt.GetMap();
+        for (int i = 0; i < spawn_map.spawn_count; ++i) {
+            const md::flare::SpriteCategoryEntry* e =
+                sr.Resolve(spawn_map.spawns[i].category);
+            if (e) br.LoadSpriteAtlas(e->atlas_full_path);
+        }
+        fprintf(stdout, "[demo] %d spawn blocks, last atlas loaded\n",
+                spawn_map.spawn_count);
     }
 
     // ── camera setup ─────────────────────────────────────────────────────────
@@ -165,6 +183,34 @@ int main(int argc, char** argv) {
 
         tmr.Render(rt.GetMap(), cam, aspect, rt.TileWorldSize(), ortho_size);
 
+        // Billboard NPC spawns
+        const float AW = (float)(br.AtlasWidth()  > 0 ? br.AtlasWidth()  : 2048);
+        const float AH = (float)(br.AtlasHeight() > 0 ? br.AtlasHeight() : 2048);
+        br.BeginFrame();
+        for (int i = 0; i < map.spawn_count; ++i) {
+            const md::flare::FlareSpawn& sp = map.spawns[i];
+            md::flare::SpriteFrame frame;
+            if (!sr.GetStanceFrame0(sp.category, frame)) continue;
+
+            float wx = (sp.center_x - sp.center_y) * rt.TileWorldSize() * 0.5f;
+            float wz = (sp.center_x + sp.center_y) * rt.TileWorldSize() * 0.5f;
+
+            md::flare::BillboardInstance inst;
+            inst.x      = wx;
+            inst.y      = 0.0f;
+            inst.z      = wz;
+            inst.width  = (float)frame.w / 96.0f;
+            inst.height = (float)frame.h / 96.0f;
+            inst.u0     = (float)frame.x / AW;
+            inst.v0     = (float)frame.y / AH;
+            inst.u1     = (float)(frame.x + frame.w) / AW;
+            inst.v1     = (float)(frame.y + frame.h) / AH;
+            inst.r = 255; inst.g = 255; inst.b = 255; inst.a = 255;
+
+            md::flare::BillboardRenderer::Get().Submit(inst);
+        }
+        br.Render(cam, aspect);
+
         // HUD
         DrawFPS(8, 8);
         DrawText(TextFormat("Map: %s  %dx%d  tiles",
@@ -179,6 +225,8 @@ int main(int argc, char** argv) {
     }
 
     tmr.Shutdown();
+    br.Shutdown();
+    sr.Clear();
     CloseWindow();
     return 0;
 }
