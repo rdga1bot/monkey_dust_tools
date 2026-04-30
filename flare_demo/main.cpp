@@ -207,7 +207,7 @@ int main(int argc, char** argv) {
         BeginDrawing();
         ClearBackground({ 20, 20, 30, 255 });
 
-        tmr.Render(rt.GetMap(), cam, aspect, rt.TileWorldSize(), ortho_size);
+        tmr.Render(rt.GetMap(), cam, aspect, rt.TileWorldSize(), ortho_size, (float)GetTime());
 
         // Billboard NPC spawns
         const float AW = (float)(br.AtlasWidth()  > 0 ? br.AtlasWidth()  : 2048);
