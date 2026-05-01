@@ -36,6 +36,36 @@ void MapViewPanel::Shutdown() {
 
 // ── Map loading ───────────────────────────────────────────────────────────────
 
+// ── Undo / Redo ───────────────────────────────────────────────────────────────
+
+void MapViewPanel::ClearHistory() {
+    undo_top_ = 0;
+    redo_top_ = 0;
+}
+
+void MapViewPanel::PushUndo(const PaintOp& op) {
+    if (undo_top_ == UNDO_MAX) {
+        for (int i = 0; i < UNDO_MAX - 1; i++) undo_stack_[i] = undo_stack_[i + 1];
+        undo_top_ = UNDO_MAX - 1;
+    }
+    undo_stack_[undo_top_++] = op;
+    redo_top_ = 0;
+}
+
+void MapViewPanel::Undo() {
+    if (undo_top_ == 0 || !loaded_) return;
+    PaintOp op = undo_stack_[--undo_top_];
+    map_.layers[op.layer].tiles[op.row * md::flare::MAX_MAP_WIDTH + op.col] = op.old_val;
+    if (redo_top_ < UNDO_MAX) redo_stack_[redo_top_++] = op;
+}
+
+void MapViewPanel::Redo() {
+    if (redo_top_ == 0 || !loaded_) return;
+    PaintOp op = redo_stack_[--redo_top_];
+    map_.layers[op.layer].tiles[op.row * md::flare::MAX_MAP_WIDTH + op.col] = op.new_val;
+    if (undo_top_ < UNDO_MAX) undo_stack_[undo_top_++] = op;
+}
+
 bool MapViewPanel::NewMap(int width, int height, const char* tilesetdef) {
     // Use currently loaded map path as base for mod/tilesetdef resolution.
     // Fall back to the default goblin_camp path when no map is loaded yet.
@@ -59,6 +89,7 @@ bool MapViewPanel::NewMap(int width, int height, const char* tilesetdef) {
 
     path_buf_[0] = '\0';   // no file path yet — user must Save As
     save_buf_[0] = '\0';
+    ClearHistory();
 
     md::flare::TileMap2DRenderer::Get().SetAtlases(map_);
     need_reset_ = true;
@@ -107,6 +138,7 @@ bool MapViewPanel::LoadMap(const char* map_txt_path) {
         sel_tile_id_ = map_.meta.entries[0].tile_id;
     // Default save path = load path (user can edit before saving).
     snprintf(save_buf_, sizeof(save_buf_), "%s", map_txt_path);
+    ClearHistory();
     need_reset_ = true;
     return true;
 }
@@ -156,6 +188,7 @@ bool MapViewPanel::PaintAt(float mx, float my) {
     uint16_t& cell = map_.layers[sel_layer_].tiles[
         row * md::flare::MAX_MAP_WIDTH + col];
     if (cell == new_val) return false;
+    PushUndo({sel_layer_, row, col, cell, new_val});
     cell = new_val;
     return true;
 }

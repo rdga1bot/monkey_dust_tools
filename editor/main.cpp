@@ -148,12 +148,33 @@ int main(void) {
             ImGuiWindowFlags_NoBringToFrontOnFocus);
         ImGui::PopStyleVar();
 
-        // Ctrl+S
-        if (ImGui::IsKeyDown(ImGuiKey_LeftCtrl) && ImGui::IsKeyPressed(ImGuiKey_S)) {
-            if (MapViewPanel::Get().IsLoaded() && MapViewPanel::Get().SaveCurrent()) {
-                snprintf(status_msg, sizeof(status_msg), "Map saved.");
-                status_timer = 3.0f;
+        bool ctrl = ImGui::IsKeyDown(ImGuiKey_LeftCtrl) || ImGui::IsKeyDown(ImGuiKey_RightCtrl);
+
+        // Ctrl+S / F5 — Save
+        if ((ctrl && ImGui::IsKeyPressed(ImGuiKey_S)) || ImGui::IsKeyPressed(ImGuiKey_F5)) {
+            if (MapViewPanel::Get().IsLoaded()) {
+                if (MapViewPanel::Get().SaveCurrent()) {
+                    snprintf(status_msg, sizeof(status_msg), "Map saved.");
+                    status_timer = 3.0f;
+                } else {
+                    snprintf(status_msg, sizeof(status_msg), "No path — use Save As.");
+                    status_timer = 3.0f;
+                }
             }
+        }
+        // F6 — Load (open modal)
+        if (ImGui::IsKeyPressed(ImGuiKey_F6)) {
+            snprintf(s_open_path, sizeof(s_open_path), "%s",
+                     MapViewPanel::Get().GetLoadPath());
+            s_open_modal = true;
+        }
+        // Ctrl+Z — Undo
+        if (ctrl && ImGui::IsKeyPressed(ImGuiKey_Z)) {
+            MapViewPanel::Get().Undo();
+        }
+        // Ctrl+Y — Redo
+        if (ctrl && ImGui::IsKeyPressed(ImGuiKey_Y)) {
+            MapViewPanel::Get().Redo();
         }
 
         // ── Load Map modal ────────────────────────────────

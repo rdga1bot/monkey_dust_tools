@@ -26,8 +26,19 @@ public:
     const char* GetLoadPath() const { return path_buf_; }
     const char* GetSavePath() const { return save_buf_; }
 
+    void Undo();
+    void Redo();
+    bool CanUndo() const { return undo_top_ > 0; }
+    bool CanRedo() const { return redo_top_ > 0; }
+
 private:
     static constexpr float PALETTE_W = 164.0f;
+    static constexpr int   UNDO_MAX  = 64;
+
+    struct PaintOp {
+        int      layer, row, col;
+        uint16_t old_val, new_val;
+    };
 
     // FBO
     RenderTexture2D rt_   = {};
@@ -54,6 +65,14 @@ private:
     uint16_t sel_tile_id_ = 1;
     int      sel_layer_   = 0;
     bool     erase_mode_  = false;
+
+    // Undo/Redo stacks (simple arrays, newest at top)
+    PaintOp undo_stack_[UNDO_MAX] = {};
+    int     undo_top_ = 0;
+    PaintOp redo_stack_[UNDO_MAX] = {};
+    int     redo_top_ = 0;
+    void    PushUndo(const PaintOp& op);
+    void    ClearHistory();
 
     void        DrawPalette();
     bool        PaintAt(float mx, float my);
