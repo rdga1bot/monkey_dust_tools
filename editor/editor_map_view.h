@@ -82,6 +82,12 @@ private:
     bool     erase_mode_  = false;
     int      brush_size_  = 1;   // 1, 3, or 5
 
+    // M9.7 — layer visibility
+    bool     layer_visible_[md::flare::MAX_MAP_LAYERS] = {
+        true, true, true, true, true, true
+    };
+    uint8_t  LayerMask() const;
+
     // Undo/Redo
     PaintOp   undo_stack_[UNDO_MAX] = {};
     int       undo_top_ = 0;

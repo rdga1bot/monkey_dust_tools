@@ -171,6 +171,15 @@ void MapViewPanel::ResetView(int vp_w, int vp_h) {
     origin_y_ = (float)vp_h * 0.5f - cy * scale_;
 }
 
+// ── Layer visibility mask ─────────────────────────────────────────────────────
+
+uint8_t MapViewPanel::LayerMask() const {
+    uint8_t mask = 0;
+    for (int i = 0; i < map_.layer_count && i < md::flare::MAX_MAP_LAYERS; i++)
+        if (layer_visible_[i]) mask |= (1u << i);
+    return mask;
+}
+
 // ── Layer name helper ─────────────────────────────────────────────────────────
 
 const char* MapViewPanel::LayerName(int idx) const {
@@ -372,17 +381,28 @@ void MapViewPanel::Draw(float dt) {
     if (ImGui::Button("Reset##view")) need_reset_ = true;
 
     if (loaded_) {
-        ImGui::SetNextItemWidth(110);
-        if (ImGui::BeginCombo("Layer##sel", LayerName(sel_layer_))) {
-            for (int i = 0; i < map_.layer_count; i++) {
-                bool is_sel = (i == sel_layer_);
-                if (ImGui::Selectable(LayerName(i), is_sel)) sel_layer_ = i;
-                if (is_sel) ImGui::SetItemDefaultFocus();
-            }
-            ImGui::EndCombo();
+        // Layer row: eye toggle + radio button per layer
+        for (int i = 0; i < map_.layer_count; i++) {
+            ImGui::PushID(i);
+            // Eye toggle
+            bool vis = layer_visible_[i];
+            if (!vis) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
+            if (ImGui::SmallButton(vis ? "O" : "-")) layer_visible_[i] = !layer_visible_[i];
+            if (!vis) ImGui::PopStyleColor();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", vis ? "Hide layer" : "Show layer");
+            ImGui::SameLine();
+            // Radio button — selects active paint layer
+            bool active = (sel_layer_ == i);
+            if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.55f, 0.2f, 1.0f));
+            if (ImGui::SmallButton(LayerName(i))) sel_layer_ = i;
+            if (active) ImGui::PopStyleColor();
+            ImGui::PopID();
+            ImGui::SameLine();
         }
+        ImGui::NewLine();
+
         // Brush size buttons
-        ImGui::SameLine();
+        ImGui::SameLine(0, 0);
         ImGui::TextDisabled("Brush:");
         ImGui::SameLine();
         for (int bs : {1, 3, 5}) {
@@ -441,7 +461,7 @@ void MapViewPanel::Draw(float dt) {
         md::flare::TileMap2DRenderer::Get().Render(
             map_, (float)GetTime(),
             origin_x_, origin_y_, scale_,
-            vp_w, vp_h);
+            vp_w, vp_h, LayerMask());
         rlActiveTextureSlot(0);
         rlEnableTexture(0);
         EndTextureMode();
