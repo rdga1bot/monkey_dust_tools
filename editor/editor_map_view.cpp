@@ -43,7 +43,15 @@ bool MapViewPanel::LoadMap(const char* map_txt_path, const char* /*mods_root*/) 
     }
     map_    = tmp;
     loaded_ = true;
+    // Default to the first Background layer so painting doesn't accidentally
+    // overwrite Fringe (trees/rocks) or Object tiles.
     sel_layer_ = 0;
+    for (int i = 0; i < tmp.layer_count; i++) {
+        if (tmp.layers[i].type == md::flare::LayerType::BACKGROUND) {
+            sel_layer_ = i;
+            break;
+        }
+    }
 
     const char* slash = strrchr(map_txt_path, '/');
     const char* name  = slash ? slash + 1 : map_txt_path;
@@ -52,6 +60,9 @@ bool MapViewPanel::LoadMap(const char* map_txt_path, const char* /*mods_root*/) 
     if (dot) *dot = '\0';
 
     md::flare::TileMap2DRenderer::Get().SetAtlases(map_);
+    // Select first valid tile so default paint doesn't produce invisible tiles.
+    if (map_.meta.count > 0)
+        sel_tile_id_ = map_.meta.entries[0].tile_id;
     need_reset_ = true;
     return true;
 }
@@ -96,6 +107,8 @@ bool MapViewPanel::PaintAt(float mx, float my) {
     if (sel_layer_ < 0 || sel_layer_ >= map_.layer_count) return false;
 
     uint16_t new_val = erase_mode_ ? 0 : sel_tile_id_;
+    // Guard: don't paint with an ID that isn't in the registry (would render invisible).
+    if (new_val != 0 && !map_.meta.Find(new_val)) return false;
     uint16_t& cell = map_.layers[sel_layer_].tiles[
         row * md::flare::MAX_MAP_WIDTH + col];
     if (cell == new_val) return false;
@@ -117,15 +130,16 @@ void MapViewPanel::DrawPalette() {
     ImGui::TextDisabled("%d tiles", meta.count);
     ImGui::Separator();
 
-    const float THUMB = 32.0f;
+    // Fit each tile into a 48×56 cell preserving aspect ratio.
+    // Ground tiles (64×32): tw=48, th=24.  Billboards (64×128): tw=28, th=56.
+    const float THUMB_W = 48.0f, THUMB_H = 56.0f;
 
     for (int i = 0; i < meta.count; i++) {
         const auto& m = meta.entries[i];
         MdTexture atlas = r2d.GetAtlas(m.atlas_idx);
         if (!atlas.id || atlas.w <= 0 || atlas.h <= 0) continue;
 
-        float dim   = fmaxf((float)m.h, (float)m.w);
-        float scale = THUMB / dim;
+        float scale = fminf(THUMB_W / (float)m.w, THUMB_H / (float)m.h);
         float tw    = (float)m.w * scale;
         float th    = (float)m.h * scale;
 
@@ -150,9 +164,14 @@ void MapViewPanel::DrawPalette() {
 
         if (sel) ImGui::PopStyleColor();
 
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Tile %d\n%dx%d  atlas[%d]",
-                              m.tile_id, m.w, m.h, m.atlas_idx);
+        if (ImGui::IsItemHovered()) {
+            // Classify: billboard (tall sprite) → Fringe/Object; flat → Background
+            const char* layer_hint = (m.offset_y > m.h / 2)
+                                   ? "→ Fringe / Object layer"
+                                   : "→ Background layer";
+            ImGui::SetTooltip("Tile %d\n%dx%d  atlas[%d]\n%s",
+                              m.tile_id, m.w, m.h, m.atlas_idx, layer_hint);
+        }
 
         ImGui::SameLine();
         if (sel) ImGui::TextColored({0.3f, 0.9f, 0.4f, 1.0f}, "T%d", m.tile_id);
@@ -202,9 +221,9 @@ void MapViewPanel::Draw(float dt) {
         }
         ImGui::SameLine();
         if (erase_mode_)
-            ImGui::TextColored({1.0f, 0.5f, 0.3f, 1.0f}, "erase mode  RMB/MMB=erase");
+            ImGui::TextColored({1.0f, 0.5f, 0.3f, 1.0f}, "erase mode  LMB=erase");
         else
-            ImGui::Text("tile %d   RMB=paint   MMB=erase", sel_tile_id_);
+            ImGui::Text("tile %d   LMB=paint   RMB/MMB=pan", sel_tile_id_);
     }
     ImGui::Separator();
 
@@ -254,8 +273,13 @@ void MapViewPanel::Draw(float dt) {
     float  my = mouse_abs.y - img_pos.y;
 
     if (hovered) {
-        // Pan: left drag
-        if (ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f)) {
+        // Pan: right drag (or middle drag)
+        if (ImGui::IsMouseDragging(ImGuiMouseButton_Right, 0.0f)) {
+            ImVec2 d = ImGui::GetIO().MouseDelta;
+            origin_x_ += d.x;
+            origin_y_ += d.y;
+        }
+        if (ImGui::IsMouseDragging(ImGuiMouseButton_Middle, 0.0f)) {
             ImVec2 d = ImGui::GetIO().MouseDelta;
             origin_x_ += d.x;
             origin_y_ += d.y;
@@ -269,18 +293,9 @@ void MapViewPanel::Draw(float dt) {
             origin_x_ = mx - (mx - origin_x_) * (scale_ / os);
             origin_y_ = my - (my - origin_y_) * (scale_ / os);
         }
-        // Paint: right button
-        if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
-            bool prev = erase_mode_;
+        // Paint: left click/drag
+        if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
             PaintAt(mx, my);
-            erase_mode_ = prev;
-        }
-        // Erase: middle button
-        if (ImGui::IsMouseDown(ImGuiMouseButton_Middle)) {
-            bool prev = erase_mode_;
-            erase_mode_ = true;
-            PaintAt(mx, my);
-            erase_mode_ = prev;
         }
     }
 
@@ -301,5 +316,5 @@ void MapViewPanel::Draw(float dt) {
         ImGui::Text("Tile (%d, %d)   Scale %.2f   Layer: %s",
                     tile_col, tile_row, scale_, LayerName(sel_layer_));
     else
-        ImGui::TextDisabled("LMB=pan   Scroll=zoom   RMB=paint   MMB=erase");
+        ImGui::TextDisabled("LMB=paint   RMB/MMB=pan   Scroll=zoom");
 }
