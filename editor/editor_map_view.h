@@ -1,12 +1,11 @@
 #pragma once
 #include "raylib.h"
-#include "imgui.h"
 #include <monkey_dust/flare/tile_map.h>
 #include <monkey_dust/flare/tile_map_2d_renderer.h>
 
-// M9.0/M9.1 — Map View Panel.
-// M9.0: view + pan + zoom inside ImGui FBO viewport.
-// M9.1: tile palette (left panel) + layer selector + RMB paint / MMB erase.
+// M9.0/M9.1/M9.2 — Map View Panel.
+// Load/Save operations are handled by the caller (main.cpp menu bar).
+// This panel owns only the viewport + palette + paint tool.
 class MapViewPanel {
 public:
     static MapViewPanel& Get() { static MapViewPanel inst; return inst; }
@@ -17,8 +16,14 @@ public:
     // Call inside the "Map" ImGui tab.
     void Draw(float dt);
 
-    // Load a map by path (relative to CWD = repo root).
-    bool LoadMap(const char* map_txt_path, const char* mods_root);
+    // Load/Save — called from menu bar in main.cpp.
+    bool        LoadMap(const char* path);
+    bool        SaveCurrent();           // save to last loaded/saved path
+    bool        SaveTo(const char* path);
+
+    bool        IsLoaded()    const { return loaded_; }
+    const char* GetLoadPath() const { return path_buf_; }
+    const char* GetSavePath() const { return save_buf_; }
 
 private:
     static constexpr float PALETTE_W = 164.0f;
@@ -32,20 +37,17 @@ private:
     // Map data
     md::flare::FlareMap map_    = {};
     bool                loaded_ = false;
-    char map_label_[64]         = "goblin_camp";
+    char map_label_[64]         = {};
+
+    // Paths (internal — menu bar owns the UI for these)
+    char path_buf_[256] = "third_party/flare-game/mods/empyrean_campaign/maps/goblin_camp.txt";
+    char save_buf_[256] = "";
 
     // Pan / zoom
     float origin_x_ = 0.0f, origin_y_ = 0.0f;
     float scale_    = 0.12f;
     bool  need_reset_= false;
     void  ResetView(int vp_w, int vp_h);
-
-    // Input path buffer
-    char path_buf_[256] = "third_party/flare-game/mods/empyrean_campaign/maps/goblin_camp.txt";
-    char mods_buf_[256] = "third_party/flare-game/mods";
-    char save_buf_[256] = "";
-    char status_msg_[128] = "";
-    float status_timer_   = 0.0f;
 
     // M9.1 — palette + paint
     uint16_t sel_tile_id_ = 1;

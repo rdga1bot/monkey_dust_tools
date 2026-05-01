@@ -1,5 +1,6 @@
 #include "editor_map_view.h"
 #include "rlgl.h"
+#include "imgui.h"
 #include <monkey_dust/flare/tile_map.h>
 #include <monkey_dust/render/md_texture.h>
 #include <cstdio>
@@ -22,7 +23,7 @@ void MapViewPanel::EnsureRT(int w, int h) {
 void MapViewPanel::Init() {
     if (init_) return;
     md::flare::TileMap2DRenderer::Get().Init();
-    LoadMap(path_buf_, mods_buf_);
+    LoadMap(path_buf_);
     init_ = true;
 }
 
@@ -35,12 +36,25 @@ void MapViewPanel::Shutdown() {
 
 // ── Map loading ───────────────────────────────────────────────────────────────
 
-bool MapViewPanel::LoadMap(const char* map_txt_path, const char* /*mods_root*/) {
+bool MapViewPanel::SaveCurrent() {
+    if (!loaded_ || !save_buf_[0]) return false;
+    return md::flare::SaveFlareMap(save_buf_, map_);
+}
+
+bool MapViewPanel::SaveTo(const char* path) {
+    if (!loaded_ || !path || !path[0]) return false;
+    bool ok = md::flare::SaveFlareMap(path, map_);
+    if (ok) snprintf(save_buf_, sizeof(save_buf_), "%s", path);
+    return ok;
+}
+
+bool MapViewPanel::LoadMap(const char* map_txt_path) {
     md::flare::FlareMap tmp = {};
     if (!md::flare::LoadFlareMap(map_txt_path, tmp)) {
-        fprintf(stderr, "[MapView] failed to load: %s\n", map_txt_path);
+        fprintf(stderr, "[MapView] LoadMap failed: %s\n", map_txt_path);
         return false;
     }
+    snprintf(path_buf_, sizeof(path_buf_), "%s", map_txt_path);
     map_    = tmp;
     loaded_ = true;
     // Default to the first Background layer so painting doesn't accidentally
@@ -183,47 +197,17 @@ void MapViewPanel::DrawPalette() {
 // ── Draw ──────────────────────────────────────────────────────────────────────
 
 void MapViewPanel::Draw(float dt) {
-    if (status_timer_ > 0.0f) status_timer_ -= dt;
+    (void)dt;
 
-    // ── Toolbar row 1: path + load ────────────────────────────────────────────
-    ImGui::SetNextItemWidth(340);
-    ImGui::InputText("##mappath", path_buf_, sizeof(path_buf_));
-    ImGui::SameLine();
-    if (ImGui::Button("Load")) {
-        LoadMap(path_buf_, mods_buf_);
-    }
-    ImGui::SameLine();
+    // ── Toolbar: map label + Reset + Layer + Erase ────────────────────────────
     if (loaded_)
         ImGui::TextColored({0.5f, 1.0f, 0.6f, 1.0f}, "%s  (%dx%d)",
                            map_label_, map_.width, map_.height);
     else
-        ImGui::TextDisabled("no map loaded");
+        ImGui::TextDisabled("no map — use File > Open Map");
     ImGui::SameLine(ImGui::GetContentRegionAvail().x + ImGui::GetCursorPosX() - 60);
     if (ImGui::Button("Reset##view")) need_reset_ = true;
 
-    // ── Toolbar row 2: save path + save button ───────────────────────────────
-    ImGui::SetNextItemWidth(340);
-    ImGui::InputText("##savepath", save_buf_, sizeof(save_buf_));
-    ImGui::SameLine();
-    bool can_save = loaded_ && save_buf_[0];
-    if (!can_save) ImGui::BeginDisabled();
-    if (ImGui::Button("Save")) {
-        if (md::flare::SaveFlareMap(save_buf_, map_)) {
-            snprintf(status_msg_, sizeof(status_msg_), "Saved: %s", save_buf_);
-        } else {
-            snprintf(status_msg_, sizeof(status_msg_), "ERROR: cannot write %s", save_buf_);
-        }
-        status_timer_ = 3.0f;
-    }
-    if (!can_save) ImGui::EndDisabled();
-    ImGui::SameLine();
-    if (status_timer_ > 0.0f) {
-        bool is_err = (strncmp(status_msg_, "ERROR", 5) == 0);
-        if (is_err) ImGui::TextColored({1.0f, 0.3f, 0.3f, 1.0f}, "%s", status_msg_);
-        else        ImGui::TextColored({0.3f, 1.0f, 0.5f, 1.0f}, "%s", status_msg_);
-    }
-
-    // ── Toolbar row 3: layer + erase + hint ──────────────────────────────────
     if (loaded_) {
         ImGui::SetNextItemWidth(110);
         if (ImGui::BeginCombo("Layer##sel", LayerName(sel_layer_))) {

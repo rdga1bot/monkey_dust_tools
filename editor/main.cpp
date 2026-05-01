@@ -94,8 +94,102 @@ int main(void) {
         ImGui::Begin("##editor", nullptr,
             ImGuiWindowFlags_NoTitleBar  | ImGuiWindowFlags_NoResize  |
             ImGuiWindowFlags_NoMove      | ImGuiWindowFlags_NoScrollbar|
-            ImGuiWindowFlags_NoBringToFrontOnFocus);
+            ImGuiWindowFlags_NoBringToFrontOnFocus |
+            ImGuiWindowFlags_MenuBar);
         ImGui::PopStyleVar();
+
+        // ── Menu bar ──────────────────────────────────────
+        static char s_open_path[256]   = "";
+        static char s_saveas_path[256] = "";
+        static bool s_open_modal       = false;
+        static bool s_saveas_modal     = false;
+
+        if (ImGui::BeginMenuBar()) {
+            if (ImGui::BeginMenu("File")) {
+                if (ImGui::MenuItem("Open Map...")) {
+                    // Pre-fill with current path if available.
+                    snprintf(s_open_path, sizeof(s_open_path), "%s",
+                             MapViewPanel::Get().GetLoadPath());
+                    s_open_modal = true;
+                }
+                ImGui::Separator();
+                bool has_map = MapViewPanel::Get().IsLoaded();
+                if (!has_map) ImGui::BeginDisabled();
+                if (ImGui::MenuItem("Save Map", "Ctrl+S")) {
+                    if (MapViewPanel::Get().SaveCurrent()) {
+                        snprintf(status_msg, sizeof(status_msg), "Map saved.");
+                        status_timer = 3.0f;
+                    } else {
+                        snprintf(status_msg, sizeof(status_msg), "Save FAILED.");
+                        status_timer = 3.0f;
+                    }
+                }
+                if (ImGui::MenuItem("Save Map As...")) {
+                    snprintf(s_saveas_path, sizeof(s_saveas_path), "%s",
+                             MapViewPanel::Get().GetSavePath());
+                    s_saveas_modal = true;
+                }
+                if (!has_map) ImGui::EndDisabled();
+                ImGui::EndMenu();
+            }
+            ImGui::EndMenuBar();
+        }
+
+        // Ctrl+S shortcut
+        if (ImGui::IsKeyDown(ImGuiKey_LeftCtrl) && ImGui::IsKeyPressed(ImGuiKey_S)) {
+            if (MapViewPanel::Get().IsLoaded()) {
+                if (MapViewPanel::Get().SaveCurrent()) {
+                    snprintf(status_msg, sizeof(status_msg), "Map saved.");
+                    status_timer = 3.0f;
+                }
+            }
+        }
+
+        // ── Open Map modal ────────────────────────────────
+        if (s_open_modal) { ImGui::OpenPopup("Open Map"); s_open_modal = false; }
+        ImGui::SetNextWindowSize({520, 110}, ImGuiCond_Always);
+        if (ImGui::BeginPopupModal("Open Map", nullptr, ImGuiWindowFlags_NoResize)) {
+            ImGui::Text("Map path (relative to repo root):");
+            ImGui::SetNextItemWidth(-70);
+            ImGui::InputText("##opath", s_open_path, sizeof(s_open_path));
+            ImGui::SameLine();
+            if (ImGui::Button("Open", {60, 0})) {
+                if (MapViewPanel::Get().LoadMap(s_open_path)) {
+                    snprintf(status_msg, sizeof(status_msg), "Loaded: %s", s_open_path);
+                    status_timer = 3.0f;
+                } else {
+                    snprintf(status_msg, sizeof(status_msg), "Failed to load map.");
+                    status_timer = 3.0f;
+                }
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+
+        // ── Save Map As modal ─────────────────────────────
+        if (s_saveas_modal) { ImGui::OpenPopup("Save Map As"); s_saveas_modal = false; }
+        ImGui::SetNextWindowSize({520, 110}, ImGuiCond_Always);
+        if (ImGui::BeginPopupModal("Save Map As", nullptr, ImGuiWindowFlags_NoResize)) {
+            ImGui::Text("Save path (relative to repo root):");
+            ImGui::SetNextItemWidth(-70);
+            ImGui::InputText("##spath", s_saveas_path, sizeof(s_saveas_path));
+            ImGui::SameLine();
+            if (ImGui::Button("Save", {60, 0})) {
+                if (MapViewPanel::Get().SaveTo(s_saveas_path)) {
+                    snprintf(status_msg, sizeof(status_msg), "Saved: %s", s_saveas_path);
+                    status_timer = 3.0f;
+                } else {
+                    snprintf(status_msg, sizeof(status_msg), "Save FAILED.");
+                    status_timer = 3.0f;
+                }
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
 
         // ── Top bar ───────────────────────────────────────
         ImGui::SetCursorPos({10, 8});
