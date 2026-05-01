@@ -313,8 +313,27 @@ static void SpawnToScreen(float cx, float cy, float ox, float oy, float sc,
 }
 
 void MapViewPanel::DrawSpawnMarkers(ImVec2 img_pos) {
-    if (!loaded_ || map_.spawn_count == 0) return;
+    if (!loaded_) return;
     ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    // Hero spawn marker (always drawn)
+    {
+        float sx, sy;
+        SpawnToScreen(map_.hero_x, map_.hero_y, origin_x_, origin_y_, scale_, sx, sy);
+        ImVec2 p = {img_pos.x + sx, img_pos.y + sy};
+        bool props = (palette_tab_ == 2);
+        dl->AddCircleFilled(p, 9.0f, IM_COL32(50, 180, 255, 200));
+        dl->AddCircle(p, 9.5f, IM_COL32(255,255,255, props ? 255 : 160), 0, props ? 2.0f : 1.0f);
+        dl->AddText({p.x - 3.5f, p.y - 6.5f}, IM_COL32(255, 255, 255, 255), "H");
+        if (props && ImGui::IsWindowHovered()) {
+            ImVec2 mp = ImGui::GetIO().MousePos;
+            float dx = mp.x - p.x, dy = mp.y - p.y;
+            if (dx*dx + dy*dy < 100.0f)
+                ImGui::SetTooltip("Hero spawn (%.0f, %.0f)", map_.hero_x, map_.hero_y);
+        }
+    }
+
+    if (map_.spawn_count == 0) return;
 
     for (int i = 0; i < map_.spawn_count; i++) {
         const auto& s = map_.spawns[i];
@@ -330,7 +349,7 @@ void MapViewPanel::DrawSpawnMarkers(ImVec2 img_pos) {
         char letter[2] = { s.category[0] ? s.category[0] : '?', '\0' };
         dl->AddText({p.x - 3.5f, p.y - 6.5f}, IM_COL32(255, 255, 255, 255), letter);
 
-        if (spawn_mode_ && ImGui::IsWindowHovered()) {
+        if (palette_tab_ == 1 && ImGui::IsWindowHovered()) {
             ImVec2 mp = ImGui::GetIO().MousePos;
             float  dx = mp.x - p.x, dy = mp.y - p.y;
             if (dx*dx + dy*dy < 100.0f)
@@ -465,6 +484,53 @@ void MapViewPanel::DrawSpawnPanel() {
     }
 }
 
+// ── Props panel (M9.9) ───────────────────────────────────────────────────────
+
+void MapViewPanel::DrawPropsPanel() {
+    if (!loaded_) { ImGui::TextDisabled("Load a map"); return; }
+
+    ImGui::TextDisabled("Map Properties");
+    ImGui::Separator();
+
+    ImGui::SetNextItemWidth(-1);
+    ImGui::InputText("##title", map_.title, sizeof(map_.title));
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Title");
+
+    ImGui::SetNextItemWidth(-1);
+    ImGui::InputText("##music", map_.music_path, sizeof(map_.music_path));
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Music path");
+
+    ImGui::Separator();
+    ImGui::TextDisabled("Hero spawn:");
+    ImGui::SetNextItemWidth(-1);
+    ImGui::InputFloat("##hx", &map_.hero_x, 1.0f, 0.0f, "X: %.0f");
+    ImGui::SetNextItemWidth(-1);
+    ImGui::InputFloat("##hy", &map_.hero_y, 1.0f, 0.0f, "Y: %.0f");
+    map_.hero_x = (map_.hero_x < 0) ? 0 : (map_.hero_x >= map_.width  ? (float)(map_.width -1) : map_.hero_x);
+    map_.hero_y = (map_.hero_y < 0) ? 0 : (map_.hero_y >= map_.height ? (float)(map_.height-1) : map_.hero_y);
+
+    ImGui::Separator();
+    ImGui::TextDisabled("Size: %d × %d", map_.width, map_.height);
+    ImGui::TextDisabled("Tilesetdef:");
+    ImGui::TextWrapped("%s", map_.tileset_def);
+    ImGui::Spacing();
+    ImGui::TextColored({0.5f,0.8f,0.5f,1.f}, "LMB = set hero spawn");
+}
+
+void MapViewPanel::PropsInteract(float mx, float my) {
+    if (!loaded_) return;
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        float lx = (mx - origin_x_) / scale_;
+        float ly = (my - origin_y_) / scale_;
+        float cr = lx / 96.0f, cs = ly / 48.0f;
+        float c = (cr + cs) * 0.5f, r = (cs - cr) * 0.5f;
+        c = (c < 0) ? 0 : (c >= map_.width  ? (float)(map_.width -1) : c);
+        r = (r < 0) ? 0 : (r >= map_.height ? (float)(map_.height-1) : r);
+        map_.hero_x = roundf(c);
+        map_.hero_y = roundf(r);
+    }
+}
+
 // ── Palette panel ─────────────────────────────────────────────────────────────
 
 void MapViewPanel::DrawPalette() {
@@ -474,17 +540,21 @@ void MapViewPanel::DrawPalette() {
         return;
     }
 
-    // Mode toggle at top of palette
-    if (!spawn_mode_) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f,0.5f,0.8f,1.f));
-    if (ImGui::SmallButton("Tiles")) spawn_mode_ = false;
-    if (!spawn_mode_) ImGui::PopStyleColor();
-    ImGui::SameLine();
-    if (spawn_mode_) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f,0.4f,0.1f,1.f));
-    if (ImGui::SmallButton("Spawns")) spawn_mode_ = true;
-    if (spawn_mode_) ImGui::PopStyleColor();
+    // Palette tab bar: Tiles | Spawns | Props
+    auto tab_btn = [&](const char* label, int idx, ImVec4 color) {
+        if (palette_tab_ == idx) ImGui::PushStyleColor(ImGuiCol_Button, color);
+        if (ImGui::SmallButton(label)) palette_tab_ = idx;
+        if (palette_tab_ == idx) ImGui::PopStyleColor();
+        ImGui::SameLine();
+    };
+    tab_btn("Tiles",  0, ImVec4(0.20f, 0.50f, 0.80f, 1.f));
+    tab_btn("Spawns", 1, ImVec4(0.70f, 0.40f, 0.10f, 1.f));
+    tab_btn("Props",  2, ImVec4(0.25f, 0.55f, 0.45f, 1.f));
+    ImGui::NewLine();
     ImGui::Separator();
 
-    if (spawn_mode_) { DrawSpawnPanel(); return; }
+    if (palette_tab_ == 1) { DrawSpawnPanel(); return; }
+    if (palette_tab_ == 2) { DrawPropsPanel(); return; }
 
     auto& r2d = md::flare::TileMap2DRenderer::Get();
     const auto& meta = map_.meta;
@@ -672,8 +742,10 @@ void MapViewPanel::Draw(float dt) {
             origin_x_ = mx - (mx - origin_x_) * (scale_ / os);
             origin_y_ = my - (my - origin_y_) * (scale_ / os);
         }
-        if (spawn_mode_) {
+        if (palette_tab_ == 1) {
             SpawnInteract(mx, my);
+        } else if (palette_tab_ == 2) {
+            PropsInteract(mx, my);
         } else {
             // Paint / Flood fill: LMB (plain = brush, Shift = flood fill)
             bool shift = ImGui::GetIO().KeyShift;

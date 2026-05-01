@@ -100,17 +100,19 @@ private:
     void    PushUndo(const PaintOp& op);
     void    ClearHistory();
 
-    // M9.8 — spawn editor
-    bool spawn_mode_     = false;
+    // M9.8/M9.9 — palette tabs: 0=tiles, 1=spawns, 2=props
+    int  palette_tab_    = 0;
     int  sel_spawn_      = -1;
     bool spawn_dragging_ = false;
 
     void DrawPalette();
     void DrawSpawnPanel();
+    void DrawPropsPanel();
     void DrawSpawnMarkers(ImVec2 img_pos);
     bool PaintAt(float mx, float my);
     bool FloodFillAt(float mx, float my);
     void SpawnInteract(float mx, float my);
+    void PropsInteract(float mx, float my);
     const char* LayerName(int layer_idx) const;
 
     bool  init_ = false;
