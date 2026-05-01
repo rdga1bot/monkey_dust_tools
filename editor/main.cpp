@@ -86,28 +86,18 @@ int main(void) {
         ClearBackground({14, 18, 30, 255});
         rlImGuiBegin();
 
-        // Повноекранне вікно ImGui
+        // ── Main menu bar (outside editor window — avoids WindowPadding={0,0}) ──
         ImGuiIO& fio = ImGui::GetIO();
-        ImGui::SetNextWindowPos({0, 0});
-        ImGui::SetNextWindowSize(fio.DisplaySize);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
-        ImGui::Begin("##editor", nullptr,
-            ImGuiWindowFlags_NoTitleBar  | ImGuiWindowFlags_NoResize  |
-            ImGuiWindowFlags_NoMove      | ImGuiWindowFlags_NoScrollbar|
-            ImGuiWindowFlags_NoBringToFrontOnFocus |
-            ImGuiWindowFlags_MenuBar);
-        ImGui::PopStyleVar();
-
-        // ── Menu bar ──────────────────────────────────────
         static char s_open_path[256]   = "";
         static char s_saveas_path[256] = "";
         static bool s_open_modal       = false;
         static bool s_saveas_modal     = false;
 
-        if (ImGui::BeginMenuBar()) {
+        float menu_h = 0.0f;
+        if (ImGui::BeginMainMenuBar()) {
+            menu_h = ImGui::GetWindowSize().y;
             if (ImGui::BeginMenu("File")) {
                 if (ImGui::MenuItem("Open Map...")) {
-                    // Pre-fill with current path if available.
                     snprintf(s_open_path, sizeof(s_open_path), "%s",
                              MapViewPanel::Get().GetLoadPath());
                     s_open_modal = true;
@@ -132,16 +122,24 @@ int main(void) {
                 if (!has_map) ImGui::EndDisabled();
                 ImGui::EndMenu();
             }
-            ImGui::EndMenuBar();
+            ImGui::EndMainMenuBar();
         }
 
-        // Ctrl+S shortcut
+        // ── Editor window (starts below menu bar) ─────────
+        ImGui::SetNextWindowPos({0, menu_h});
+        ImGui::SetNextWindowSize({fio.DisplaySize.x, fio.DisplaySize.y - menu_h});
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
+        ImGui::Begin("##editor", nullptr,
+            ImGuiWindowFlags_NoTitleBar  | ImGuiWindowFlags_NoResize  |
+            ImGuiWindowFlags_NoMove      | ImGuiWindowFlags_NoScrollbar|
+            ImGuiWindowFlags_NoBringToFrontOnFocus);
+        ImGui::PopStyleVar();
+
+        // Ctrl+S
         if (ImGui::IsKeyDown(ImGuiKey_LeftCtrl) && ImGui::IsKeyPressed(ImGuiKey_S)) {
-            if (MapViewPanel::Get().IsLoaded()) {
-                if (MapViewPanel::Get().SaveCurrent()) {
-                    snprintf(status_msg, sizeof(status_msg), "Map saved.");
-                    status_timer = 3.0f;
-                }
+            if (MapViewPanel::Get().IsLoaded() && MapViewPanel::Get().SaveCurrent()) {
+                snprintf(status_msg, sizeof(status_msg), "Map saved.");
+                status_timer = 3.0f;
             }
         }
 
@@ -158,7 +156,7 @@ int main(void) {
                     snprintf(status_msg, sizeof(status_msg), "Loaded: %s", s_open_path);
                     status_timer = 3.0f;
                 } else {
-                    snprintf(status_msg, sizeof(status_msg), "Failed to load map.");
+                    snprintf(status_msg, sizeof(status_msg), "Failed to load.");
                     status_timer = 3.0f;
                 }
                 ImGui::CloseCurrentPopup();
