@@ -122,6 +122,13 @@ int main(void) {
                 if (!has_map) ImGui::EndDisabled();
                 ImGui::EndMenu();
             }
+            // Status message — right-aligned in menu bar
+            if (status_timer > 0.0f && status_msg[0] != '\0') {
+                float alpha = (status_timer > 1.0f) ? 1.0f : status_timer;
+                float msg_w = ImGui::CalcTextSize(status_msg).x + 16.0f;
+                ImGui::SetCursorPosX(ImGui::GetWindowWidth() - msg_w);
+                ImGui::TextColored({0.40f, 0.90f, 0.50f, alpha}, "%s", status_msg);
+            }
             ImGui::EndMainMenuBar();
         }
 
@@ -189,20 +196,8 @@ int main(void) {
             ImGui::EndPopup();
         }
 
-        // ── Top bar ───────────────────────────────────────
-        ImGui::SetCursorPos({10, 8});
-        if (EditorUI::font_bold) ImGui::PushFont(EditorUI::font_bold);
-        ImGui::Text("monkey_dust EDITOR");
-        if (EditorUI::font_bold) ImGui::PopFont();
-
-        // Status (праворуч у top bar)
-        if (status_timer > 0.0f && status_msg[0] != '\0') {
-            float alpha = (status_timer > 1.0f) ? 1.0f : status_timer;
-            ImGui::SameLine(fio.DisplaySize.x - 280);
-            ImGui::TextColored({0.40f, 0.90f, 0.50f, alpha}, "%s", status_msg);
-        }
-
-        ImGui::SetCursorPosX(0);
+        // ── Top separator ─────────────────────────────────
+        ImGui::SetCursorPos({0, 0});
         ImGui::Separator();
 
         // ── Tab bar ───────────────────────────────────────
