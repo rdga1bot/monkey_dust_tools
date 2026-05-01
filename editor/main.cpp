@@ -152,13 +152,14 @@ int main(void) {
 
         // ── Load Map modal ────────────────────────────────
         if (s_open_modal) { ImGui::OpenPopup("Load Map"); s_open_modal = false; }
-        ImGui::SetNextWindowSize({520, 110}, ImGuiCond_Always);
+        ImGui::SetNextWindowSize({520, 130}, ImGuiCond_Always);
         if (ImGui::BeginPopupModal("Load Map", nullptr, ImGuiWindowFlags_NoResize)) {
             ImGui::Text("Map path (relative to repo root):");
-            ImGui::SetNextItemWidth(-70);
+            ImGui::SetNextItemWidth(-1);
             ImGui::InputText("##opath", s_open_path, sizeof(s_open_path));
-            ImGui::SameLine();
-            if (ImGui::Button("Open", {60, 0})) {
+            float btn_w = 80.0f;
+            ImGui::SetCursorPosX(ImGui::GetContentRegionAvail().x - btn_w * 2 + ImGui::GetCursorPosX() - 4);
+            if (ImGui::Button("Open", {btn_w, 0})) {
                 if (MapViewPanel::Get().LoadMap(s_open_path)) {
                     snprintf(status_msg, sizeof(status_msg), "Loaded: %s", s_open_path);
                     status_timer = 3.0f;
@@ -169,19 +170,20 @@ int main(void) {
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
-            if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+            if (ImGui::Button("Cancel", {btn_w, 0})) ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
         }
 
         // ── Save Map As modal ─────────────────────────────
         if (s_saveas_modal) { ImGui::OpenPopup("Save Map As"); s_saveas_modal = false; }
-        ImGui::SetNextWindowSize({520, 110}, ImGuiCond_Always);
+        ImGui::SetNextWindowSize({520, 130}, ImGuiCond_Always);
         if (ImGui::BeginPopupModal("Save Map As", nullptr, ImGuiWindowFlags_NoResize)) {
             ImGui::Text("Save path (relative to repo root):");
-            ImGui::SetNextItemWidth(-70);
+            ImGui::SetNextItemWidth(-1);
             ImGui::InputText("##spath", s_saveas_path, sizeof(s_saveas_path));
-            ImGui::SameLine();
-            if (ImGui::Button("Save", {60, 0})) {
+            float btn_w2 = 80.0f;
+            ImGui::SetCursorPosX(ImGui::GetContentRegionAvail().x - btn_w2 * 2 + ImGui::GetCursorPosX() - 4);
+            if (ImGui::Button("Save", {btn_w2, 0})) {
                 if (MapViewPanel::Get().SaveTo(s_saveas_path)) {
                     snprintf(status_msg, sizeof(status_msg), "Saved: %s", s_saveas_path);
                     status_timer = 3.0f;
@@ -192,7 +194,7 @@ int main(void) {
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
-            if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+            if (ImGui::Button("Cancel", {btn_w2, 0})) ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
         }
 
