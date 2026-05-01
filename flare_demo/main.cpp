@@ -20,6 +20,7 @@
 #include <monkey_dust/flare/sprite_resolver.h>
 #include <monkey_dust/render/md_camera.h>
 #include "raylib.h"
+#include "rlgl.h"
 #include <cstdio>
 #include <cstring>
 #include <cmath>
@@ -231,10 +232,21 @@ int main(int argc, char** argv) {
         BeginDrawing();
         ClearBackground({ 20, 20, 30, 255 });
 
-        // 2D pixel-perfect tile map
+        // 2D pixel-perfect tile map.
+        // rlDrawRenderBatchActive() flushes Raylib's internal batch and resets
+        // its GL state tracking so DrawText/DrawFPS work correctly afterwards.
+        rlDrawRenderBatchActive();
         tmr2d.Render(rt.GetMap(), (float)GetTime(),
                      origin_x, origin_y, scale,
                      GetScreenWidth(), GetScreenHeight());
+        // Reset rlgl's texture slot cache: my renderer bound atlases to
+        // GL_TEXTURE0..3 via direct GL calls, bypassing rlgl's internal
+        // activeTextureId[] tracking.  rlEnableTexture(0) on slot 0 sets
+        // activeTextureId[0]=0, so the next Raylib DrawText call sees
+        // fontTexId != 0 → rebinds the font texture → correct rendering.
+        rlActiveTextureSlot(0);
+        rlEnableTexture(0);
+        rlDrawRenderBatchActive();
 
         // Billboard NPC spawns
         const float AW = (float)(br.AtlasWidth()  > 0 ? br.AtlasWidth()  : 2048);
