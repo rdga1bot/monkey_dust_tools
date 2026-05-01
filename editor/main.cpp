@@ -97,7 +97,7 @@ int main(void) {
         if (ImGui::BeginMainMenuBar()) {
             menu_h = ImGui::GetWindowSize().y;
             if (ImGui::BeginMenu("File")) {
-                if (ImGui::MenuItem("Open Map...")) {
+                if (ImGui::MenuItem("Load Map...")) {
                     snprintf(s_open_path, sizeof(s_open_path), "%s",
                              MapViewPanel::Get().GetLoadPath());
                     s_open_modal = true;
@@ -150,10 +150,10 @@ int main(void) {
             }
         }
 
-        // ── Open Map modal ────────────────────────────────
-        if (s_open_modal) { ImGui::OpenPopup("Open Map"); s_open_modal = false; }
+        // ── Load Map modal ────────────────────────────────
+        if (s_open_modal) { ImGui::OpenPopup("Load Map"); s_open_modal = false; }
         ImGui::SetNextWindowSize({520, 110}, ImGuiCond_Always);
-        if (ImGui::BeginPopupModal("Open Map", nullptr, ImGuiWindowFlags_NoResize)) {
+        if (ImGui::BeginPopupModal("Load Map", nullptr, ImGuiWindowFlags_NoResize)) {
             ImGui::Text("Map path (relative to repo root):");
             ImGui::SetNextItemWidth(-70);
             ImGui::InputText("##opath", s_open_path, sizeof(s_open_path));
