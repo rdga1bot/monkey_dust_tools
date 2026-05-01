@@ -36,6 +36,35 @@ void MapViewPanel::Shutdown() {
 
 // ── Map loading ───────────────────────────────────────────────────────────────
 
+bool MapViewPanel::NewMap(int width, int height, const char* tilesetdef) {
+    // Use currently loaded map path as base for mod/tilesetdef resolution.
+    // Fall back to the default goblin_camp path when no map is loaded yet.
+    const char* base = (path_buf_[0])
+        ? path_buf_
+        : "third_party/flare-game/mods/empyrean_campaign/maps/goblin_camp.txt";
+
+    md::flare::FlareMap tmp = {};
+    md::flare::InitEmptyFlareMap(base, width, height, tilesetdef, tmp);
+
+    map_    = tmp;
+    loaded_ = true;
+
+    sel_layer_ = 0;
+    for (int i = 0; i < tmp.layer_count; i++) {
+        if (tmp.layers[i].type == md::flare::LayerType::BACKGROUND) { sel_layer_ = i; break; }
+    }
+    snprintf(map_label_, sizeof(map_label_), "new_map");
+    sel_tile_id_ = (tmp.meta.count > 0) ? tmp.meta.entries[0].tile_id : 1;
+    erase_mode_  = false;
+
+    path_buf_[0] = '\0';   // no file path yet — user must Save As
+    save_buf_[0] = '\0';
+
+    md::flare::TileMap2DRenderer::Get().SetAtlases(map_);
+    need_reset_ = true;
+    return true;
+}
+
 bool MapViewPanel::SaveCurrent() {
     if (!loaded_ || !save_buf_[0]) return false;
     return md::flare::SaveFlareMap(save_buf_, map_);

@@ -88,15 +88,21 @@ int main(void) {
 
         // ── Main menu bar (outside editor window — avoids WindowPadding={0,0}) ──
         ImGuiIO& fio = ImGui::GetIO();
-        static char s_open_path[256]   = "";
-        static char s_saveas_path[256] = "";
-        static bool s_open_modal       = false;
-        static bool s_saveas_modal     = false;
+        static char s_open_path[256]    = "";
+        static char s_saveas_path[256]  = "";
+        static char s_new_tilesetdef[256] = "tilesetdefs/tileset_grassland.txt";
+        static int  s_new_w = 16, s_new_h = 16;
+        static bool s_open_modal        = false;
+        static bool s_saveas_modal      = false;
+        static bool s_new_modal         = false;
 
         float menu_h = 0.0f;
         if (ImGui::BeginMainMenuBar()) {
             menu_h = ImGui::GetWindowSize().y;
             if (ImGui::BeginMenu("File")) {
+                if (ImGui::MenuItem("New Map...")) {
+                    s_new_modal = true;
+                }
                 if (ImGui::MenuItem("Load Map...")) {
                     snprintf(s_open_path, sizeof(s_open_path), "%s",
                              MapViewPanel::Get().GetLoadPath());
@@ -171,6 +177,40 @@ int main(void) {
             }
             ImGui::SameLine();
             if (ImGui::Button("Cancel", {btn_w, 0})) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+
+        // ── New Map modal ─────────────────────────────────
+        if (s_new_modal) { ImGui::OpenPopup("New Map"); s_new_modal = false; }
+        ImGui::SetNextWindowSize({420, 170}, ImGuiCond_Always);
+        if (ImGui::BeginPopupModal("New Map", nullptr, ImGuiWindowFlags_NoResize)) {
+            ImGui::Text("Tilesetdef (relative to mod root):");
+            ImGui::SetNextItemWidth(-1);
+            ImGui::InputText("##ntsd", s_new_tilesetdef, sizeof(s_new_tilesetdef));
+            ImGui::Spacing();
+            ImGui::Text("Size:");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(64);
+            ImGui::InputInt("W##nw", &s_new_w, 0, 0);
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(64);
+            ImGui::InputInt("H##nh", &s_new_h, 0, 0);
+            if (s_new_w < 1)  s_new_w = 1;
+            if (s_new_h < 1)  s_new_h = 1;
+            if (s_new_w > 128) s_new_w = 128;
+            if (s_new_h > 128) s_new_h = 128;
+            ImGui::Spacing();
+            float nbtn_w = 80.0f;
+            ImGui::SetCursorPosX(ImGui::GetContentRegionAvail().x - nbtn_w * 2 + ImGui::GetCursorPosX() - 4);
+            if (ImGui::Button("Create", {nbtn_w, 0})) {
+                MapViewPanel::Get().NewMap(s_new_w, s_new_h, s_new_tilesetdef);
+                snprintf(status_msg, sizeof(status_msg),
+                         "New map %dx%d — use Save As to write.", s_new_w, s_new_h);
+                status_timer = 5.0f;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", {nbtn_w, 0})) ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
         }
 

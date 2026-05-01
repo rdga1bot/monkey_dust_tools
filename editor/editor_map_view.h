@@ -16,8 +16,9 @@ public:
     // Call inside the "Map" ImGui tab.
     void Draw(float dt);
 
-    // Load/Save — called from menu bar in main.cpp.
+    // Load/Save/New — called from menu bar in main.cpp.
     bool        LoadMap(const char* path);
+    bool        NewMap(int width, int height, const char* tilesetdef);
     bool        SaveCurrent();           // save to last loaded/saved path
     bool        SaveTo(const char* path);
 
