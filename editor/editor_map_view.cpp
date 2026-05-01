@@ -1,6 +1,7 @@
 #include "editor_map_view.h"
 #include "rlgl.h"
 #include <monkey_dust/flare/tile_map.h>
+#include <monkey_dust/render/md_texture.h>
 #include <cstdio>
 #include <cstring>
 #include <cmath>
@@ -21,7 +22,6 @@ void MapViewPanel::EnsureRT(int w, int h) {
 void MapViewPanel::Init() {
     if (init_) return;
     md::flare::TileMap2DRenderer::Get().Init();
-    // Load default map immediately so the tab isn't blank on first open.
     LoadMap(path_buf_, mods_buf_);
     init_ = true;
 }
@@ -43,16 +43,16 @@ bool MapViewPanel::LoadMap(const char* map_txt_path, const char* /*mods_root*/) 
     }
     map_    = tmp;
     loaded_ = true;
+    sel_layer_ = 0;
 
-    // Extract label from path for status display.
     const char* slash = strrchr(map_txt_path, '/');
     const char* name  = slash ? slash + 1 : map_txt_path;
     snprintf(map_label_, sizeof(map_label_), "%s", name);
-    // Strip ".txt"
     char* dot = strrchr(map_label_, '.');
     if (dot) *dot = '\0';
 
     md::flare::TileMap2DRenderer::Get().SetAtlases(map_);
+    need_reset_ = true;
     return true;
 }
 
@@ -63,11 +63,101 @@ void MapViewPanel::ResetView(int vp_w, int vp_h) {
     float map_scr_w = (float)(map_.width  + map_.height) * 96.0f;
     float map_scr_h = (float)(map_.width  + map_.height) * 48.0f;
     scale_ = fminf((float)vp_w / map_scr_w, (float)vp_h / map_scr_h) * 0.82f;
-    // Center: for square map, tile(0,0) anchor is at screen (mh*96, 0).
     float cx = (float)(map_.width  - map_.height) * 48.0f;
     float cy = (float)(map_.width  + map_.height) * 24.0f;
     origin_x_ = (float)vp_w * 0.5f - cx * scale_;
     origin_y_ = (float)vp_h * 0.5f - cy * scale_;
+}
+
+// ── Layer name helper ─────────────────────────────────────────────────────────
+
+const char* MapViewPanel::LayerName(int idx) const {
+    if (idx < 0 || idx >= map_.layer_count) return "?";
+    switch (map_.layers[idx].type) {
+        case md::flare::LayerType::BACKGROUND: return "Background";
+        case md::flare::LayerType::FRINGE:     return "Fringe";
+        case md::flare::LayerType::OBJECT:     return "Object";
+        case md::flare::LayerType::COLLISION:  return "Collision";
+        default:                               return "Unknown";
+    }
+}
+
+// ── Paint at mouse position ───────────────────────────────────────────────────
+
+bool MapViewPanel::PaintAt(float mx, float my) {
+    if (!loaded_) return false;
+    float sx = (mx - origin_x_) / scale_;
+    float sy = (my - origin_y_) / scale_;
+    float cr = sx / 96.0f;
+    float cs = sy / 48.0f;
+    int col = (int)roundf((cr + cs) * 0.5f);
+    int row = (int)roundf((cs - cr) * 0.5f);
+    if (col < 0 || col >= map_.width || row < 0 || row >= map_.height) return false;
+    if (sel_layer_ < 0 || sel_layer_ >= map_.layer_count) return false;
+
+    uint16_t new_val = erase_mode_ ? 0 : sel_tile_id_;
+    uint16_t& cell = map_.layers[sel_layer_].tiles[
+        row * md::flare::MAX_MAP_WIDTH + col];
+    if (cell == new_val) return false;
+    cell = new_val;
+    return true;
+}
+
+// ── Palette panel ─────────────────────────────────────────────────────────────
+
+void MapViewPanel::DrawPalette() {
+    if (!loaded_) {
+        ImGui::TextDisabled("Load a map");
+        ImGui::TextDisabled("to see tiles");
+        return;
+    }
+
+    auto& r2d = md::flare::TileMap2DRenderer::Get();
+    const auto& meta = map_.meta;
+    ImGui::TextDisabled("%d tiles", meta.count);
+    ImGui::Separator();
+
+    const float THUMB = 32.0f;
+
+    for (int i = 0; i < meta.count; i++) {
+        const auto& m = meta.entries[i];
+        MdTexture atlas = r2d.GetAtlas(m.atlas_idx);
+        if (!atlas.id || atlas.w <= 0 || atlas.h <= 0) continue;
+
+        float dim   = fmaxf((float)m.h, (float)m.w);
+        float scale = THUMB / dim;
+        float tw    = (float)m.w * scale;
+        float th    = (float)m.h * scale;
+
+        // UV: stbi flip active → v_gl = 1 - y_file/H
+        float u0 = (float)m.src_x / (float)atlas.w;
+        float v0 = 1.0f - (float)m.src_y / (float)atlas.h;
+        float u1 = (float)(m.src_x + m.w) / (float)atlas.w;
+        float v1 = 1.0f - (float)(m.src_y + m.h) / (float)atlas.h;
+
+        bool sel = !erase_mode_ && (m.tile_id == sel_tile_id_);
+        if (sel) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.55f, 0.2f, 1.0f));
+
+        ImGui::PushID(i);
+        if (ImGui::ImageButton("##t",
+                               (ImTextureID)(intptr_t)atlas.id,
+                               ImVec2(tw, th),
+                               ImVec2(u0, v0), ImVec2(u1, v1))) {
+            sel_tile_id_ = m.tile_id;
+            erase_mode_  = false;
+        }
+        ImGui::PopID();
+
+        if (sel) ImGui::PopStyleColor();
+
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Tile %d\n%dx%d  atlas[%d]",
+                              m.tile_id, m.w, m.h, m.atlas_idx);
+
+        ImGui::SameLine();
+        if (sel) ImGui::TextColored({0.3f, 0.9f, 0.4f, 1.0f}, "T%d", m.tile_id);
+        else     ImGui::TextDisabled("T%d", m.tile_id);
+    }
 }
 
 // ── Draw ──────────────────────────────────────────────────────────────────────
@@ -75,39 +165,72 @@ void MapViewPanel::ResetView(int vp_w, int vp_h) {
 void MapViewPanel::Draw(float dt) {
     (void)dt;
 
-    // ── Toolbar ───────────────────────────────────────────────────────────────
-    ImGui::SetNextItemWidth(360);
+    // ── Toolbar row 1: path + load ────────────────────────────────────────────
+    ImGui::SetNextItemWidth(340);
     ImGui::InputText("##mappath", path_buf_, sizeof(path_buf_));
     ImGui::SameLine();
     if (ImGui::Button("Load")) {
-        if (LoadMap(path_buf_, mods_buf_)) {
-            // view will be reset below after vp size is known
-            rt_w_ = rt_h_ = 0;  // force RT resize to trigger ResetView
-        }
+        LoadMap(path_buf_, mods_buf_);
     }
     ImGui::SameLine();
-    if (loaded_) {
+    if (loaded_)
         ImGui::TextColored({0.5f, 1.0f, 0.6f, 1.0f}, "%s  (%dx%d)",
                            map_label_, map_.width, map_.height);
-    } else {
+    else
         ImGui::TextDisabled("no map loaded");
+    ImGui::SameLine(ImGui::GetContentRegionAvail().x + ImGui::GetCursorPosX() - 60);
+    if (ImGui::Button("Reset##view")) need_reset_ = true;
+
+    // ── Toolbar row 2: layer + erase + hint ──────────────────────────────────
+    if (loaded_) {
+        ImGui::SetNextItemWidth(110);
+        if (ImGui::BeginCombo("Layer##sel", LayerName(sel_layer_))) {
+            for (int i = 0; i < map_.layer_count; i++) {
+                bool is_sel = (i == sel_layer_);
+                if (ImGui::Selectable(LayerName(i), is_sel)) sel_layer_ = i;
+                if (is_sel) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine();
+        if (erase_mode_) {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.2f, 0.1f, 1.0f));
+            if (ImGui::Button("[Erase]")) erase_mode_ = false;
+            ImGui::PopStyleColor();
+        } else {
+            if (ImGui::Button(" Erase ")) erase_mode_ = true;
+        }
+        ImGui::SameLine();
+        if (erase_mode_)
+            ImGui::TextColored({1.0f, 0.5f, 0.3f, 1.0f}, "erase mode  RMB/MMB=erase");
+        else
+            ImGui::Text("tile %d   RMB=paint   MMB=erase", sel_tile_id_);
     }
-    ImGui::SameLine(ImGui::GetContentRegionAvail().x - 60);
-    if (ImGui::Button("Reset##view")) { rt_w_ = rt_h_ = 0; }
     ImGui::Separator();
 
-    // ── Viewport size ─────────────────────────────────────────────────────────
-    ImVec2 avail = ImGui::GetContentRegionAvail();
-    int vp_w = (int)avail.x;
-    int vp_h = (int)avail.y - 20;  // leave room for status bar
+    // ── Content split: palette (left) + map viewport (right) ─────────────────
+    ImVec2 avail   = ImGui::GetContentRegionAvail();
+    int content_h  = (int)avail.y - 22;
+    if (content_h < 64) content_h = 64;
+
+    int vp_w = (int)(avail.x - PALETTE_W - 8);
+    int vp_h = content_h;
     if (vp_w < 64) vp_w = 64;
-    if (vp_h < 64) vp_h = 64;
 
-    bool first_load = (rt_w_ != vp_w || rt_h_ != vp_h);
+    // Left: palette
+    ImGui::BeginChild("##pal_panel", ImVec2(PALETTE_W, (float)content_h), true);
+    DrawPalette();
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    // Right: map viewport
+    ImGui::BeginChild("##map_vp", ImVec2((float)vp_w, (float)vp_h), false);
+    ImVec2 img_pos = ImGui::GetCursorScreenPos();
+
     EnsureRT(vp_w, vp_h);
-    if (first_load) ResetView(vp_w, vp_h);
+    if (need_reset_) { ResetView(vp_w, vp_h); need_reset_ = false; }
 
-    // ── Render map to FBO ─────────────────────────────────────────────────────
     if (loaded_ && rt_ok_) {
         BeginTextureMode(rt_);
         ClearBackground({20, 20, 30, 255});
@@ -115,66 +238,68 @@ void MapViewPanel::Draw(float dt) {
             map_, (float)GetTime(),
             origin_x_, origin_y_, scale_,
             vp_w, vp_h);
-        // Restore GL state so Raylib/rlImGui work after our renderer.
         rlActiveTextureSlot(0);
         rlEnableTexture(0);
         EndTextureMode();
     }
 
-    // ── ImGui image ───────────────────────────────────────────────────────────
-    ImVec2 img_pos = ImGui::GetCursorScreenPos();
     ImGui::Image(
         (ImTextureID)(intptr_t)(rt_ok_ ? rt_.texture.id : 0),
         ImVec2((float)vp_w, (float)vp_h),
-        ImVec2(0, 1), ImVec2(1, 0)   // flip Y: OpenGL FBO is bottom-up
-    );
+        ImVec2(0, 1), ImVec2(1, 0));
 
-    // ── Input inside viewport ─────────────────────────────────────────────────
     bool hovered = ImGui::IsItemHovered();
-
-    // Mouse position relative to viewport
     ImVec2 mouse_abs = ImGui::GetIO().MousePos;
     float  mx = mouse_abs.x - img_pos.x;
     float  my = mouse_abs.y - img_pos.y;
 
     if (hovered) {
-        // Pan: left mouse drag
+        // Pan: left drag
         if (ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f)) {
-            ImVec2 delta = ImGui::GetIO().MouseDelta;
-            origin_x_ += delta.x;
-            origin_y_ += delta.y;
+            ImVec2 d = ImGui::GetIO().MouseDelta;
+            origin_x_ += d.x;
+            origin_y_ += d.y;
         }
-
-        // Zoom: scroll wheel, anchored to mouse position
+        // Zoom: scroll, anchored to cursor
         float scroll = ImGui::GetIO().MouseWheel;
         if (scroll != 0.0f) {
-            float old_scale = scale_;
-            if (scroll > 0) scale_ = fminf(scale_ * 1.15f, 8.0f);
-            else            scale_ = fmaxf(scale_ * 0.87f, 0.01f);
-            // Zoom toward mouse cursor
-            origin_x_ = mx - (mx - origin_x_) * (scale_ / old_scale);
-            origin_y_ = my - (my - origin_y_) * (scale_ / old_scale);
+            float os = scale_;
+            scale_ = (scroll > 0) ? fminf(scale_ * 1.15f, 8.0f)
+                                   : fmaxf(scale_ * 0.87f, 0.01f);
+            origin_x_ = mx - (mx - origin_x_) * (scale_ / os);
+            origin_y_ = my - (my - origin_y_) * (scale_ / os);
+        }
+        // Paint: right button
+        if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
+            bool prev = erase_mode_;
+            PaintAt(mx, my);
+            erase_mode_ = prev;
+        }
+        // Erase: middle button
+        if (ImGui::IsMouseDown(ImGuiMouseButton_Middle)) {
+            bool prev = erase_mode_;
+            erase_mode_ = true;
+            PaintAt(mx, my);
+            erase_mode_ = prev;
         }
     }
 
+    ImGui::EndChild();
+
     // ── Status bar ────────────────────────────────────────────────────────────
-    // Convert mouse → tile coords using inverse Flare formula.
     int tile_col = -1, tile_row = -1;
-    if (hovered && loaded_) {
-        // Invert: screen_x = (col-row)*96*s + ox, screen_y = (col+row)*48*s + oy
-        float sx = (mx - origin_x_) / scale_;   // screen_x in atlas pixels
-        float sy = (my - origin_y_) / scale_;   // screen_y in atlas pixels
-        // col - row = sx / 96, col + row = sy / 48
+    if (loaded_) {
+        float sx = (mx - origin_x_) / scale_;
+        float sy = (my - origin_y_) / scale_;
         float cr = sx / 96.0f;
         float cs = sy / 48.0f;
         tile_col = (int)roundf((cr + cs) * 0.5f);
         tile_row = (int)roundf((cs - cr) * 0.5f);
     }
-
     if (hovered && tile_col >= 0 && tile_row >= 0 &&
-        tile_col < map_.width && tile_row < map_.height) {
-        ImGui::Text("Tile (%d, %d)   Scale: %.2f", tile_col, tile_row, scale_);
-    } else {
-        ImGui::Text("WASD or drag=pan   Scroll=zoom   Reset button=fit");
-    }
+        tile_col < map_.width && tile_row < map_.height)
+        ImGui::Text("Tile (%d, %d)   Scale %.2f   Layer: %s",
+                    tile_col, tile_row, scale_, LayerName(sel_layer_));
+    else
+        ImGui::TextDisabled("LMB=pan   Scroll=zoom   RMB=paint   MMB=erase");
 }
