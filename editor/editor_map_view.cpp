@@ -56,16 +56,28 @@ void MapViewPanel::PushUndo(const PaintOp& op) {
 void MapViewPanel::Undo() {
     if (undo_top_ == 0 || !loaded_) return;
     PaintOp op = undo_stack_[--undo_top_];
-    for (int i = 0; i < op.count; i++)
-        map_.layers[op.layer].tiles[op.cells[i].row * md::flare::MAX_MAP_WIDTH + op.cells[i].col] = op.cells[i].old_val;
+    if (op.type == OpType::FLOOD) {
+        auto& s = snap_pool_[op.count];
+        for (int i = 0; i < map_.width * map_.height; i++)
+            map_.layers[op.layer].tiles[i] = s.before[i];
+    } else {
+        for (int i = 0; i < op.count; i++)
+            map_.layers[op.layer].tiles[op.cells[i].row * md::flare::MAX_MAP_WIDTH + op.cells[i].col] = op.cells[i].old_val;
+    }
     if (redo_top_ < UNDO_MAX) redo_stack_[redo_top_++] = op;
 }
 
 void MapViewPanel::Redo() {
     if (redo_top_ == 0 || !loaded_) return;
     PaintOp op = redo_stack_[--redo_top_];
-    for (int i = 0; i < op.count; i++)
-        map_.layers[op.layer].tiles[op.cells[i].row * md::flare::MAX_MAP_WIDTH + op.cells[i].col] = op.cells[i].new_val;
+    if (op.type == OpType::FLOOD) {
+        auto& s = snap_pool_[op.count];
+        for (int i = 0; i < map_.width * map_.height; i++)
+            map_.layers[op.layer].tiles[i] = s.after[i];
+    } else {
+        for (int i = 0; i < op.count; i++)
+            map_.layers[op.layer].tiles[op.cells[i].row * md::flare::MAX_MAP_WIDTH + op.cells[i].col] = op.cells[i].new_val;
+    }
     if (undo_top_ < UNDO_MAX) undo_stack_[undo_top_++] = op;
 }
 
@@ -213,6 +225,75 @@ bool MapViewPanel::PaintAt(float mx, float my) {
     return true;
 }
 
+// ── Flood fill (Shift+LMB) ───────────────────────────────────────────────────
+
+bool MapViewPanel::FloodFillAt(float mx, float my) {
+    if (!loaded_) return false;
+    if (sel_layer_ < 0 || sel_layer_ >= map_.layer_count) return false;
+
+    float sx = (mx - origin_x_) / scale_;
+    float sy = (my - origin_y_) / scale_;
+    int sc = (int)roundf((sx / 96.0f + sy / 48.0f) * 0.5f);
+    int sr = (int)roundf((sy / 48.0f - sx / 96.0f) * 0.5f);
+    if (sc < 0 || sc >= map_.width || sr < 0 || sr >= map_.height) return false;
+
+    uint16_t new_val = erase_mode_ ? 0 : sel_tile_id_;
+    if (new_val != 0 && !map_.meta.Find(new_val)) return false;
+
+    uint16_t* tiles   = map_.layers[sel_layer_].tiles;
+    int        stride = md::flare::MAX_MAP_WIDTH;
+    uint16_t   target = tiles[sr * stride + sc];
+    if (target == new_val) return false;
+
+    // Snapshot before state
+    int si = snap_next_ % SNAP_MAX;
+    snap_next_++;
+    auto& snap = snap_pool_[si];
+    for (int i = 0; i < map_.width * map_.height; i++)
+        snap.before[i] = tiles[i];  // copy only live area via row*stride+col below
+
+    // BFS flood fill using static queue/visited (singleton — no concurrent use)
+    static bool    visited[md::flare::MAX_MAP_WIDTH * md::flare::MAX_MAP_HEIGHT];
+    static struct  { int16_t c, r; }
+                   queue[md::flare::MAX_MAP_WIDTH * md::flare::MAX_MAP_HEIGHT];
+
+    // Clear only the live area
+    for (int r = 0; r < map_.height; r++)
+        for (int c = 0; c < map_.width; c++)
+            visited[r * stride + c] = false;
+
+    int qhead = 0, qtail = 0;
+    visited[sr * stride + sc] = true;
+    queue[qtail++] = {(int16_t)sc, (int16_t)sr};
+
+    const int dr[] = {-1, 1, 0, 0};
+    const int dc[] = {0, 0, -1, 1};
+
+    while (qhead < qtail) {
+        auto [c, r] = queue[qhead++];
+        tiles[r * stride + c] = new_val;
+        for (int d = 0; d < 4; d++) {
+            int nc = c + dc[d], nr = r + dr[d];
+            if (nc < 0 || nc >= map_.width || nr < 0 || nr >= map_.height) continue;
+            if (visited[nr * stride + nc]) continue;
+            if (tiles[nr * stride + nc] != target) continue;
+            visited[nr * stride + nc] = true;
+            queue[qtail++] = {(int16_t)nc, (int16_t)nr};
+        }
+    }
+
+    // Snapshot after state
+    for (int i = 0; i < map_.width * map_.height; i++)
+        snap.after[i] = tiles[i];
+
+    PaintOp op;
+    op.type  = OpType::FLOOD;
+    op.layer = sel_layer_;
+    op.count = si;
+    PushUndo(op);
+    return true;
+}
+
 // ── Palette panel ─────────────────────────────────────────────────────────────
 
 void MapViewPanel::DrawPalette() {
@@ -325,9 +406,9 @@ void MapViewPanel::Draw(float dt) {
         }
         ImGui::SameLine();
         if (erase_mode_)
-            ImGui::TextColored({1.0f, 0.5f, 0.3f, 1.0f}, "erase mode  LMB=erase");
+            ImGui::TextColored({1.0f, 0.5f, 0.3f, 1.0f}, "erase mode  LMB=erase  Shift+LMB=fill");
         else
-            ImGui::Text("tile %d   LMB=paint   RMB/MMB=pan", sel_tile_id_);
+            ImGui::Text("tile %d   LMB=paint  Shift+LMB=fill  RMB/MMB=pan", sel_tile_id_);
     }
     ImGui::Separator();
 
@@ -397,8 +478,11 @@ void MapViewPanel::Draw(float dt) {
             origin_x_ = mx - (mx - origin_x_) * (scale_ / os);
             origin_y_ = my - (my - origin_y_) * (scale_ / os);
         }
-        // Paint: left click/drag
-        if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+        // Paint / Flood fill: LMB (plain = brush, Shift = flood fill)
+        bool shift = ImGui::GetIO().KeyShift;
+        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && shift) {
+            FloodFillAt(mx, my);
+        } else if (ImGui::IsMouseDown(ImGuiMouseButton_Left) && !shift) {
             PaintAt(mx, my);
         }
     }
@@ -420,5 +504,5 @@ void MapViewPanel::Draw(float dt) {
         ImGui::Text("Tile (%d, %d)   Scale %.2f   Layer: %s",
                     tile_col, tile_row, scale_, LayerName(sel_layer_));
     else
-        ImGui::TextDisabled("LMB=paint   RMB/MMB=pan   Scroll=zoom");
+        ImGui::TextDisabled("LMB=paint  Shift+LMB=fill  RMB/MMB=pan  Scroll=zoom");
 }

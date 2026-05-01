@@ -3,7 +3,7 @@
 #include <monkey_dust/flare/tile_map.h>
 #include <monkey_dust/flare/tile_map_2d_renderer.h>
 
-// M9.0/M9.1/M9.2 — Map View Panel.
+// M9.0–M9.6 — Map View Panel.
 // Load/Save operations are handled by the caller (main.cpp menu bar).
 // This panel owns only the viewport + palette + paint tool.
 class MapViewPanel {
@@ -32,15 +32,27 @@ public:
     bool CanRedo() const { return redo_top_ > 0; }
 
 private:
-    static constexpr float PALETTE_W  = 164.0f;
-    static constexpr int   UNDO_MAX   = 256;
-    static constexpr int   BRUSH_CELLS = 25; // max 5×5
+    static constexpr float PALETTE_W   = 164.0f;
+    static constexpr int   UNDO_MAX    = 256;
+    static constexpr int   BRUSH_CELLS = 25;   // max 5×5
+    static constexpr int   SNAP_MAX    = 8;    // flood-fill snapshots
 
-    // One undo entry covers all cells changed by a single PaintAt() call (entire brush).
+    enum class OpType : uint8_t { BRUSH, FLOOD };
+
+    // Brush op: count cells changed by one PaintAt() call.
+    // Flood op: count = index into snap_pool_.
     struct PaintOp {
-        int   layer;
-        int   count;  // 1..BRUSH_CELLS
+        OpType   type  = OpType::BRUSH;
+        int      layer = 0;
+        int      count = 0;
         struct Cell { int16_t row, col; uint16_t old_val, new_val; } cells[BRUSH_CELLS];
+    };
+
+    // Snapshot of one layer before/after a flood fill.
+    // 8 snapshots × 64 KB = 512 KB total; stored in BSS (singleton).
+    struct FloodSnap {
+        uint16_t before[md::flare::MAX_MAP_WIDTH * md::flare::MAX_MAP_HEIGHT];
+        uint16_t after[md::flare::MAX_MAP_WIDTH * md::flare::MAX_MAP_HEIGHT];
     };
 
     // FBO
@@ -70,16 +82,20 @@ private:
     bool     erase_mode_  = false;
     int      brush_size_  = 1;   // 1, 3, or 5
 
-    // Undo/Redo stacks (simple arrays, newest at top)
-    PaintOp undo_stack_[UNDO_MAX] = {};
-    int     undo_top_ = 0;
-    PaintOp redo_stack_[UNDO_MAX] = {};
-    int     redo_top_ = 0;
+    // Undo/Redo
+    PaintOp   undo_stack_[UNDO_MAX] = {};
+    int       undo_top_ = 0;
+    PaintOp   redo_stack_[UNDO_MAX] = {};
+    int       redo_top_ = 0;
+    FloodSnap snap_pool_[SNAP_MAX]  = {};
+    int       snap_next_ = 0;   // circular slot allocator
+
     void    PushUndo(const PaintOp& op);
     void    ClearHistory();
 
     void        DrawPalette();
     bool        PaintAt(float mx, float my);
+    bool        FloodFillAt(float mx, float my);
     const char* LayerName(int layer_idx) const;
 
     bool  init_ = false;
