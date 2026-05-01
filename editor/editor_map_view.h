@@ -1,5 +1,6 @@
 #pragma once
 #include "raylib.h"
+#include "imgui.h"
 #include <monkey_dust/flare/tile_map.h>
 #include <monkey_dust/flare/tile_map_2d_renderer.h>
 
@@ -99,9 +100,17 @@ private:
     void    PushUndo(const PaintOp& op);
     void    ClearHistory();
 
-    void        DrawPalette();
-    bool        PaintAt(float mx, float my);
-    bool        FloodFillAt(float mx, float my);
+    // M9.8 — spawn editor
+    bool spawn_mode_     = false;
+    int  sel_spawn_      = -1;
+    bool spawn_dragging_ = false;
+
+    void DrawPalette();
+    void DrawSpawnPanel();
+    void DrawSpawnMarkers(ImVec2 img_pos);
+    bool PaintAt(float mx, float my);
+    bool FloodFillAt(float mx, float my);
+    void SpawnInteract(float mx, float my);
     const char* LayerName(int layer_idx) const;
 
     bool  init_ = false;
