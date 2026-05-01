@@ -109,6 +109,8 @@ private:
     void DrawSpawnPanel();
     void DrawPropsPanel();
     void DrawSpawnMarkers(ImVec2 img_pos);
+    // Returns true if the minimap captured the mouse (suppress paint/spawn).
+    bool DrawMinimap(ImVec2 img_pos, int vp_w, int vp_h);
     bool PaintAt(float mx, float my);
     bool FloodFillAt(float mx, float my);
     void SpawnInteract(float mx, float my);

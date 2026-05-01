@@ -531,6 +531,98 @@ void MapViewPanel::PropsInteract(float mx, float my) {
     }
 }
 
+// ── Minimap (M9.10) ──────────────────────────────────────────────────────────
+
+bool MapViewPanel::DrawMinimap(ImVec2 img_pos, int vp_w, int vp_h) {
+    if (!loaded_) return false;
+
+    // Scale: fit map into at most 160×100 pixels
+    const float MM_MAX_W = 160.0f, MM_MAX_H = 100.0f;
+    float tile_px = fminf(MM_MAX_W / (float)map_.width, MM_MAX_H / (float)map_.height);
+    if (tile_px < 0.5f) tile_px = 0.5f;
+    float mm_w = map_.width  * tile_px;
+    float mm_h = map_.height * tile_px;
+
+    // Top-right corner of viewport
+    float mm_x = img_pos.x + vp_w - mm_w - 4.0f;
+    float mm_y = img_pos.y + 4.0f;
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    // Semi-transparent background + border
+    dl->AddRectFilled({mm_x - 1, mm_y - 1}, {mm_x + mm_w + 1, mm_y + mm_h + 1},
+                      IM_COL32(8, 10, 18, 210));
+    dl->AddRect({mm_x - 1, mm_y - 1}, {mm_x + mm_w + 1, mm_y + mm_h + 1},
+                IM_COL32(70, 75, 100, 220));
+
+    using LT = md::flare::LayerType;
+
+    // Draw tiles: sample topmost visible non-empty layer
+    for (int r = 0; r < map_.height; r++) {
+        for (int c = 0; c < map_.width; c++) {
+            ImU32 col = IM_COL32(20, 22, 32, 255);
+            for (int li = map_.layer_count - 1; li >= 0; li--) {
+                if (!layer_visible_[li]) continue;
+                int tid = map_.layers[li].tiles[r * md::flare::MAX_MAP_WIDTH + c];
+                if (tid == 0) continue;
+                switch (map_.layers[li].type) {
+                    case LT::BACKGROUND: col = IM_COL32(35, 130, 45, 255); break;
+                    case LT::FRINGE:     col = IM_COL32(18,  80, 22, 255); break;
+                    case LT::OBJECT:     col = IM_COL32(90,  90, 90, 255); break;
+                    case LT::COLLISION:  col = IM_COL32(160, 25, 25, 255); break;
+                    default: break;
+                }
+                break;
+            }
+            float px = mm_x + c * tile_px;
+            float py = mm_y + r * tile_px;
+            float sz = (tile_px >= 2.0f) ? tile_px - 0.5f : tile_px;
+            dl->AddRectFilled({px, py}, {px + sz, py + sz}, col);
+        }
+    }
+
+    // Hero spawn marker
+    dl->AddCircleFilled(
+        {mm_x + map_.hero_x * tile_px, mm_y + map_.hero_y * tile_px},
+        fmaxf(2.0f, tile_px), IM_COL32(50, 180, 255, 255));
+
+    // Enemy spawn markers
+    for (int i = 0; i < map_.spawn_count; i++) {
+        dl->AddCircleFilled(
+            {mm_x + map_.spawns[i].center_x * tile_px,
+             mm_y + map_.spawns[i].center_y * tile_px},
+            fmaxf(1.5f, tile_px * 0.7f), IM_COL32(255, 70, 50, 230));
+    }
+
+    // Viewport diamond: project 4 screen corners → tile space → minimap
+    auto s2t = [&](float sx, float sy, float& tc, float& tr) {
+        float lx = (sx - origin_x_) / scale_;
+        float ly = (sy - origin_y_) / scale_;
+        float cr = lx / 96.0f, cs = ly / 48.0f;
+        tc = (cr + cs) * 0.5f;
+        tr = (cs - cr) * 0.5f;
+    };
+    ImVec2 pts[4];
+    float tc, tr;
+    s2t(0.0f,   0.0f,   tc, tr); pts[0] = {mm_x + tc*tile_px, mm_y + tr*tile_px};
+    s2t((float)vp_w, 0.0f,   tc, tr); pts[1] = {mm_x + tc*tile_px, mm_y + tr*tile_px};
+    s2t((float)vp_w, (float)vp_h, tc, tr); pts[2] = {mm_x + tc*tile_px, mm_y + tr*tile_px};
+    s2t(0.0f,   (float)vp_h, tc, tr); pts[3] = {mm_x + tc*tile_px, mm_y + tr*tile_px};
+    dl->AddQuad(pts[0], pts[1], pts[2], pts[3], IM_COL32(255, 255, 255, 200), 1.0f);
+
+    // Click minimap → pan viewport so clicked tile is centered
+    ImVec2 mp = ImGui::GetIO().MousePos;
+    bool over = (mp.x >= mm_x && mp.x <= mm_x + mm_w &&
+                 mp.y >= mm_y && mp.y <= mm_y + mm_h);
+    if (over && ImGui::IsWindowHovered() && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+        float clicked_c = (mp.x - mm_x) / tile_px;
+        float clicked_r = (mp.y - mm_y) / tile_px;
+        origin_x_ = vp_w * 0.5f - (clicked_c - clicked_r) * 96.0f * scale_;
+        origin_y_ = vp_h * 0.5f - (clicked_c + clicked_r) * 48.0f * scale_;
+    }
+    return over;
+}
+
 // ── Palette panel ─────────────────────────────────────────────────────────────
 
 void MapViewPanel::DrawPalette() {
@@ -721,7 +813,11 @@ void MapViewPanel::Draw(float dt) {
     float  mx = mouse_abs.x - img_pos.x;
     float  my = mouse_abs.y - img_pos.y;
 
-    if (hovered) {
+    // Overlay markers (drawn before interaction so minimap is on top)
+    DrawSpawnMarkers(img_pos);
+    bool mm_captured = DrawMinimap(img_pos, vp_w, vp_h);
+
+    if (hovered && !mm_captured) {
         // Pan: right drag (or middle drag)
         if (ImGui::IsMouseDragging(ImGuiMouseButton_Right, 0.0f)) {
             ImVec2 d = ImGui::GetIO().MouseDelta;
@@ -756,9 +852,6 @@ void MapViewPanel::Draw(float dt) {
             }
         }
     }
-
-    // Spawn markers drawn on top of map image (always visible)
-    DrawSpawnMarkers(img_pos);
 
     ImGui::EndChild();
 
