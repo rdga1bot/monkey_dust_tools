@@ -43,6 +43,9 @@ private:
     // Input path buffer
     char path_buf_[256] = "third_party/flare-game/mods/empyrean_campaign/maps/goblin_camp.txt";
     char mods_buf_[256] = "third_party/flare-game/mods";
+    char save_buf_[256] = "";
+    char status_msg_[128] = "";
+    float status_timer_   = 0.0f;
 
     // M9.1 — palette + paint
     uint16_t sel_tile_id_ = 1;

@@ -60,9 +60,10 @@ bool MapViewPanel::LoadMap(const char* map_txt_path, const char* /*mods_root*/) 
     if (dot) *dot = '\0';
 
     md::flare::TileMap2DRenderer::Get().SetAtlases(map_);
-    // Select first valid tile so default paint doesn't produce invisible tiles.
     if (map_.meta.count > 0)
         sel_tile_id_ = map_.meta.entries[0].tile_id;
+    // Default save path = load path (user can edit before saving).
+    snprintf(save_buf_, sizeof(save_buf_), "%s", map_txt_path);
     need_reset_ = true;
     return true;
 }
@@ -182,7 +183,7 @@ void MapViewPanel::DrawPalette() {
 // ── Draw ──────────────────────────────────────────────────────────────────────
 
 void MapViewPanel::Draw(float dt) {
-    (void)dt;
+    if (status_timer_ > 0.0f) status_timer_ -= dt;
 
     // ── Toolbar row 1: path + load ────────────────────────────────────────────
     ImGui::SetNextItemWidth(340);
@@ -200,7 +201,29 @@ void MapViewPanel::Draw(float dt) {
     ImGui::SameLine(ImGui::GetContentRegionAvail().x + ImGui::GetCursorPosX() - 60);
     if (ImGui::Button("Reset##view")) need_reset_ = true;
 
-    // ── Toolbar row 2: layer + erase + hint ──────────────────────────────────
+    // ── Toolbar row 2: save path + save button ───────────────────────────────
+    ImGui::SetNextItemWidth(340);
+    ImGui::InputText("##savepath", save_buf_, sizeof(save_buf_));
+    ImGui::SameLine();
+    bool can_save = loaded_ && save_buf_[0];
+    if (!can_save) ImGui::BeginDisabled();
+    if (ImGui::Button("Save")) {
+        if (md::flare::SaveFlareMap(save_buf_, map_)) {
+            snprintf(status_msg_, sizeof(status_msg_), "Saved: %s", save_buf_);
+        } else {
+            snprintf(status_msg_, sizeof(status_msg_), "ERROR: cannot write %s", save_buf_);
+        }
+        status_timer_ = 3.0f;
+    }
+    if (!can_save) ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (status_timer_ > 0.0f) {
+        bool is_err = (strncmp(status_msg_, "ERROR", 5) == 0);
+        if (is_err) ImGui::TextColored({1.0f, 0.3f, 0.3f, 1.0f}, "%s", status_msg_);
+        else        ImGui::TextColored({0.3f, 1.0f, 0.5f, 1.0f}, "%s", status_msg_);
+    }
+
+    // ── Toolbar row 3: layer + erase + hint ──────────────────────────────────
     if (loaded_) {
         ImGui::SetNextItemWidth(110);
         if (ImGui::BeginCombo("Layer##sel", LayerName(sel_layer_))) {
