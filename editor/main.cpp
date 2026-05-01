@@ -5,6 +5,7 @@
 #include "item_editor.h"
 #include "faction_editor.h"
 #include "settings_editor.h"
+#include "editor_map_view.h"
 #include <cstdio>
 #include <cstring>
 
@@ -69,6 +70,7 @@ int main(void) {
     // ── Дані ─────────────────────────────────────────────
     ItemEditor::Load("data/items/items.json");
     FactionEditor::Load("data/factions/factions.json");
+    MapViewPanel::Get().Init();
 
     SetTargetFPS(60);
     SetExitKey(KEY_ESCAPE);
@@ -133,6 +135,12 @@ int main(void) {
                 ImGui::EndTabItem();
             }
 
+            if (ImGui::BeginTabItem("Map")) {
+                ImGui::SetCursorPos({8, ImGui::GetCursorPosY() + 4});
+                MapViewPanel::Get().Draw(dt);
+                ImGui::EndTabItem();
+            }
+
             if (ImGui::BeginTabItem("Settings")) {
                 ImGui::SetCursorPos({12, ImGui::GetCursorPosY() + 6});
                 SettingsEditor::Draw(CFG_PATH, status_msg, &status_timer);
@@ -148,6 +156,7 @@ int main(void) {
         EndDrawing();
     }
 
+    MapViewPanel::Get().Shutdown();
     rlImGuiShutdown();
     CloseWindow();
     return 0;

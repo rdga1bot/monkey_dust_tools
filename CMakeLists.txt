@@ -13,14 +13,21 @@ set(EDITOR_IMGUI_SRC
 
 add_executable(monkey_dust_editor
     editor/main.cpp
+    editor/editor_map_view.cpp
     ${EDITOR_IMGUI_SRC}
 )
-target_link_libraries(monkey_dust_editor PRIVATE raylib)
+target_link_libraries(monkey_dust_editor PRIVATE
+    monkey_dust::engine
+    Recast Detour
+    raylib
+)
 target_include_directories(monkey_dust_editor PRIVATE
     editor/
     ${CMAKE_SOURCE_DIR}/third_party/raylib/src
     ${CMAKE_SOURCE_DIR}/third_party/imgui
     ${CMAKE_SOURCE_DIR}/third_party/rlImGui
+    ${CMAKE_SOURCE_DIR}/third_party/recastnavigation/Recast/Include
+    ${CMAKE_SOURCE_DIR}/third_party/recastnavigation/Detour/Include
 )
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     target_compile_options(monkey_dust_editor PRIVATE -O2 -march=native)
