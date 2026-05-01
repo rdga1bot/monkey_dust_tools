@@ -14,6 +14,7 @@
 //   map_name  = maps/perdition_harbor.txt
 
 #include <monkey_dust/flare/flare_runtime.h>
+#include <monkey_dust/flare/tile_map_2d_renderer.h>
 #include <monkey_dust/flare/tile_map_renderer.h>
 #include <monkey_dust/flare/billboard_renderer.h>
 #include <monkey_dust/flare/sprite_resolver.h>
@@ -21,6 +22,7 @@
 #include "raylib.h"
 #include <cstdio>
 #include <cstring>
+#include <cmath>
 #include <unistd.h>
 
 // ── Atlas path resolution ─────────────────────────────────────────────────────
@@ -127,25 +129,22 @@ int main(int argc, char** argv) {
             rt.GetMap().width, rt.GetMap().height, rt.GetMap().title,
             rt.GetEnemies().count, rt.GetItems().count, rt.GetPowers().count);
 
-    // ── renderer init ─────────────────────────────────────────────────────────
+    // ── renderer init — 2D pixel-perfect path ────────────────────────────────
+    auto& tmr2d = md::flare::TileMap2DRenderer::Get();
+    tmr2d.Init();
+    if (rt.GetMap().tileset_atlas_count > 0) {
+        tmr2d.SetAtlases(rt.GetMap());
+        fprintf(stdout, "[demo] 2D renderer: %d atlas(es) loaded\n",
+                rt.GetMap().tileset_atlas_count);
+    } else {
+        fprintf(stderr, "[demo] Warning: no atlas found — tiles will be invisible\n");
+    }
+
+    // Keep 3D renderer available for billboard NPCs.
     auto& tmr = md::flare::TileMapRenderer::Get();
     tmr.Init();
-
-    // M7.23: load all atlas textures resolved during LoadFlareMap().
-    // Falls back to grid atlas if tilesetdef had no img= sections.
-    if (rt.GetMap().tileset_atlas_count > 0) {
+    if (rt.GetMap().tileset_atlas_count > 0)
         tmr.SetAtlases(rt.GetMap());
-        fprintf(stdout, "[demo] %d atlas(es) loaded\n", rt.GetMap().tileset_atlas_count);
-    } else {
-        char atlas_path[512] = {};
-        FindAtlas(mods_root, rt.GetMap(), atlas_path, sizeof(atlas_path));
-        if (atlas_path[0]) {
-            tmr.SetAtlas(atlas_path);
-            fprintf(stdout, "[demo] Atlas (grid fallback): %s\n", atlas_path);
-        } else {
-            fprintf(stderr, "[demo] Warning: no atlas found — tiles will be white\n");
-        }
-    }
 
     // ── billboard renderer + sprite atlases ──────────────────────────────────
     auto& br  = md::flare::BillboardRenderer::Get();
@@ -163,17 +162,35 @@ int main(int argc, char** argv) {
                 spawn_map.spawn_count);
     }
 
-    // ── camera setup ─────────────────────────────────────────────────────────
-    // Map center in isometric world coords
+    // ── 2D camera: pan + zoom ─────────────────────────────────────────────────
     const auto& map = rt.GetMap();
-    float map_cx = 0.0f;  // isometric maps are symmetric around X=0
-    float map_cz = (map.width + map.height) * 0.5f * 0.5f;
-    // ortho_size = half the isometric diamond width so the map fills ~60% of screen.
-    float ortho_size = (float)(map.width + map.height) * 0.5f * 0.4f;
 
-    MdCamera cam  = MakeCamera(map_cx, map_cz, ortho_size);
-    const float PAN_SPEED  = 0.1f;
-    const float ZOOM_STEP  = 1.5f;
+    // Compute initial scale to fit the map in ~80% of the viewport.
+    // Map screen size at scale=1: (mw+mh)*96 wide, (mw+mh)*48 tall.
+    const float MAP_SCR_W = (float)(map.width + map.height) * 96.0f;
+    const float MAP_SCR_H = (float)(map.width + map.height) * 48.0f;
+    float scale = fminf((float)W / MAP_SCR_W, (float)H / MAP_SCR_H) * 0.82f;
+
+    // origin = screen-pixel position of tile(0,0) grid anchor.
+    // For a square map, tile(0,0) is at screen_x=0 in tile space, so center it.
+    float pan_x = 0.0f, pan_y = 0.0f;
+    auto ResetOrigin = [&](float& ox, float& oy) {
+        // Horizontal center: map spans -(mh)*96 to +(mw)*96. Center = (mw-mh)*48.
+        float cx_tile = (float)(map.width - map.height) * 48.0f;
+        float cy_tile = (float)(map.width + map.height) * 24.0f;
+        ox = (float)GetScreenWidth()  * 0.5f - cx_tile * scale;
+        oy = (float)GetScreenHeight() * 0.5f - cy_tile * scale;
+    };
+    float origin_x, origin_y;
+    ResetOrigin(origin_x, origin_y);
+
+    // 3D camera kept alive for billboard NPCs.
+    float map_cx = 0.0f;
+    float map_cz = (map.width + map.height) * 0.5f * 0.5f;
+    float ortho_size = (float)(map.width + map.height) * 0.5f * 0.4f;
+    MdCamera cam = MakeCamera(map_cx, map_cz, ortho_size);
+
+    const float PAN_SPEED = 12.0f;  // pixels per frame at scale=1
     bool show_debug = false;
 
     // ── game loop ─────────────────────────────────────────────────────────────
@@ -181,25 +198,32 @@ int main(int argc, char** argv) {
         float dt = GetFrameTime();
         rt.Tick(dt);
 
-        // Camera pan
-        if (IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT))  { cam.pos.x -= PAN_SPEED * ortho_size; cam.target.x -= PAN_SPEED * ortho_size; }
-        if (IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT)) { cam.pos.x += PAN_SPEED * ortho_size; cam.target.x += PAN_SPEED * ortho_size; }
-        if (IsKeyDown(KEY_W) || IsKeyDown(KEY_UP))    { cam.pos.z -= PAN_SPEED * ortho_size; cam.target.z -= PAN_SPEED * ortho_size; }
-        if (IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN))  { cam.pos.z += PAN_SPEED * ortho_size; cam.target.z += PAN_SPEED * ortho_size; }
+        // 2D pan (pixel space)
+        float step = PAN_SPEED / scale;  // world-pixel step independent of zoom
+        if (IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT))  origin_x += step;
+        if (IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT)) origin_x -= step;
+        if (IsKeyDown(KEY_W) || IsKeyDown(KEY_UP))    origin_y += step;
+        if (IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN))  origin_y -= step;
 
-        // Zoom: change ortho_size and reposition camera at the same isometric angle
+        // Zoom around screen center
         float scroll = GetMouseWheelMove();
-        if (IsKeyPressed(KEY_Q) || scroll < 0) ortho_size = fminf(ortho_size + ZOOM_STEP, 200.0f);
-        if (IsKeyPressed(KEY_E) || scroll > 0) ortho_size = fmaxf(ortho_size - ZOOM_STEP,  10.0f);
-        {
-            constexpr float ELEV = 30.0f * 3.14159265f / 180.0f;
-            const float dist = ortho_size * 4.0f;
-            cam.pos.y = dist * sinf(ELEV);
-            cam.pos.z = cam.target.z + dist * cosf(ELEV);
+        float old_scale = scale;
+        if (IsKeyPressed(KEY_Q) || scroll < 0) scale = fmaxf(scale * 0.85f, 0.02f);
+        if (IsKeyPressed(KEY_E) || scroll > 0) scale = fminf(scale * 1.18f, 4.0f);
+        if (scale != old_scale) {
+            // Zoom toward screen center
+            float sx = (float)GetScreenWidth()  * 0.5f;
+            float sy = (float)GetScreenHeight() * 0.5f;
+            origin_x = sx - (sx - origin_x) * (scale / old_scale);
+            origin_y = sy - (sy - origin_y) * (scale / old_scale);
         }
 
-        // Reset / debug toggle
-        if (IsKeyPressed(KEY_R))  cam = MakeCamera(map_cx, map_cz, ortho_size);
+        // Reset
+        if (IsKeyPressed(KEY_R)) {
+            scale = fminf((float)GetScreenWidth() / MAP_SCR_W,
+                          (float)GetScreenHeight() / MAP_SCR_H) * 0.82f;
+            ResetOrigin(origin_x, origin_y);
+        }
         if (IsKeyPressed(KEY_F3)) show_debug = !show_debug;
 
         float aspect = (float)GetScreenWidth() / (float)GetScreenHeight();
@@ -207,7 +231,10 @@ int main(int argc, char** argv) {
         BeginDrawing();
         ClearBackground({ 20, 20, 30, 255 });
 
-        tmr.Render(rt.GetMap(), cam, aspect, rt.TileWorldSize(), ortho_size, (float)GetTime());
+        // 2D pixel-perfect tile map
+        tmr2d.Render(rt.GetMap(), (float)GetTime(),
+                     origin_x, origin_y, scale,
+                     GetScreenWidth(), GetScreenHeight());
 
         // Billboard NPC spawns
         const float AW = (float)(br.AtlasWidth()  > 0 ? br.AtlasWidth()  : 2048);
@@ -257,7 +284,7 @@ int main(int argc, char** argv) {
             DrawText("── DEBUG ──────────────────────", LX, dy, 14, YELLOW); dy += 20;
             DrawText(TextFormat("Cam pos:    (%.1f, %.1f, %.1f)", cam.pos.x, cam.pos.y, cam.pos.z),    LX, dy, 13, WHITE); dy += 16;
             DrawText(TextFormat("Cam target: (%.1f, %.1f, %.1f)", cam.target.x, cam.target.y, cam.target.z), LX, dy, 13, WHITE); dy += 16;
-            DrawText(TextFormat("OrthoSize:  %.1f", ortho_size),                                       LX, dy, 13, WHITE); dy += 20;
+            DrawText(TextFormat("Scale: %.3f  Origin: (%.0f, %.0f)", scale, origin_x, origin_y),       LX, dy, 13, WHITE); dy += 20;
             DrawText(TextFormat("Map:  %dx%d  tilesets: %d", map.width, map.height, map.tileset_count), LX, dy, 13, WHITE); dy += 16;
             DrawText(TextFormat("Atlases: %d", map.tileset_atlas_count),                               LX, dy, 13, WHITE); dy += 16;
             DrawText(TextFormat("Sprite atlas: %dx%d", br.AtlasWidth(), br.AtlasHeight()),             LX, dy, 13, WHITE); dy += 20;
