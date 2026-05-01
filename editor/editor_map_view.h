@@ -32,12 +32,15 @@ public:
     bool CanRedo() const { return redo_top_ > 0; }
 
 private:
-    static constexpr float PALETTE_W = 164.0f;
-    static constexpr int   UNDO_MAX  = 64;
+    static constexpr float PALETTE_W  = 164.0f;
+    static constexpr int   UNDO_MAX   = 256;
+    static constexpr int   BRUSH_CELLS = 25; // max 5×5
 
+    // One undo entry covers all cells changed by a single PaintAt() call (entire brush).
     struct PaintOp {
-        int      layer, row, col;
-        uint16_t old_val, new_val;
+        int   layer;
+        int   count;  // 1..BRUSH_CELLS
+        struct Cell { int16_t row, col; uint16_t old_val, new_val; } cells[BRUSH_CELLS];
     };
 
     // FBO
@@ -65,6 +68,7 @@ private:
     uint16_t sel_tile_id_ = 1;
     int      sel_layer_   = 0;
     bool     erase_mode_  = false;
+    int      brush_size_  = 1;   // 1, 3, or 5
 
     // Undo/Redo stacks (simple arrays, newest at top)
     PaintOp undo_stack_[UNDO_MAX] = {};

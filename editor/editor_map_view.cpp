@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cmath>
+#include <initializer_list>
 
 // ── FBO management ────────────────────────────────────────────────────────────
 
@@ -55,14 +56,16 @@ void MapViewPanel::PushUndo(const PaintOp& op) {
 void MapViewPanel::Undo() {
     if (undo_top_ == 0 || !loaded_) return;
     PaintOp op = undo_stack_[--undo_top_];
-    map_.layers[op.layer].tiles[op.row * md::flare::MAX_MAP_WIDTH + op.col] = op.old_val;
+    for (int i = 0; i < op.count; i++)
+        map_.layers[op.layer].tiles[op.cells[i].row * md::flare::MAX_MAP_WIDTH + op.cells[i].col] = op.cells[i].old_val;
     if (redo_top_ < UNDO_MAX) redo_stack_[redo_top_++] = op;
 }
 
 void MapViewPanel::Redo() {
     if (redo_top_ == 0 || !loaded_) return;
     PaintOp op = redo_stack_[--redo_top_];
-    map_.layers[op.layer].tiles[op.row * md::flare::MAX_MAP_WIDTH + op.col] = op.new_val;
+    for (int i = 0; i < op.count; i++)
+        map_.layers[op.layer].tiles[op.cells[i].row * md::flare::MAX_MAP_WIDTH + op.cells[i].col] = op.cells[i].new_val;
     if (undo_top_ < UNDO_MAX) undo_stack_[undo_top_++] = op;
 }
 
@@ -177,19 +180,36 @@ bool MapViewPanel::PaintAt(float mx, float my) {
     float sy = (my - origin_y_) / scale_;
     float cr = sx / 96.0f;
     float cs = sy / 48.0f;
-    int col = (int)roundf((cr + cs) * 0.5f);
-    int row = (int)roundf((cs - cr) * 0.5f);
-    if (col < 0 || col >= map_.width || row < 0 || row >= map_.height) return false;
+    int center_col = (int)roundf((cr + cs) * 0.5f);
+    int center_row = (int)roundf((cs - cr) * 0.5f);
     if (sel_layer_ < 0 || sel_layer_ >= map_.layer_count) return false;
 
     uint16_t new_val = erase_mode_ ? 0 : sel_tile_id_;
-    // Guard: don't paint with an ID that isn't in the registry (would render invisible).
     if (new_val != 0 && !map_.meta.Find(new_val)) return false;
-    uint16_t& cell = map_.layers[sel_layer_].tiles[
-        row * md::flare::MAX_MAP_WIDTH + col];
-    if (cell == new_val) return false;
-    PushUndo({sel_layer_, row, col, cell, new_val});
-    cell = new_val;
+
+    int half = brush_size_ / 2;
+    PaintOp op;
+    op.layer = sel_layer_;
+    op.count = 0;
+
+    for (int dr = -half; dr <= half; dr++) {
+        for (int dc = -half; dc <= half; dc++) {
+            int row = center_row + dr;
+            int col = center_col + dc;
+            if (col < 0 || col >= map_.width || row < 0 || row >= map_.height) continue;
+            uint16_t& cell = map_.layers[sel_layer_].tiles[
+                row * md::flare::MAX_MAP_WIDTH + col];
+            if (cell == new_val) continue;
+            auto& c = op.cells[op.count++];
+            c.row     = (int16_t)row;
+            c.col     = (int16_t)col;
+            c.old_val = cell;
+            c.new_val = new_val;
+            cell      = new_val;
+        }
+    }
+    if (op.count == 0) return false;
+    PushUndo(op);
     return true;
 }
 
@@ -280,7 +300,22 @@ void MapViewPanel::Draw(float dt) {
             }
             ImGui::EndCombo();
         }
+        // Brush size buttons
         ImGui::SameLine();
+        ImGui::TextDisabled("Brush:");
+        ImGui::SameLine();
+        for (int bs : {1, 3, 5}) {
+            char lbl[4];
+            snprintf(lbl, sizeof(lbl), "%d", bs);
+            bool active = (brush_size_ == bs);
+            if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.5f, 0.8f, 1.0f));
+            ImGui::PushID(bs);
+            if (ImGui::Button(lbl, {24, 0})) brush_size_ = bs;
+            ImGui::PopID();
+            if (active) ImGui::PopStyleColor();
+            ImGui::SameLine();
+        }
+
         if (erase_mode_) {
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.2f, 0.1f, 1.0f));
             if (ImGui::Button("[Erase]")) erase_mode_ = false;
