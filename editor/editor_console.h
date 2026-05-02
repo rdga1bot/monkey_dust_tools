@@ -6,8 +6,9 @@ public:
     static EditorConsole& Get() { static EditorConsole inst; return inst; }
 
     void Draw();
-    void Log(int level, const char* text);   // called from TraceLog callback
-    void Init();                              // install TraceLog callback
+    void Log(int level, const char* text);   // called from MdLogHook
+    void Init();                              // install MdLogSetHook
+    void SetFrameStats(float fps, float dt_ms) { frame_fps_ = fps; frame_dt_ms_ = dt_ms; }
 
     static constexpr int LINE_LEN     = 160; // public: used in static callback
 
@@ -29,8 +30,10 @@ private:
     int  history_count_ = 0;
     int  history_idx_   = -1;
 
-    char filter_[64] = {};
-    bool lua_mode_   = false;
+    char  filter_[64]  = {};
+    bool  lua_mode_    = false;
+    float frame_fps_   = 0.f;
+    float frame_dt_ms_ = 0.f;
 
     void ExecCommand(const char* cmd);
     void PushHistory(const char* cmd);

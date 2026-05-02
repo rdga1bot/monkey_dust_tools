@@ -7,7 +7,7 @@
 #include <monkey_dust/ecs/registry.h>
 #include <monkey_dust/world/world_transform.h>
 #include <monkey_dust/render/animation_soa.h>
-#include "raylib.h"
+#include <monkey_dust/platform/md_log.h>
 #include <cstdio>
 #endif
 
@@ -110,7 +110,7 @@ void EditorAnimationPanel::Draw() {
         ImGui::Text("%.2f / %.2fs", state.time_s, dur);
 
         if (playing) {
-            state.time_s += GetFrameTime();
+            state.time_s += EditorCore::Get().frame_dt_ms * 0.001f;
             if (state.time_s >= dur) state.time_s -= dur;
         }
     }
@@ -119,7 +119,7 @@ void EditorAnimationPanel::Draw() {
     if (ImGui::CollapsingHeader("Keyframes (stub)")) {
         ImGui::TextDisabled("Record keyframes — Phase 35+");
         if (ImGui::Button("Record Keyframe##anim"))
-            TraceLog(LOG_INFO, "[AnimPanel] Keyframe record stub (Phase 35)");
+            MD_LOG(MD_LOG_INFO, "[AnimPanel] Keyframe record stub (Phase 35)");
     }
 
     ImGui::End();

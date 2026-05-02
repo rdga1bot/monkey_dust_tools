@@ -2,7 +2,6 @@
 #include "editor_camera_panel.h"
 #include "editor_core.h"
 #include "imgui.h"
-#include "raylib.h"
 
 void EditorCameraPanel::Draw() {
     if (!EditorCore::Get().panels_visible[5]) return;
@@ -51,8 +50,8 @@ void EditorCameraPanel::Draw() {
         ImGui::Text("Yaw: %.1f  Pitch: %.1f  Dist: %.1f",
                     ec.cam_yaw, ec.cam_pitch, ec.cam_dist);
         ImGui::Separator();
-        ImGui::Text("FPS: %d  |  dt: %.2f ms",
-                    GetFPS(), GetFrameTime() * 1000.f);
+        ImGui::Text("FPS: %.0f  |  dt: %.2f ms",
+                    EditorCore::Get().frame_fps, EditorCore::Get().frame_dt_ms);
     }
 
     // ── Screenshot ────────────────────────────────────────────────────────

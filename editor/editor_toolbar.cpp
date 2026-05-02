@@ -17,8 +17,8 @@
 #include <monkey_dust/tools/debug_system.h>
 #include "scene_serializer.h"
 #include "icon_definitions.h"
-#include "raylib.h"
-#include "raymath.h"
+#include <monkey_dust/platform/md_log.h>
+#include "editor_console.h"
 #ifdef MD_OPENGL43_ENABLED
 #include <monkey_dust/world/transform_soa.h>
 #endif
@@ -27,12 +27,18 @@
 
 // ─────────────────────────────────────────────────────────────────────────────
 void EditorToolbar::Draw(float dt) {
+    // Update shared frame stats before any panel reads them.
+    auto& ec = EditorCore::Get();
+    float fps = (dt > 0.001f) ? 1.0f / dt : 0.f;
+    ec.frame_fps   = fps;
+    ec.frame_dt_ms = dt * 1000.f;
+    EditorConsole::Get().SetFrameStats(fps, dt * 1000.f);
+
     DrawMenuBar();
     DrawButtonBar();
 
     // Hotkeys — only when ImGui doesn't want keyboard
     if (!ImGui::GetIO().WantCaptureKeyboard) {
-        auto& ec = EditorCore::Get();
         if (IsKeyPressed(KEY_W)) ec.gizmo_op    = EditorGizmoOp::TRANSLATE;
         if (IsKeyPressed(KEY_E)) ec.gizmo_op    = EditorGizmoOp::ROTATE;
         if (IsKeyPressed(KEY_R)) ec.gizmo_op    = EditorGizmoOp::SCALE;
@@ -41,7 +47,6 @@ void EditorToolbar::Draw(float dt) {
                                                    : EditorGizmoSpace::WORLD;
         if (IsKeyPressed(KEY_F)) ec.FocusOnSelected();
     }
-    (void)dt;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -56,7 +61,7 @@ void EditorToolbar::DrawMenuBar() {
 #ifdef MD_OPENGL43_ENABLED
             TransformSoA::Get().Init();
 #endif
-            TraceLog(LOG_INFO, "[Editor] New scene");
+            MD_LOG(MD_LOG_INFO, "[Editor] New scene");
         }
         if (ImGui::MenuItem("Import Scene (.json)...")) {
             SceneSerializer::Import(scene_path_);
@@ -67,11 +72,11 @@ void EditorToolbar::DrawMenuBar() {
         ImGui::Separator();
         if (ImGui::MenuItem(ICON_SAVE " Save Game (F5)")) {
             SaveSystem::Get().SaveAsync(SaveSystem::DefaultPath());
-            TraceLog(LOG_INFO, "[Editor] Async save → %s", SaveSystem::DefaultPath());
+            MD_LOG(MD_LOG_INFO, "[Editor] Async save → %s", SaveSystem::DefaultPath());
         }
         if (ImGui::MenuItem(ICON_LOAD " Load Game (F9)")) {
             SaveSystem::Get().Load(SaveSystem::DefaultPath());
-            TraceLog(LOG_INFO, "[Editor] Load ← %s", SaveSystem::DefaultPath());
+            MD_LOG(MD_LOG_INFO, "[Editor] Load ← %s", SaveSystem::DefaultPath());
         }
         ImGui::Separator();
         if (ImGui::MenuItem("Exit Editor")) EditorCore::Get().editor_open = false;
@@ -151,15 +156,15 @@ void EditorToolbar::DrawMenuBar() {
             BuildSystem::Get().LoadFromFile("data/buildings/buildings.json");
             DialogSystem::LoadFromFile("data/dialogs/dialogs.json");
             QuestSystem::Get().LoadFromFile("data/quests/quests.json");
-            TraceLog(LOG_INFO, "[Editor] JSON data reloaded");
+            MD_LOG(MD_LOG_INFO, "[Editor] JSON data reloaded");
         }
         if (ImGui::MenuItem("Rebuild NavMesh")) {
             Vector3 t = EditorCore::Get().cam_target;
             NavSystem::Get().EnqueueRebuild(t.x, t.z, nullptr, 0, nullptr, 0);
-            TraceLog(LOG_INFO, "[Editor] NavMesh rebuild enqueued at (%.0f,%.0f)", t.x, t.z);
+            MD_LOG(MD_LOG_INFO, "[Editor] NavMesh rebuild enqueued at (%.0f,%.0f)", t.x, t.z);
         }
         if (ImGui::MenuItem("Bake Lights (stub)")) {
-            TraceLog(LOG_INFO, "[Editor] Bake not available: Phase 33 CSM is runtime-only");
+            MD_LOG(MD_LOG_INFO, "[Editor] Bake not available: Phase 33 CSM is runtime-only");
         }
         ImGui::Separator();
         if (ImGui::MenuItem("Spawn NPC here (Bandit)"))  SpawnEntity("NPC Bandit");
@@ -211,7 +216,7 @@ void EditorToolbar::DrawButtonBar() {
         if (ImGui::MenuItem("NPC Trader"))        SpawnEntity("NPC Trader");
         if (ImGui::MenuItem("NPC Holy"))          SpawnEntity("NPC Holy");
         if (ImGui::MenuItem("Building (stub)"))   SpawnEntity("Building");
-        if (ImGui::MenuItem("Light (Phase 36)"))  TraceLog(LOG_INFO, "[Editor] Light entity: Phase 36");
+        if (ImGui::MenuItem("Light (Phase 36)"))  MD_LOG(MD_LOG_INFO, "[Editor] Light entity: Phase 36");
         ImGui::EndPopup();
     }
 
@@ -265,7 +270,7 @@ void EditorToolbar::DrawButtonBar() {
 
     // FPS
     char fps_buf[32];
-    snprintf(fps_buf, sizeof(fps_buf), "%.0f FPS", (float)GetFPS());
+    snprintf(fps_buf, sizeof(fps_buf), "%.0f FPS", EditorCore::Get().frame_fps);
     ImGui::TextDisabled("%s", fps_buf);
 
     ImGui::End();
@@ -285,7 +290,7 @@ void EditorToolbar::SpawnEntity(const char* type) {
         tr.slot = TransformSoA::Get().Alloc(e, pos.x, pos.z, 0);
 #endif
         ec.Select(e);
-        TraceLog(LOG_INFO, "[Editor] Spawned Transform entity at (%.1f,%.1f)", pos.x, pos.z);
+        MD_LOG(MD_LOG_INFO, "[Editor] Spawned Transform entity at (%.1f,%.1f)", pos.x, pos.z);
         return;
     }
 
@@ -294,7 +299,7 @@ void EditorToolbar::SpawnEntity(const char* type) {
     else if (strcmp(type, "NPC Trader") == 0) faction = 2;
     else if (strcmp(type, "NPC Holy")   == 0) faction = 3;
     else if (strcmp(type, "Building")   == 0) {
-        TraceLog(LOG_INFO, "[Editor] Building spawn: use BuildSystem::Get().Place() directly");
+        MD_LOG(MD_LOG_INFO, "[Editor] Building spawn: use BuildSystem::Get().Place() directly");
         return;
     }
 
@@ -313,6 +318,6 @@ void EditorToolbar::SpawnEntity(const char* type) {
     reg.emplace<Renderable>(e);
 
     ec.Select(e);
-    TraceLog(LOG_INFO, "[Editor] Spawned %s at (%.1f,%.1f)", type, pos.x, pos.z);
+    MD_LOG(MD_LOG_INFO, "[Editor] Spawned %s at (%.1f,%.1f)", type, pos.x, pos.z);
 }
 #endif

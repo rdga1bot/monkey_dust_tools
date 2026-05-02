@@ -1,5 +1,5 @@
 #include "editor_map_view.h"
-#include "rlgl.h"
+#include "glad.h"
 #include "imgui.h"
 #include <monkey_dust/flare/tile_map.h>
 #include <monkey_dust/render/md_texture.h>
@@ -12,9 +12,32 @@
 
 void MapViewPanel::EnsureRT(int w, int h) {
     if (rt_ok_ && rt_w_ == w && rt_h_ == h) return;
-    if (rt_ok_) UnloadRenderTexture(rt_);
-    rt_   = LoadRenderTexture(w, h);
-    rt_ok_= rt_.id > 0;
+    if (rt_fbo_) {
+        glDeleteFramebuffers(1, &rt_fbo_);
+        glDeleteTextures(1, &rt_tex_);
+        glDeleteRenderbuffers(1, &rt_depth_);
+        rt_fbo_ = rt_tex_ = rt_depth_ = 0;
+    }
+    glGenFramebuffers(1, &rt_fbo_);
+    glGenTextures(1, &rt_tex_);
+    glGenRenderbuffers(1, &rt_depth_);
+
+    glBindTexture(GL_TEXTURE_2D, rt_tex_);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    glBindRenderbuffer(GL_RENDERBUFFER, rt_depth_);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, w, h);
+    glBindRenderbuffer(GL_RENDERBUFFER, 0);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, rt_fbo_);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, rt_tex_, 0);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, rt_depth_);
+    rt_ok_ = (glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
     rt_w_ = w;
     rt_h_ = h;
 }
@@ -30,7 +53,13 @@ void MapViewPanel::Init() {
 
 void MapViewPanel::Shutdown() {
     if (!init_) return;
-    if (rt_ok_) { UnloadRenderTexture(rt_); rt_ok_ = false; }
+    if (rt_fbo_) {
+        glDeleteFramebuffers(1, &rt_fbo_);
+        glDeleteTextures(1, &rt_tex_);
+        glDeleteRenderbuffers(1, &rt_depth_);
+        rt_fbo_ = rt_tex_ = rt_depth_ = 0;
+        rt_ok_ = false;
+    }
     md::flare::TileMap2DRenderer::Get().Shutdown();
     init_ = false;
 }
@@ -791,20 +820,26 @@ void MapViewPanel::Draw(float dt) {
     EnsureRT(vp_w, vp_h);
     if (need_reset_) { ResetView(vp_w, vp_h); need_reset_ = false; }
 
+    now_s_ += dt;
     if (loaded_ && rt_ok_) {
-        BeginTextureMode(rt_);
-        ClearBackground({20, 20, 30, 255});
+        int vp_save[4];
+        glGetIntegerv(GL_VIEWPORT, vp_save);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, rt_fbo_);
+        glViewport(0, 0, rt_w_, rt_h_);
+        glClearColor(20/255.f, 20/255.f, 30/255.f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         md::flare::TileMap2DRenderer::Get().Render(
-            map_, (float)GetTime(),
+            map_, now_s_,
             origin_x_, origin_y_, scale_,
             vp_w, vp_h, LayerMask());
-        rlActiveTextureSlot(0);
-        rlEnableTexture(0);
-        EndTextureMode();
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        glViewport(vp_save[0], vp_save[1], vp_save[2], vp_save[3]);
     }
 
     ImGui::Image(
-        (ImTextureID)(intptr_t)(rt_ok_ ? rt_.texture.id : 0),
+        (ImTextureID)(intptr_t)(rt_ok_ ? rt_tex_ : 0u),
         ImVec2((float)vp_w, (float)vp_h),
         ImVec2(0, 1), ImVec2(1, 0));
 

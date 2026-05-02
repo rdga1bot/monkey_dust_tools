@@ -62,6 +62,10 @@ public:
     // [4]=Graphics  [5]=Camera   [6]=Animation [7]=Paint
     bool panels_visible[8] = { true, true, true, true, true, true, false, false };
 
+    // Set by EditorToolbar::Draw each frame; read by camera/animation panels.
+    float frame_fps   = 0.f;
+    float frame_dt_ms = 0.f;
+
 private:
     EditorCore() = default;
 };

@@ -2,7 +2,7 @@
 #include "editor_flare_browser.h"
 #include "editor_core.h"
 #include "combat/power_manager.h"
-#include "raylib.h"
+#include <monkey_dust/platform/md_log.h>
 #include "imgui.h"
 #include <cstdio>
 #include <cstdlib>
@@ -92,7 +92,7 @@ void EditorFlareBrowser::Load() {
 
     PowerManager::Get().LoadFromJson("data/flare/powers.json");
 
-    TraceLog(LOG_INFO, "EditorFlareBrowser: %d items, %d enemies, %d powers",
+    MD_LOG(MD_LOG_INFO, "EditorFlareBrowser: %d items, %d enemies, %d powers",
              items_cnt_, enemies_cnt_, PowerManager::Get().Count());
     loaded_ = true;
 }

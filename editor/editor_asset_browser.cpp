@@ -2,7 +2,7 @@
 #include "editor_asset_browser.h"
 #include "editor_core.h"
 #include <monkey_dust/save/save_system.h>
-#include "raylib.h"
+#include <monkey_dust/platform/md_log.h>
 #include <dirent.h>
 #include <cstring>
 #include <cstdio>
@@ -83,11 +83,11 @@ void EditorAssetBrowser::DrawFileEntry(const char* name, int idx) {
             char full[MAX_PATH * 2];
             snprintf(full, sizeof(full), "%s%s", current_path_, name);
             SaveSystem::Get().Load(full);
-            TraceLog(LOG_INFO, "[AssetBrowser] Loaded save: %s", full);
+            MD_LOG(MD_LOG_INFO, "[AssetBrowser] Loaded save: %s", full);
         } else if (is_lua) {
-            TraceLog(LOG_INFO, "[AssetBrowser] Open script: %s", name);
+            MD_LOG(MD_LOG_INFO, "[AssetBrowser] Open script: %s", name);
         } else if (is_audio) {
-            TraceLog(LOG_INFO, "[AssetBrowser] Preview audio: %s (stub)", name);
+            MD_LOG(MD_LOG_INFO, "[AssetBrowser] Preview audio: %s (stub)", name);
         }
     }
 

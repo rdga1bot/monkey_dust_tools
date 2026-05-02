@@ -1,5 +1,8 @@
-#include "raylib.h"
-#include "rlImGui.h"
+#include <monkey_dust/platform/window.h>
+#include <monkey_dust/platform/input.h>
+#include <SDL3/SDL.h>
+#include "backends/imgui_impl_sdl3.h"
+#include "backends/imgui_impl_opengl3.h"
 #include "imgui.h"
 #include "editor_ui.h"
 #include "item_editor.h"
@@ -10,9 +13,9 @@
 #include <cstring>
 
 // ─────────────────────────────────────────────────────────
-// monkey_dust EDITOR — Dear ImGui via rlImGui.
+// monkey_dust EDITOR — Dear ImGui via imgui_impl_sdl3/opengl3.
 //
-// Вкладки:  [Items]  [Factions]  [Settings]
+// Вкладки:  [Items]  [Factions]  [Settings]  [Map]
 // Запуск:   ./build/tools/monkey_dust_editor  (з кореня репо)
 // Конфіг:   data/editor_config.json
 // ─────────────────────────────────────────────────────────
@@ -20,37 +23,39 @@
 static constexpr const char* CFG_PATH = "data/editor_config.json";
 
 int main(void) {
-    SetTraceLogLevel(LOG_WARNING);
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT);
-    InitWindow(1280, 720, "monkey_dust EDITOR v0.1");
+    window_init(0, 0, "monkey_dust EDITOR v0.1");
+    input_init();
 
-    // ── Авто-розмір під монітор ───────────────────────────
-    int mon = GetCurrentMonitor();
-    int mw  = GetMonitorWidth(mon);
-    int mh  = GetMonitorHeight(mon);
-    int wh  = (mh * 85) / 100;
-    int ww  = (wh * 16) / 9;
-    if (ww > (mw * 90) / 100) { ww = (mw * 90) / 100; wh = (ww * 9) / 16; }
-    if (wh < 480) { wh = 480; ww = 854; }
-    SetWindowSize(ww, wh);
-    SetWindowPosition((mw - ww) / 2, (mh - wh) / 2);
-    EditorUI::ui_scale = wh / 720.0f;
+    // ── Resize to 85% monitor height, 16:9 ───────────────
+    {
+        SDL_DisplayID disp = SDL_GetDisplayForWindow(_wnd::ptr());
+        SDL_Rect bounds    = {};
+        int mw = window_get_width(), mh = window_get_height();
+        if (SDL_GetDisplayUsableBounds(disp, &bounds) && bounds.w > 0) {
+            mw = bounds.w; mh = bounds.h;
+        }
+        int wh = (mh * 85) / 100;
+        int ww = (wh * 16) / 9;
+        if (ww > (mw * 90) / 100) { ww = (mw * 90) / 100; wh = (ww * 9) / 16; }
+        if (wh < 480) { wh = 480; ww = 854; }
+        SDL_SetWindowSize(_wnd::ptr(), ww, wh);
+        SDL_SetWindowPosition(_wnd::ptr(), SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+        _wnd::width()  = ww;
+        _wnd::height() = wh;
+        EditorUI::ui_scale = (float)wh / 720.0f;
+    }
 
-    // ── Конфіг шрифтів ────────────────────────────────────
-    SettingsEditor::Load(CFG_PATH);
-    SettingsEditor::Config& cfg = SettingsEditor::g_cfg;
-
-    // ── ImGui init ────────────────────────────────────────
-    rlImGuiBeginInitImGui();
-
+    // ── ImGui init (two-phase: context → fonts → backends) ──
+    ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
-    io.IniFilename = nullptr;   // не зберігати imgui.ini
-
-    // Очищаємо дефолтний шрифт доданий rlImGuiBeginInitImGui
+    io.IniFilename = nullptr;
     io.Fonts->Clear();
 
     // Glyph ranges: Basic Latin + Cyrillic
     static const ImWchar ranges[] = { 0x0020, 0x00FF, 0x0400, 0x04FF, 0 };
+
+    SettingsEditor::Load(CFG_PATH);
+    SettingsEditor::Config& cfg = SettingsEditor::g_cfg;
 
     float sc = EditorUI::ui_scale;
     auto load_font = [&](const char* path, float base_sz) -> ImFont* {
@@ -59,12 +64,12 @@ int main(void) {
         ImFont* f = io.Fonts->AddFontFromFileTTF(path, sz, nullptr, ranges);
         return f ? f : io.Fonts->AddFontDefault();
     };
-
     EditorUI::font_regular = load_font(cfg.label.path,  (float)cfg.label.size);
     EditorUI::font_bold    = load_font(cfg.header.path, (float)cfg.header.size);
     EditorUI::font_mono    = load_font(cfg.mono.path,   (float)cfg.mono.size);
 
-    rlImGuiEndInitImGui();
+    ImGui_ImplSDL3_InitForOpenGL(_wnd::ptr(), _wnd::ctx());
+    ImGui_ImplOpenGL3_Init("#version 430");
     EditorUI::SetupTheme();
 
     // ── Дані ─────────────────────────────────────────────
@@ -72,37 +77,39 @@ int main(void) {
     FactionEditor::Load("data/factions/factions.json");
     MapViewPanel::Get().Init();
 
-    SetTargetFPS(60);
-    SetExitKey(KEY_ESCAPE);
-
+    // ── Main loop ─────────────────────────────────────────
     char  status_msg  [64] = "";
     float status_timer     = 0.0f;
 
-    while (!WindowShouldClose()) {
-        float dt = GetFrameTime();
+    uint64_t last_ticks = SDL_GetTicks();
+
+    while (!input_should_quit()) {
+        uint64_t now = SDL_GetTicks();
+        float    dt  = (float)(now - last_ticks) / 1000.0f;
+        last_ticks   = now;
         if (status_timer > 0.0f) status_timer -= dt;
 
-        BeginDrawing();
-        ClearBackground({14, 18, 30, 255});
-        rlImGuiBegin();
+        window_begin_frame();
 
-        // ── Main menu bar (outside editor window — avoids WindowPadding={0,0}) ──
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplSDL3_NewFrame();
+        ImGui::NewFrame();
+
+        // ── Main menu bar ─────────────────────────────────
         ImGuiIO& fio = ImGui::GetIO();
-        static char s_open_path[256]    = "";
-        static char s_saveas_path[256]  = "";
+        static char s_open_path[256]      = "";
+        static char s_saveas_path[256]    = "";
         static char s_new_tilesetdef[256] = "tilesetdefs/tileset_grassland.txt";
         static int  s_new_w = 16, s_new_h = 16;
-        static bool s_open_modal        = false;
-        static bool s_saveas_modal      = false;
-        static bool s_new_modal         = false;
+        static bool s_open_modal          = false;
+        static bool s_saveas_modal        = false;
+        static bool s_new_modal           = false;
 
         float menu_h = 0.0f;
         if (ImGui::BeginMainMenuBar()) {
             menu_h = ImGui::GetWindowSize().y;
             if (ImGui::BeginMenu("File")) {
-                if (ImGui::MenuItem("New Map...")) {
-                    s_new_modal = true;
-                }
+                if (ImGui::MenuItem("New Map..."))   s_new_modal  = true;
                 if (ImGui::MenuItem("Load Map...")) {
                     snprintf(s_open_path, sizeof(s_open_path), "%s",
                              MapViewPanel::Get().GetLoadPath());
@@ -128,7 +135,6 @@ int main(void) {
                 if (!has_map) ImGui::EndDisabled();
                 ImGui::EndMenu();
             }
-            // Status message — right-aligned in menu bar
             if (status_timer > 0.0f && status_msg[0] != '\0') {
                 float alpha = (status_timer > 1.0f) ? 1.0f : status_timer;
                 float msg_w = ImGui::CalcTextSize(status_msg).x + 16.0f;
@@ -138,7 +144,7 @@ int main(void) {
             ImGui::EndMainMenuBar();
         }
 
-        // ── Editor window (starts below menu bar) ─────────
+        // ── Editor window ─────────────────────────────────
         ImGui::SetNextWindowPos({0, menu_h});
         ImGui::SetNextWindowSize({fio.DisplaySize.x, fio.DisplaySize.y - menu_h});
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
@@ -150,7 +156,6 @@ int main(void) {
 
         bool ctrl = ImGui::IsKeyDown(ImGuiKey_LeftCtrl) || ImGui::IsKeyDown(ImGuiKey_RightCtrl);
 
-        // Ctrl+S / F5 — Save
         if ((ctrl && ImGui::IsKeyPressed(ImGuiKey_S)) || ImGui::IsKeyPressed(ImGuiKey_F5)) {
             if (MapViewPanel::Get().IsLoaded()) {
                 if (MapViewPanel::Get().SaveCurrent()) {
@@ -162,20 +167,13 @@ int main(void) {
                 }
             }
         }
-        // F6 — Load (open modal)
         if (ImGui::IsKeyPressed(ImGuiKey_F6)) {
             snprintf(s_open_path, sizeof(s_open_path), "%s",
                      MapViewPanel::Get().GetLoadPath());
             s_open_modal = true;
         }
-        // Ctrl+Z — Undo
-        if (ctrl && ImGui::IsKeyPressed(ImGuiKey_Z)) {
-            MapViewPanel::Get().Undo();
-        }
-        // Ctrl+Y — Redo
-        if (ctrl && ImGui::IsKeyPressed(ImGuiKey_Y)) {
-            MapViewPanel::Get().Redo();
-        }
+        if (ctrl && ImGui::IsKeyPressed(ImGuiKey_Z)) MapViewPanel::Get().Undo();
+        if (ctrl && ImGui::IsKeyPressed(ImGuiKey_Y)) MapViewPanel::Get().Redo();
 
         // ── Load Map modal ────────────────────────────────
         if (s_open_modal) { ImGui::OpenPopup("Load Map"); s_open_modal = false; }
@@ -216,8 +214,8 @@ int main(void) {
             ImGui::SameLine();
             ImGui::SetNextItemWidth(64);
             ImGui::InputInt("H##nh", &s_new_h, 0, 0);
-            if (s_new_w < 1)  s_new_w = 1;
-            if (s_new_h < 1)  s_new_h = 1;
+            if (s_new_w < 1)   s_new_w = 1;
+            if (s_new_h < 1)   s_new_h = 1;
             if (s_new_w > 128) s_new_w = 128;
             if (s_new_h > 128) s_new_h = 128;
             ImGui::Spacing();
@@ -259,14 +257,11 @@ int main(void) {
             ImGui::EndPopup();
         }
 
-        // ── Top separator ─────────────────────────────────
         ImGui::SetCursorPos({0, 0});
         ImGui::Separator();
-
-        // ── Tab bar ───────────────────────────────────────
         ImGui::SetCursorPosX(4);
-        if (ImGui::BeginTabBar("##tabs", ImGuiTabBarFlags_None)) {
 
+        if (ImGui::BeginTabBar("##tabs")) {
             if (ImGui::BeginTabItem("Items")) {
                 ImGui::SetCursorPos({8, ImGui::GetCursorPosY() + 4});
                 if (ItemEditor::Draw("data/items/items.json")) {
@@ -275,7 +270,6 @@ int main(void) {
                 }
                 ImGui::EndTabItem();
             }
-
             if (ImGui::BeginTabItem("Factions")) {
                 ImGui::SetCursorPos({8, ImGui::GetCursorPosY() + 4});
                 if (FactionEditor::Draw("data/factions/factions.json")) {
@@ -284,30 +278,30 @@ int main(void) {
                 }
                 ImGui::EndTabItem();
             }
-
             if (ImGui::BeginTabItem("Map")) {
                 ImGui::SetCursorPos({8, ImGui::GetCursorPosY() + 4});
                 MapViewPanel::Get().Draw(dt);
                 ImGui::EndTabItem();
             }
-
             if (ImGui::BeginTabItem("Settings")) {
                 ImGui::SetCursorPos({12, ImGui::GetCursorPosY() + 6});
                 SettingsEditor::Draw(CFG_PATH, status_msg, &status_timer);
                 ImGui::EndTabItem();
             }
-
             ImGui::EndTabBar();
         }
 
         ImGui::End();
 
-        rlImGuiEnd();
-        EndDrawing();
+        ImGui::Render();
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        window_end_frame();
     }
 
     MapViewPanel::Get().Shutdown();
-    rlImGuiShutdown();
-    CloseWindow();
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplSDL3_Shutdown();
+    ImGui::DestroyContext();
+    window_shutdown();
     return 0;
 }

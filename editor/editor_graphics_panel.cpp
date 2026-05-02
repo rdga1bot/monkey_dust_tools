@@ -4,7 +4,6 @@
 #include "imgui.h"
 #include <monkey_dust/tools/graphics_settings.h>
 #include <monkey_dust/tools/debug_system.h>
-#include "raylib.h"
 
 void EditorGraphicsPanel::Draw() {
     if (!EditorCore::Get().panels_visible[4]) return;

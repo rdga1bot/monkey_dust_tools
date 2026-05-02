@@ -10,23 +10,17 @@
 #include <monkey_dust/save/save_system.h>
 #include <monkey_dust/nav/nav_system.h>
 #include "world/faction_system.h"
-#include "raylib.h"
+#include <monkey_dust/platform/md_log.h>
 #include <cstdio>
 #include <cstring>
-#include <cstdarg>
 #ifdef MD_OPENGL43_ENABLED
 #include <monkey_dust/world/transform_soa.h>
 #endif
 
-// ── TraceLog intercept ────────────────────────────────────────────────────────
-static void ConsoleTraceCallback(int level, const char* text, va_list args) {
-    char buf[EditorConsole::LINE_LEN];
-    vsnprintf(buf, sizeof(buf), text, args);
-    EditorConsole::Get().Log(level, buf);
-}
-
 void EditorConsole::Init() {
-    SetTraceLogCallback(ConsoleTraceCallback);
+    MdLogSetHook([](int level, const char* msg) {
+        EditorConsole::Get().Log(level, msg);
+    });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -52,7 +46,7 @@ void EditorConsole::PushHistory(const char* cmd) {
 
 // ── Command executor ──────────────────────────────────────────────────────────
 void EditorConsole::ExecCommand(const char* raw) {
-    Log(LOG_INFO, raw);
+    Log(MD_LOG_INFO, raw);
     PushHistory(raw);
 
     if (lua_mode_) {
@@ -64,13 +58,13 @@ void EditorConsole::ExecCommand(const char* raw) {
     const char* cmd = (raw[0] == '/') ? raw + 1 : raw;
 
     if (strncmp(cmd, "help", 4) == 0) {
-        Log(LOG_INFO, "/reload  /spawn N x z  /kill N  /save  /load");
-        Log(LOG_INFO, "/navmesh  /ai N cmd  /faction a b v  /quest N  /fps  /help");
+        Log(MD_LOG_INFO, "/reload  /spawn N x z  /kill N  /save  /load");
+        Log(MD_LOG_INFO, "/navmesh  /ai N cmd  /faction a b v  /quest N  /fps  /help");
         return;
     }
 
     if (strncmp(cmd, "reload", 6) == 0) {
-        Log(LOG_INFO, "[Console] Hot-reload: use scene load to refresh data");
+        Log(MD_LOG_INFO, "[Console] Hot-reload: use scene load to refresh data");
         return;
     }
 
@@ -90,7 +84,7 @@ void EditorConsole::ExecCommand(const char* raw) {
         reg.emplace<Combat>(e, Combat::MakeBandit());
         char msg[64];
         snprintf(msg, sizeof(msg), "[Console] Spawned entity faction=%d at (%.1f,%.1f)", faction, cx, cz);
-        Log(LOG_INFO, msg);
+        Log(MD_LOG_INFO, msg);
         return;
     }
 
@@ -105,23 +99,23 @@ void EditorConsole::ExecCommand(const char* raw) {
                 if (reg.all_of<Health>(e))  reg.get<Health>(e).current = 0.f;
                 char msg[48];
                 snprintf(msg, sizeof(msg), "[Console] Killed entity %u", eid);
-                Log(LOG_INFO, msg);
+                Log(MD_LOG_INFO, msg);
                 return;
             }
         }
-        Log(LOG_WARNING, "[Console] Entity not found");
+        Log(MD_LOG_WARNING, "[Console] Entity not found");
         return;
     }
 
     if (strncmp(cmd, "save", 4) == 0) {
         SaveSystem::Get().SaveAsync(SaveSystem::DefaultPath());
-        Log(LOG_INFO, "[Console] Save started");
+        Log(MD_LOG_INFO, "[Console] Save started");
         return;
     }
 
     if (strncmp(cmd, "load", 4) == 0) {
         SaveSystem::Get().Load(SaveSystem::DefaultPath());
-        Log(LOG_INFO, "[Console] Load complete");
+        Log(MD_LOG_INFO, "[Console] Load complete");
         return;
     }
 
@@ -129,7 +123,7 @@ void EditorConsole::ExecCommand(const char* raw) {
         char msg[64];
         snprintf(msg, sizeof(msg), "[Console] NavSystem: %s",
                  NavSystem::Get().IsReady() ? "READY" : "NOT READY");
-        Log(LOG_INFO, msg);
+        Log(MD_LOG_INFO, msg);
         return;
     }
 
@@ -139,19 +133,19 @@ void EditorConsole::ExecCommand(const char* raw) {
         FactionSystem::Get().SetRelation((uint32_t)a, (uint32_t)b, (int8_t)v);
         char msg[64];
         snprintf(msg, sizeof(msg), "[Console] Faction %d→%d = %d", a, b, v);
-        Log(LOG_INFO, msg);
+        Log(MD_LOG_INFO, msg);
         return;
     }
 
     if (strncmp(cmd, "fps", 3) == 0) {
         char msg[64];
-        snprintf(msg, sizeof(msg), "[Console] FPS=%d  dt=%.2fms",
-                 GetFPS(), GetFrameTime() * 1000.f);
-        Log(LOG_INFO, msg);
+        snprintf(msg, sizeof(msg), "[Console] FPS=%.0f  dt=%.2fms",
+                 frame_fps_, frame_dt_ms_);
+        Log(MD_LOG_INFO, msg);
         return;
     }
 
-    Log(LOG_WARNING, "[Console] Unknown command. Type /help");
+    Log(MD_LOG_WARNING, "[Console] Unknown command. Type /help");
 }
 
 // ── Draw ──────────────────────────────────────────────────────────────────────
@@ -201,8 +195,8 @@ void EditorConsole::Draw() {
 
         ImVec4 col;
         int lv = log_level_[idx];
-        if      (lv == LOG_ERROR   || lv == LOG_FATAL) col = {1.f, 0.3f, 0.3f, 1.f};
-        else if (lv == LOG_WARNING)                     col = {1.f, 0.8f, 0.2f, 1.f};
+        if      (lv == MD_LOG_ERROR) col = {1.f, 0.3f, 0.3f, 1.f};
+        else if (lv == MD_LOG_WARNING)                     col = {1.f, 0.8f, 0.2f, 1.f};
         else if (strstr(line, "[Lua]"))                 col = {0.4f, 0.8f, 1.f, 1.f};
         else if (strstr(line, "[NavMesh]") ||
                  strstr(line, "NavSystem"))             col = {0.4f, 1.f, 0.4f, 1.f};

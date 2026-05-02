@@ -1,5 +1,5 @@
 #pragma once
-#include "raylib.h"
+#include "glad.h"
 #include "imgui.h"
 #include <monkey_dust/flare/tile_map.h>
 #include <monkey_dust/flare/tile_map_2d_renderer.h>
@@ -56,11 +56,15 @@ private:
         uint16_t after[md::flare::MAX_MAP_WIDTH * md::flare::MAX_MAP_HEIGHT];
     };
 
-    // FBO
-    RenderTexture2D rt_   = {};
-    int             rt_w_ = 0, rt_h_ = 0;
-    bool            rt_ok_= false;
-    void EnsureRT(int w, int h);
+    // FBO (direct OpenGL)
+    GLuint rt_fbo_   = 0;
+    GLuint rt_tex_   = 0;
+    GLuint rt_depth_ = 0;
+    int    rt_w_ = 0, rt_h_ = 0;
+    bool   rt_ok_= false;
+    void   EnsureRT(int w, int h);
+
+    float  now_s_ = 0.0f;   // accumulated time for tile animation
 
     // Map data
     md::flare::FlareMap map_    = {};
