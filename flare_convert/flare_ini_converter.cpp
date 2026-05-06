@@ -4,7 +4,7 @@
 // https://github.com/flareteam/flare-game
 
 #include "flare_ini_converter.h"
-#include "raylib.h"
+
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
@@ -167,13 +167,13 @@ bool FlareConvertItems(const char* flare_items_dir, const char* out_json_path) {
     parse_items_file(items_txt, mod_root, items, &count, 1024, 0);
 
     if (count == 0) {
-        TraceLog(LOG_WARNING, "FlareConvertItems: no items from %s", flare_items_dir);
+        fprintf(stderr, "[WARNING] FlareConvertItems: no items from %s", flare_items_dir);
         return false;
     }
 
     FILE* out = fopen(out_json_path, "w");
     if (!out) {
-        TraceLog(LOG_WARNING, "FlareConvertItems: cannot write %s", out_json_path);
+        fprintf(stderr, "[WARNING] FlareConvertItems: cannot write %s", out_json_path);
         return false;
     }
     fprintf(out, "[\n");
@@ -193,7 +193,7 @@ bool FlareConvertItems(const char* flare_items_dir, const char* out_json_path) {
     }
     fprintf(out, "]\n");
     fclose(out);
-    TraceLog(LOG_INFO, "FlareConvertItems: %d items → %s", count, out_json_path);
+    fprintf(stderr, "[INFO] FlareConvertItems: %d items → %s", count, out_json_path);
     return true;
 }
 
@@ -218,7 +218,7 @@ static void parse_enemy_file(const char* fpath, const char* fname, EnemyRec& r) 
     if (dot) *dot = '\0';
 
     FILE* f = fopen(fpath, "r");
-    if (!f) { TraceLog(LOG_WARNING, "FlareConvertEnemies: cannot open %s", fpath); return; }
+    if (!f) { fprintf(stderr, "[WARNING] FlareConvertEnemies: cannot open %s", fpath); return; }
 
     char line[512];
     while (fgets(line, sizeof(line), f)) {
@@ -262,7 +262,7 @@ bool FlareConvertEnemies(const char* flare_enemies_dir, const char* out_json_pat
 
     DIR* d = opendir(dir);
     if (!d) {
-        TraceLog(LOG_WARNING, "FlareConvertEnemies: cannot open %s", flare_enemies_dir);
+        fprintf(stderr, "[WARNING] FlareConvertEnemies: cannot open %s", flare_enemies_dir);
         return false;
     }
 
@@ -279,19 +279,19 @@ bool FlareConvertEnemies(const char* flare_enemies_dir, const char* out_json_pat
         if (enemy_valid(r)) {
             enemies[count++] = r;
         } else {
-            TraceLog(LOG_WARNING, "FlareConvertEnemies: skipped %s (missing name/level)", ent->d_name);
+            fprintf(stderr, "[WARNING] FlareConvertEnemies: skipped %s (missing name/level)", ent->d_name);
         }
     }
     closedir(d);
 
     if (count == 0) {
-        TraceLog(LOG_WARNING, "FlareConvertEnemies: no enemies from %s", flare_enemies_dir);
+        fprintf(stderr, "[WARNING] FlareConvertEnemies: no enemies from %s", flare_enemies_dir);
         return false;
     }
 
     FILE* out = fopen(out_json_path, "w");
     if (!out) {
-        TraceLog(LOG_WARNING, "FlareConvertEnemies: cannot write %s", out_json_path);
+        fprintf(stderr, "[WARNING] FlareConvertEnemies: cannot write %s", out_json_path);
         return false;
     }
     fprintf(out, "[\n");
@@ -312,7 +312,7 @@ bool FlareConvertEnemies(const char* flare_enemies_dir, const char* out_json_pat
     }
     fprintf(out, "]\n");
     fclose(out);
-    TraceLog(LOG_INFO, "FlareConvertEnemies: %d enemies → %s", count, out_json_path);
+    fprintf(stderr, "[INFO] FlareConvertEnemies: %d enemies → %s", count, out_json_path);
     return true;
 }
 
@@ -346,7 +346,7 @@ static void parse_powers_file(
     PowerRec* out, int* cnt, int max_cnt)
 {
     FILE* f = fopen(fpath, "r");
-    if (!f) { TraceLog(LOG_WARNING, "FlareConvertPowers: cannot open %s", fpath); return; }
+    if (!f) { fprintf(stderr, "[WARNING] FlareConvertPowers: cannot open %s", fpath); return; }
 
     char line[512];
     PowerRec cur; power_reset(cur);
@@ -413,7 +413,7 @@ bool FlareConvertPowers(const char* flare_powers_categories_dir, const char* out
 
     DIR* d = opendir(dir);
     if (!d) {
-        TraceLog(LOG_WARNING, "FlareConvertPowers: cannot open %s", flare_powers_categories_dir);
+        fprintf(stderr, "[WARNING] FlareConvertPowers: cannot open %s", flare_powers_categories_dir);
         return false;
     }
 
@@ -429,13 +429,13 @@ bool FlareConvertPowers(const char* flare_powers_categories_dir, const char* out
     closedir(d);
 
     if (count == 0) {
-        TraceLog(LOG_WARNING, "FlareConvertPowers: no powers from %s", flare_powers_categories_dir);
+        fprintf(stderr, "[WARNING] FlareConvertPowers: no powers from %s", flare_powers_categories_dir);
         return false;
     }
 
     FILE* out = fopen(out_json_path, "w");
     if (!out) {
-        TraceLog(LOG_WARNING, "FlareConvertPowers: cannot write %s", out_json_path);
+        fprintf(stderr, "[WARNING] FlareConvertPowers: cannot write %s", out_json_path);
         return false;
     }
     fprintf(out, "[\n");
@@ -449,6 +449,6 @@ bool FlareConvertPowers(const char* flare_powers_categories_dir, const char* out
     }
     fprintf(out, "]\n");
     fclose(out);
-    TraceLog(LOG_INFO, "FlareConvertPowers: %d powers → %s", count, out_json_path);
+    fprintf(stderr, "[INFO] FlareConvertPowers: %d powers → %s", count, out_json_path);
     return true;
 }

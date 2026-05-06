@@ -31,8 +31,6 @@ target_include_directories(monkey_dust_editor PRIVATE
     editor/
     ${CMAKE_SOURCE_DIR}/third_party/imgui
     ${CMAKE_SOURCE_DIR}/third_party/imgui/backends
-    ${CMAKE_SOURCE_DIR}/third_party/rlImGui
-    ${CMAKE_SOURCE_DIR}/third_party/raylib/src
     ${CMAKE_SOURCE_DIR}/third_party/recastnavigation/Recast/Include
     ${CMAKE_SOURCE_DIR}/third_party/recastnavigation/Detour/Include
     ${CMAKE_SOURCE_DIR}/engine/src/vendor
@@ -46,10 +44,8 @@ add_executable(md_flare_convert
     flare_convert/flare_ini_converter.cpp
     flare_convert/flare_convert_main.cpp
 )
-target_link_libraries(md_flare_convert PRIVATE raylib)
 target_include_directories(md_flare_convert PRIVATE
     flare_convert/
-    ${CMAKE_SOURCE_DIR}/third_party/raylib/src
 )
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     target_compile_options(md_flare_convert PRIVATE -O2 -march=native)
