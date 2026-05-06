@@ -1,100 +1,33 @@
-// Flare tile-map viewer — standalone demo for M7 Flare-runtime.
+// md_flare_demo — Flare tile-map viewer via SDL_GPU.
+//
+// Demonstrates the monkey_dust SDL_GPU API end-to-end:
+//   plain SDL3 window → GpuDevice::Init → SDL_GPU Vulkan/Metal/D3D12 backend
+//   → SPIR-V shaders → TileMap2DRenderer renders the tile map via SDL_GPU swapchain.
 //
 // Controls:
-//   WASD / arrow keys — pan camera
-//   Q / E             — zoom out / in
+//   WASD / arrow keys — pan
+//   Q / E or scroll   — zoom out / in
 //   R                 — reset camera
+//   Escape            — quit
 //
 // Usage:
 //   md_flare_demo [mods_root] [mod_name] [map_name]
-//
-// Defaults:
-//   mods_root = third_party/flare-game/mods   (relative to CWD)
-//   mod_name  = empyrean_campaign
-//   map_name  = maps/perdition_harbor.txt
 
 #include <monkey_dust/flare/flare_runtime.h>
 #include <monkey_dust/flare/tile_map_2d_renderer.h>
-#include <monkey_dust/flare/tile_map_renderer.h>
-#include <monkey_dust/flare/billboard_renderer.h>
-#include <monkey_dust/flare/sprite_resolver.h>
-#include <monkey_dust/render/md_camera.h>
-#include "raylib.h"
-#include "rlgl.h"
+#include <monkey_dust/render/gpu_device.h>
+#include <SDL3/SDL.h>
 #include <cstdio>
 #include <cstring>
 #include <cmath>
 #include <unistd.h>
 
-// ── Atlas path resolution ─────────────────────────────────────────────────────
-// TileMapRenderer needs the grassland atlas that comes with flare-game.
-// Path is relative to the repo root (where the binary is typically run).
+// ── repo root detection ───────────────────────────────────────────────────────
 
-static void FindAtlas(const char* mods_root, const md::flare::FlareMap& map,
-                      char* out, int out_sz) {
-    // The perdition_harbor.txt [tilesets] line 2 points to grassland.png
-    // via a path like "../../../tiled/tilesheets/grassland.png" relative to mods/.
-    // We look for the second tileset entry (index 1, skip collision).
-    for (int i = 1; i < map.tileset_count; ++i) {
-        const char* img = map.tilesets[i].image_path;
-        if (!img[0]) continue;
-
-        // Try absolute/relative path as-is
-        if (FileExists(img)) { snprintf(out, (size_t)out_sz, "%s", img); return; }
-
-        // Try relative to mods_root
-        char full[512];
-        snprintf(full, sizeof(full), "%s/%s", mods_root, img);
-        if (FileExists(full)) { snprintf(out, (size_t)out_sz, "%s", full); return; }
-
-        // Tileset paths are relative to the map file's dir (mods_root/mod/maps/).
-        // Strip leading "../" tokens and anchor to mods_root parent, adjusted
-        // for the 2 levels of depth from mods_root to maps/.
-        const char* p = img;
-        int ups = 0;
-        while (strncmp(p, "../", 3) == 0) { p += 3; ++ups; }
-        if (ups > 0) {
-            // Map dir is 2 levels below mods_root, so effective ups from mods_root
-            // is (ups - 2). Strip that many levels from mods_root.
-            char base[512];
-            snprintf(base, sizeof(base), "%s", mods_root);
-            int strip = ups - 2;  // number of levels to go above mods_root
-            for (int u = 0; u < strip; ++u) {
-                char* last = nullptr;
-                for (char* c = base; *c; ++c) if (*c == '/') last = c;
-                if (last) *last = '\0';
-            }
-            snprintf(full, sizeof(full), "%s/%s", base, p);
-            if (FileExists(full)) { snprintf(out, (size_t)out_sz, "%s", full); return; }
-        }
-    }
-    out[0] = '\0';
-}
-
-// ── Camera ────────────────────────────────────────────────────────────────────
-
-static MdCamera MakeCamera(float cx, float cz, float ortho_size) {
-    MdCamera cam;
-    // Isometric angle: 30° elevation from the horizontal plane.
-    // For ortho projection the camera distance only determines direction,
-    // so we use ortho_size * 4 to place it well outside the visible volume.
-    constexpr float ELEV = 30.0f * 3.14159265f / 180.0f;
-    const float dist = ortho_size * 4.0f;
-    cam.pos    = { cx, dist * sinf(ELEV), cz + dist * cosf(ELEV) };
-    cam.target = { cx, 0.0f, cz };
-    cam.up     = { 0.0f, 1.0f, 0.0f };
-    cam.fovy   = 45.0f;   // unused by ortho path; kept for ToRaylib() compatibility
-    return cam;
-}
-
-// ── main ──────────────────────────────────────────────────────────────────────
-
-// Resolve the repo root from the binary path and chdir to it so that
-// relative paths ("shaders/", "third_party/") work regardless of CWD.
 static void ChdirToRepoRoot() {
     char exe[512] = {};
     if (readlink("/proc/self/exe", exe, sizeof(exe) - 1) <= 0) return;
-    // Binary is at <repo>/build/tools/md_flare_demo — strip 3 components.
+    // Binary is at <repo>/build/tools/md_flare_demo — strip 3 path components.
     for (int i = 0; i < 3; ++i) {
         char* p = strrchr(exe, '/');
         if (!p) return;
@@ -104,218 +37,149 @@ static void ChdirToRepoRoot() {
         fprintf(stdout, "[demo] repo root: %s\n", exe);
 }
 
+// ── main ──────────────────────────────────────────────────────────────────────
+
 int main(int argc, char** argv) {
     ChdirToRepoRoot();
 
-    const char* mods_root = (argc > 1) ? argv[1]
-                                       : "third_party/flare-game/mods";
+    const char* mods_root = (argc > 1) ? argv[1] : "third_party/flare-game/mods";
     const char* mod_name  = (argc > 2) ? argv[2] : "empyrean_campaign";
     const char* map_name  = (argc > 3) ? argv[3] : "maps/goblin_camp.txt";
 
-    // ── window init ───────────────────────────────────────────────────────────
-    const int W = 1280, H = 720;
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
-    InitWindow(W, H, "md_flare_demo — Flare Tile Map Viewer");
-    SetTargetFPS(60);
+    // ── SDL3 init (plain window — no SDL_WINDOW_OPENGL) ───────────────────────
+    if (!SDL_Init(SDL_INIT_VIDEO)) {
+        fprintf(stderr, "[demo] SDL_Init failed: %s\n", SDL_GetError());
+        return 1;
+    }
 
-    // ── load mod ──────────────────────────────────────────────────────────────
-    fprintf(stdout, "[demo] LoadMod '%s' from '%s' ...\n", mod_name, mods_root);
+    const int WIN_W = 1280, WIN_H = 720;
+    SDL_Window* window = SDL_CreateWindow("md_flare_demo — SDL_GPU Tile Map",
+                                          WIN_W, WIN_H,
+                                          SDL_WINDOW_RESIZABLE);
+    if (!window) {
+        fprintf(stderr, "[demo] SDL_CreateWindow failed: %s\n", SDL_GetError());
+        SDL_Quit();
+        return 1;
+    }
+
+    // ── GPU device ────────────────────────────────────────────────────────────
+    if (!md::GpuDevice::Get().Init(window)) {
+        fprintf(stderr, "[demo] GpuDevice::Init failed — no Vulkan/Metal/D3D12 driver?\n");
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        return 1;
+    }
+    fprintf(stderr, "[demo] SDL_GPU driver: %s\n", md::GpuDevice::Get().DriverName());
+
+    // ── Load Flare mod ────────────────────────────────────────────────────────
+    fprintf(stderr, "[demo] LoadMod '%s' from '%s' ...\n", mod_name, mods_root);
     auto& rt = md::flare::FlareRuntime::Get();
     if (!rt.LoadMod(mod_name, mods_root, map_name, 1.0f)) {
         fprintf(stderr, "[demo] LoadMod FAILED\n");
-        CloseWindow();
+        md::GpuDevice::Get().Shutdown();
+        SDL_DestroyWindow(window);
+        SDL_Quit();
         return 1;
     }
-    fprintf(stdout, "[demo] Map: %dx%d '%s', %d enemies, %d items, %d powers\n",
-            rt.GetMap().width, rt.GetMap().height, rt.GetMap().title,
+    const auto& map = rt.GetMap();
+    fprintf(stderr, "[demo] Map loaded: %dx%d '%s'\n", map.width, map.height, map.title);
+    fprintf(stderr, "[demo] Map: %dx%d '%s'  enemies:%d  items:%d  powers:%d\n",
+            map.width, map.height, map.title,
             rt.GetEnemies().count, rt.GetItems().count, rt.GetPowers().count);
 
-    // ── renderer init — 2D pixel-perfect path ────────────────────────────────
+    // ── 2D renderer (SDL_GPU path selected automatically by Init) ─────────────
     auto& tmr2d = md::flare::TileMap2DRenderer::Get();
     tmr2d.Init();
-    if (rt.GetMap().tileset_atlas_count > 0) {
-        tmr2d.SetAtlases(rt.GetMap());
-        fprintf(stdout, "[demo] 2D renderer: %d atlas(es) loaded\n",
-                rt.GetMap().tileset_atlas_count);
+    if (map.tileset_atlas_count > 0) {
+        tmr2d.SetAtlases(map);
+        fprintf(stderr, "[demo] %d atlas(es) loaded via SDL_GPU\n",
+                map.tileset_atlas_count);
     } else {
-        fprintf(stderr, "[demo] Warning: no atlas found — tiles will be invisible\n");
+        fprintf(stderr, "[demo] Warning: no atlas paths — tiles invisible\n");
     }
 
-    // Keep 3D renderer available for billboard NPCs.
-    auto& tmr = md::flare::TileMapRenderer::Get();
-    tmr.Init();
-    if (rt.GetMap().tileset_atlas_count > 0)
-        tmr.SetAtlases(rt.GetMap());
+    // ── 2D camera state ───────────────────────────────────────────────────────
+    const float MAP_SCR_W = (float)(map.width + map.height) * 96.f;
+    const float MAP_SCR_H = (float)(map.width + map.height) * 48.f;
 
-    // ── billboard renderer + sprite atlases ──────────────────────────────────
-    auto& br  = md::flare::BillboardRenderer::Get();
-    auto& sr  = md::flare::SpriteResolver::Get();
-    br.Init();
-    sr.Clear();
-    {
-        const auto& spawn_map = rt.GetMap();
-        for (int i = 0; i < spawn_map.spawn_count; ++i) {
-            const md::flare::SpriteCategoryEntry* e =
-                sr.Resolve(spawn_map.spawns[i].category);
-            if (e) br.LoadSpriteAtlas(e->atlas_full_path);
-        }
-        fprintf(stdout, "[demo] %d spawn blocks, last atlas loaded\n",
-                spawn_map.spawn_count);
-    }
+    int vp_w = WIN_W, vp_h = WIN_H;
+    float scale = fminf((float)vp_w / MAP_SCR_W,
+                        (float)vp_h / MAP_SCR_H) * 0.82f;
 
-    // ── 2D camera: pan + zoom ─────────────────────────────────────────────────
-    const auto& map = rt.GetMap();
-
-    // Compute initial scale to fit the map in ~80% of the viewport.
-    // Map screen size at scale=1: (mw+mh)*96 wide, (mw+mh)*48 tall.
-    const float MAP_SCR_W = (float)(map.width + map.height) * 96.0f;
-    const float MAP_SCR_H = (float)(map.width + map.height) * 48.0f;
-    float scale = fminf((float)W / MAP_SCR_W, (float)H / MAP_SCR_H) * 0.82f;
-
-    // origin = screen-pixel position of tile(0,0) grid anchor.
-    // For a square map, tile(0,0) is at screen_x=0 in tile space, so center it.
-    float pan_x = 0.0f, pan_y = 0.0f;
-    auto ResetOrigin = [&](float& ox, float& oy) {
-        // Horizontal center: map spans -(mh)*96 to +(mw)*96. Center = (mw-mh)*48.
-        float cx_tile = (float)(map.width - map.height) * 48.0f;
-        float cy_tile = (float)(map.width + map.height) * 24.0f;
-        ox = (float)GetScreenWidth()  * 0.5f - cx_tile * scale;
-        oy = (float)GetScreenHeight() * 0.5f - cy_tile * scale;
+    float origin_x = 0.f, origin_y = 0.f;
+    auto ResetOrigin = [&]() {
+        SDL_GetWindowSize(window, &vp_w, &vp_h);
+        float cx_tile = (float)(map.width - map.height) * 48.f;
+        float cy_tile = (float)(map.width + map.height) * 24.f;
+        scale    = fminf((float)vp_w / MAP_SCR_W, (float)vp_h / MAP_SCR_H) * 0.82f;
+        origin_x = (float)vp_w * 0.5f - cx_tile * scale;
+        origin_y = (float)vp_h * 0.5f - cy_tile * scale;
     };
-    float origin_x, origin_y;
-    ResetOrigin(origin_x, origin_y);
+    ResetOrigin();
 
-    // 3D camera kept alive for billboard NPCs.
-    float map_cx = 0.0f;
-    float map_cz = (map.width + map.height) * 0.5f * 0.5f;
-    float ortho_size = (float)(map.width + map.height) * 0.5f * 0.4f;
-    MdCamera cam = MakeCamera(map_cx, map_cz, ortho_size);
+    const float PAN_SPEED = 12.f;
+    uint64_t prev_ms = SDL_GetTicks();
+    bool quit = false;
 
-    const float PAN_SPEED = 12.0f;  // pixels per frame at scale=1
-    bool show_debug = false;
+    // ── Game loop ─────────────────────────────────────────────────────────────
+    while (!quit) {
+        uint64_t now_ms = SDL_GetTicks();
+        float dt = (float)(now_ms - prev_ms) * 0.001f;
+        if (dt > 0.1f) dt = 0.1f;
+        prev_ms = now_ms;
 
-    // ── game loop ─────────────────────────────────────────────────────────────
-    while (!WindowShouldClose()) {
-        float dt = GetFrameTime();
+        float scroll_y = 0.f;
+        bool  do_zoom_out = false, do_zoom_in = false, do_reset = false;
+
+        SDL_Event ev;
+        while (SDL_PollEvent(&ev)) {
+            if (ev.type == SDL_EVENT_QUIT) { quit = true; break; }
+            if (ev.type == SDL_EVENT_MOUSE_WHEEL) scroll_y = ev.wheel.y;
+            if (ev.type == SDL_EVENT_WINDOW_RESIZED)
+                SDL_GetWindowSize(window, &vp_w, &vp_h);
+            if (ev.type == SDL_EVENT_KEY_DOWN && !ev.key.repeat) {
+                switch (ev.key.scancode) {
+                case SDL_SCANCODE_ESCAPE: quit = true;         break;
+                case SDL_SCANCODE_Q:      do_zoom_out = true;  break;
+                case SDL_SCANCODE_E:      do_zoom_in  = true;  break;
+                case SDL_SCANCODE_R:      do_reset    = true;  break;
+                default: break;
+                }
+            }
+        }
+        if (quit) break;
+
+        // Continuous pan
+        const bool* kb   = SDL_GetKeyboardState(nullptr);
+        float step = PAN_SPEED / scale;
+        if (kb[SDL_SCANCODE_A] || kb[SDL_SCANCODE_LEFT])  origin_x += step;
+        if (kb[SDL_SCANCODE_D] || kb[SDL_SCANCODE_RIGHT]) origin_x -= step;
+        if (kb[SDL_SCANCODE_W] || kb[SDL_SCANCODE_UP])    origin_y += step;
+        if (kb[SDL_SCANCODE_S] || kb[SDL_SCANCODE_DOWN])  origin_y -= step;
+
+        // Zoom toward screen center
+        float old_scale = scale;
+        if (do_zoom_out || scroll_y < 0.f) scale = fmaxf(scale * 0.85f, 0.02f);
+        if (do_zoom_in  || scroll_y > 0.f) scale = fminf(scale * 1.18f, 4.0f);
+        if (scale != old_scale) {
+            float cx = (float)vp_w * 0.5f, cy = (float)vp_h * 0.5f;
+            origin_x = cx - (cx - origin_x) * (scale / old_scale);
+            origin_y = cy - (cy - origin_y) * (scale / old_scale);
+        }
+        if (do_reset) ResetOrigin();
+
         rt.Tick(dt);
 
-        // 2D pan (pixel space)
-        float step = PAN_SPEED / scale;  // world-pixel step independent of zoom
-        if (IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT))  origin_x += step;
-        if (IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT)) origin_x -= step;
-        if (IsKeyDown(KEY_W) || IsKeyDown(KEY_UP))    origin_y += step;
-        if (IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN))  origin_y -= step;
-
-        // Zoom around screen center
-        float scroll = GetMouseWheelMove();
-        float old_scale = scale;
-        if (IsKeyPressed(KEY_Q) || scroll < 0) scale = fmaxf(scale * 0.85f, 0.02f);
-        if (IsKeyPressed(KEY_E) || scroll > 0) scale = fminf(scale * 1.18f, 4.0f);
-        if (scale != old_scale) {
-            // Zoom toward screen center
-            float sx = (float)GetScreenWidth()  * 0.5f;
-            float sy = (float)GetScreenHeight() * 0.5f;
-            origin_x = sx - (sx - origin_x) * (scale / old_scale);
-            origin_y = sy - (sy - origin_y) * (scale / old_scale);
-        }
-
-        // Reset
-        if (IsKeyPressed(KEY_R)) {
-            scale = fminf((float)GetScreenWidth() / MAP_SCR_W,
-                          (float)GetScreenHeight() / MAP_SCR_H) * 0.82f;
-            ResetOrigin(origin_x, origin_y);
-        }
-        if (IsKeyPressed(KEY_F3)) show_debug = !show_debug;
-
-        float aspect = (float)GetScreenWidth() / (float)GetScreenHeight();
-
-        BeginDrawing();
-        ClearBackground({ 20, 20, 30, 255 });
-
-        // 2D pixel-perfect tile map.
-        // rlDrawRenderBatchActive() flushes Raylib's internal batch and resets
-        // its GL state tracking so DrawText/DrawFPS work correctly afterwards.
-        rlDrawRenderBatchActive();
-        tmr2d.Render(rt.GetMap(), (float)GetTime(),
+        // Single call: acquires cmd buffer + swapchain, renders, submits.
+        tmr2d.Render(map, (float)now_ms * 0.001f,
                      origin_x, origin_y, scale,
-                     GetScreenWidth(), GetScreenHeight());
-        // Reset rlgl's texture slot cache: my renderer bound atlases to
-        // GL_TEXTURE0..3 via direct GL calls, bypassing rlgl's internal
-        // activeTextureId[] tracking.  rlEnableTexture(0) on slot 0 sets
-        // activeTextureId[0]=0, so the next Raylib DrawText call sees
-        // fontTexId != 0 → rebinds the font texture → correct rendering.
-        rlActiveTextureSlot(0);
-        rlEnableTexture(0);
-        rlDrawRenderBatchActive();
-
-        // Billboard NPC spawns
-        const float AW = (float)(br.AtlasWidth()  > 0 ? br.AtlasWidth()  : 2048);
-        const float AH = (float)(br.AtlasHeight() > 0 ? br.AtlasHeight() : 2048);
-        br.BeginFrame();
-        for (int i = 0; i < map.spawn_count; ++i) {
-            const md::flare::FlareSpawn& sp = map.spawns[i];
-            md::flare::SpriteFrame frame;
-            if (!sr.GetStanceFrame0(sp.category, frame)) continue;
-
-            float wx = (sp.center_x - sp.center_y) * rt.TileWorldSize() * 0.5f;
-            float wz = (sp.center_x + sp.center_y) * rt.TileWorldSize() * 0.5f;
-
-            md::flare::BillboardInstance inst;
-            inst.x      = wx;
-            inst.y      = 0.0f;
-            inst.z      = wz;
-            inst.width  = (float)frame.w / 96.0f;
-            inst.height = (float)frame.h / 96.0f;
-            inst.u0     = (float)frame.x / AW;
-            inst.v0     = (float)frame.y / AH;
-            inst.u1     = (float)(frame.x + frame.w) / AW;
-            inst.v1     = (float)(frame.y + frame.h) / AH;
-            inst.r = 255; inst.g = 255; inst.b = 255; inst.a = 255;
-
-            md::flare::BillboardRenderer::Get().Submit(inst);
-        }
-        br.Render(cam, aspect);
-
-        // HUD
-        DrawFPS(8, 8);
-        DrawText(TextFormat("Map: %s  %dx%d  tiles",
-                 map.title, map.width, map.height), 8, 32, 18, WHITE);
-        DrawText(TextFormat("Enemies: %d  Items: %d  Powers: %d  Factions: %d",
-                 rt.GetEnemies().count, rt.GetItems().count,
-                 rt.GetPowers().count, rt.GetFactions().count),
-                 8, 54, 16, LIGHTGRAY);
-        DrawText("WASD=pan  Q/E or scroll=zoom  R=reset  F3=debug", 8, GetScreenHeight() - 24, 14, DARKGRAY);
-
-        // F3 debug overlay
-        if (show_debug) {
-            const int PW = 340;
-            const int SW = GetScreenWidth();
-            DrawRectangle(SW - PW - 4, 0, PW + 4, 310, { 0, 0, 0, 180 });
-            int dy = 8;
-            const int LX = SW - PW;
-            DrawText("── DEBUG ──────────────────────", LX, dy, 14, YELLOW); dy += 20;
-            DrawText(TextFormat("Cam pos:    (%.1f, %.1f, %.1f)", cam.pos.x, cam.pos.y, cam.pos.z),    LX, dy, 13, WHITE); dy += 16;
-            DrawText(TextFormat("Cam target: (%.1f, %.1f, %.1f)", cam.target.x, cam.target.y, cam.target.z), LX, dy, 13, WHITE); dy += 16;
-            DrawText(TextFormat("Scale: %.3f  Origin: (%.0f, %.0f)", scale, origin_x, origin_y),       LX, dy, 13, WHITE); dy += 20;
-            DrawText(TextFormat("Map:  %dx%d  tilesets: %d", map.width, map.height, map.tileset_count), LX, dy, 13, WHITE); dy += 16;
-            DrawText(TextFormat("Atlases: %d", map.tileset_atlas_count),                               LX, dy, 13, WHITE); dy += 16;
-            DrawText(TextFormat("Sprite atlas: %dx%d", br.AtlasWidth(), br.AtlasHeight()),             LX, dy, 13, WHITE); dy += 20;
-            DrawText(TextFormat("Spawns: %d   Billboards: %d", map.spawn_count, br.SubmittedCount()),  LX, dy, 13, YELLOW); dy += 16;
-            for (int i = 0; i < map.spawn_count && i < 8; ++i) {
-                DrawText(TextFormat("  [%d] %s @ (%.0f,%.0f)", i,
-                         map.spawns[i].category, map.spawns[i].center_x, map.spawns[i].center_y),
-                         LX, dy, 12, LIGHTGRAY); dy += 14;
-            }
-            if (map.spawn_count > 8)
-                DrawText(TextFormat("  ... +%d more", map.spawn_count - 8), LX, dy, 12, DARKGRAY);
-        }
-
-        EndDrawing();
+                     vp_w, vp_h);
     }
 
-    tmr.Shutdown();
-    br.Shutdown();
-    sr.Clear();
-    CloseWindow();
+    // ── Cleanup ───────────────────────────────────────────────────────────────
+    tmr2d.Shutdown();
+    md::GpuDevice::Get().Shutdown();
+    SDL_DestroyWindow(window);
+    SDL_Quit();
     return 0;
 }

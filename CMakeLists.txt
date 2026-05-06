@@ -56,16 +56,27 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
 endif()
 
 # ── md_flare_demo ─────────────────────────────────────────
+# Pure SDL_GPU demo: plain SDL3 window, no OpenGL context, no Raylib.
+# glad_impl + stb_image_impl compiled directly (not via engine lib) to resolve
+# GL symbols from the dual-backend engine and provide stb_image texture loading.
 add_executable(md_flare_demo
     flare_demo/main.cpp
+    ${CMAKE_SOURCE_DIR}/engine/src/vendor/glad_impl.cpp
+    ${CMAKE_SOURCE_DIR}/engine/src/vendor/stb_image_impl.cpp
+)
+target_compile_definitions(md_flare_demo PRIVATE
+    MD_SDL_GPU
+    MD_OPENGL43_ENABLED
+    USE_SDL3
+    USE_GLM
 )
 target_link_libraries(md_flare_demo PRIVATE
     monkey_dust::engine
     Recast Detour
-    raylib
+    SDL3::SDL3
 )
 target_include_directories(md_flare_demo PRIVATE
-    ${CMAKE_SOURCE_DIR}/third_party/raylib/src
+    ${CMAKE_SOURCE_DIR}/engine/src/vendor
     ${CMAKE_SOURCE_DIR}/third_party/recastnavigation/Recast/Include
     ${CMAKE_SOURCE_DIR}/third_party/recastnavigation/Detour/Include
 )
