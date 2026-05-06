@@ -66,7 +66,6 @@ add_executable(md_flare_demo
 )
 target_compile_definitions(md_flare_demo PRIVATE
     MD_SDL_GPU
-    MD_OPENGL43_ENABLED
     USE_SDL3
     USE_GLM
 )
