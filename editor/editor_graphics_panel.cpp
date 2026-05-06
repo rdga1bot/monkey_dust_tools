@@ -4,6 +4,7 @@
 #include "imgui.h"
 #include <monkey_dust/tools/graphics_settings.h>
 #include <monkey_dust/tools/debug_system.h>
+#include <monkey_dust/platform/window.h>
 
 void EditorGraphicsPanel::Draw() {
     if (!EditorCore::Get().panels_visible[4]) return;
@@ -21,7 +22,7 @@ void EditorGraphicsPanel::Draw() {
     // ── Rendering ─────────────────────────────────────────────────────────
     if (ImGui::CollapsingHeader("Rendering", ImGuiTreeNodeFlags_DefaultOpen)) {
         if (ImGui::Checkbox("V-Sync##gfx", &gs.vsync))
-            SetTargetFPS(gs.vsync ? 60 : 0);
+            window_set_vsync(gs.vsync ? 60 : 0);
 
         static const char* render_modes[] = { "Forward+Shadow", "Forward+PBR", "Debug" };
         static int render_mode = 1;
@@ -94,7 +95,7 @@ void EditorGraphicsPanel::Draw() {
         gs.shadow_distance= 150.f;
         gs.ibl_enabled    = true;
         gs.ibl_intensity  = 1.f;
-        SetTargetFPS(60);
+        window_set_vsync(60);
     }
 
     ImGui::End();

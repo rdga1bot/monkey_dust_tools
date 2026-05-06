@@ -217,7 +217,7 @@ void EditorHierarchy::Draw() {
                     ImGuiSelectableFlags_AllowDoubleClick,
                     ImVec2(0, 0)))
             {
-                bool multi = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+                bool multi = ImGui::IsKeyDown(ImGuiKey_LeftCtrl) || ImGui::IsKeyDown(ImGuiKey_RightCtrl);
                 ec.Select(e, multi);
                 if (ImGui::IsMouseDoubleClicked(0)) ec.FocusOnSelected();
             }

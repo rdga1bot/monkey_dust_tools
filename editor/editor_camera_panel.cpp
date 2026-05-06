@@ -44,7 +44,7 @@ void EditorCameraPanel::Draw() {
     // ── Viewport Info ─────────────────────────────────────────────────────
     if (ImGui::CollapsingHeader("Viewport Info", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::Text("Position: (%.1f, %.1f, %.1f)",
-                    cam.position.x, cam.position.y, cam.position.z);
+                    cam.pos.x, cam.pos.y, cam.pos.z);
         ImGui::Text("Target:   (%.1f, %.1f, %.1f)",
                     ec.cam_target.x, ec.cam_target.y, ec.cam_target.z);
         ImGui::Text("Yaw: %.1f  Pitch: %.1f  Dist: %.1f",
@@ -56,9 +56,13 @@ void EditorCameraPanel::Draw() {
 
     // ── Screenshot ────────────────────────────────────────────────────────
     if (ImGui::CollapsingHeader("Screenshot")) {
+#ifndef USE_SDL3
         if (ImGui::Button("Take Screenshot##cam"))
             TakeScreenshot("editor_screenshot.png");
         ImGui::TextDisabled("Saves to editor_screenshot.png");
+#else
+        ImGui::TextDisabled("Screenshot not available in SDL3 build");
+#endif
     }
 
     ImGui::End();

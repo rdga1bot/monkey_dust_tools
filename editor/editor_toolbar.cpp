@@ -159,7 +159,7 @@ void EditorToolbar::DrawMenuBar() {
             MD_LOG(MD_LOG_INFO, "[Editor] JSON data reloaded");
         }
         if (ImGui::MenuItem("Rebuild NavMesh")) {
-            Vector3 t = EditorCore::Get().cam_target;
+            Vec3 t = EditorCore::Get().cam_target;
             NavSystem::Get().EnqueueRebuild(t.x, t.z, nullptr, 0, nullptr, 0);
             MD_LOG(MD_LOG_INFO, "[Editor] NavMesh rebuild enqueued at (%.0f,%.0f)", t.x, t.z);
         }
@@ -280,7 +280,7 @@ void EditorToolbar::DrawButtonBar() {
 void EditorToolbar::SpawnEntity(const char* type) {
     auto& reg = Registry::Get();
     auto& ec  = EditorCore::Get();
-    Vector3 pos = ec.cam_target;
+    Vec3 pos = ec.cam_target;
 
     if (strcmp(type, "Transform") == 0) {
         auto e = reg.create();

@@ -1,15 +1,16 @@
 #pragma once
 #ifdef DEBUG
-#include "raylib.h"
 #ifdef USE_SDL3
 #  include "backends/imgui_impl_sdl3.h"
 #  include "backends/imgui_impl_opengl3.h"
 #else
+#  include "raylib.h"
 #  include "rlImGui.h"
 #endif
 #include "imgui.h"
 #include "editor_history.h"
 #include <monkey_dust/ecs/registry.h>
+#include <monkey_dust/render/md_camera.h>
 #include <entt/entt.hpp>
 
 enum class EditorGizmoOp    { TRANSLATE = 0, ROTATE = 1, SCALE = 2 };
@@ -41,11 +42,11 @@ public:
     bool         IsSelected(entt::entity e) const;
 
     // ── Editor Camera ─────────────────────────────────────
-    Camera3D editor_cam  = {};
+    MdCamera editor_cam;          // was Camera3D — now platform-neutral
     float    cam_yaw     = -45.0f;
     float    cam_pitch   = 25.0f;
     float    cam_dist    = 35.0f;
-    Vector3  cam_target  = { 0.f, 2.f, 0.f };
+    Vec3     cam_target  = { 0.f, 2.f, 0.f };
     bool     cam_flying  = false;
     float    cam_speed   = 30.0f;
 

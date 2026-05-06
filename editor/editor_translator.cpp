@@ -3,6 +3,8 @@
 #include "editor_core.h"
 #include <monkey_dust/ecs/registry.h>
 #include <monkey_dust/world/world_transform.h>
+#include <monkey_dust/platform/window.h>
+#include <monkey_dust/platform/input.h>
 #include <cmath>
 #ifdef MD_OPENGL43_ENABLED
 #include <monkey_dust/world/transform_soa.h>
@@ -30,17 +32,12 @@ static Vec3 RayAt(MdRay ray, float t) {
     return vec3_add(ray.pos, vec3_scale(ray.dir, t));
 }
 
-// Vec3 (glm::mat4 in USE_GLM builds) → Raylib Vector3 for Raylib draw calls.
-static inline Vector3 torl(Vec3 v) { return {v.x, v.y, v.z}; }
-
 static float SnapF(float v, float snap) {
     return roundf(v / snap) * snap;
 }
 
-// Build a world-space ray from screen-space mouse coords.
-// GetScreenWidth/Height come from Raylib (still linked) via editor_core.h.
 static MdRay CameraRay(float mx, float my, const MdCamera& cam) {
-    int sw = GetScreenWidth(), sh = GetScreenHeight();
+    int sw = window_get_width(), sh = window_get_height();
     float aspect = (sw > 0 && sh > 0) ? (float)sw / sh : 1.f;
     Vec3 fwd = vec3_norm(vec3_sub(cam.target, cam.pos));
     Vec3 rgt = vec3_norm(vec3_cross(fwd, cam.up));
@@ -79,8 +76,10 @@ Vec3 EditorTranslator::ComputePlaneHit(MdRay ray, EditorGizmoOp op,
 
 // ── Draw ──────────────────────────────────────────────────────────────────────
 void EditorTranslator::Draw(const MdCamera& cam, entt::entity sel, EditorGizmoOp op) {
-    (void)cam;
+    (void)cam; (void)op;
     if (sel == entt::null) return;
+#ifndef USE_SDL3
+    // Gizmo rendering uses Raylib 3D draw calls — SDL3 path skips for now.
     auto& reg = Registry::Get();
     if (!reg.valid(sel) || !reg.all_of<WorldTransform>(sel)) return;
     const auto& tr = reg.get<WorldTransform>(sel);
@@ -89,6 +88,7 @@ void EditorTranslator::Draw(const MdCamera& cam, entt::entity sel, EditorGizmoOp
     Color cx = (active_axis_ == 0) ? YELLOW : RED;
     Color cy = (active_axis_ == 1) ? YELLOW : GREEN;
     Color cz = (active_axis_ == 2) ? YELLOW : BLUE;
+    auto torl = [](Vec3 v) -> Vector3 { return {v.x, v.y, v.z}; };
 
     if (op == EditorGizmoOp::TRANSLATE) {
         DrawLine3D(torl(pos), torl(vec3_add(pos, {3.5f, 0.f, 0.f})), cx);
@@ -111,6 +111,7 @@ void EditorTranslator::Draw(const MdCamera& cam, entt::entity sel, EditorGizmoOp
         DrawCircle3D(torl(pos), 3.5f, {0.f, 1.f, 0.f}, 90.f, cy);
         DrawCircle3D(torl(pos), 3.5f, {0.f, 0.f, 1.f},  0.f, cz);
     }
+#endif
 }
 
 // ── Update (hit detection + drag) ────────────────────────────────────────────
@@ -122,15 +123,15 @@ void EditorTranslator::Update(const MdCamera& cam, entt::entity sel,
     if (!reg.valid(sel) || !reg.all_of<WorldTransform>(sel)) return;
 
     auto&   ec   = EditorCore::Get();
-    bool    snap = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
-    Vector2 mp   = GetMousePosition();
-    MdRay   ray  = CameraRay(mp.x, mp.y, cam);
+    ImGuiIO& io  = ImGui::GetIO();
+    bool snap = ImGui::IsKeyDown(ImGuiKey_LeftCtrl) || ImGui::IsKeyDown(ImGuiKey_RightCtrl);
+    MdRay ray = CameraRay(io.MousePos.x, io.MousePos.y, cam);
 
     auto& tr  = reg.get<WorldTransform>(sel);
     Vec3 pos = {tr.x, tr.y, tr.z};
 
     // ── Press: detect which axis was clicked ──────────────────────────────
-    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !dragging_) {
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !dragging_) {
         active_axis_ = -1;
 
         if (op == EditorGizmoOp::TRANSLATE || op == EditorGizmoOp::SCALE) {
@@ -161,7 +162,7 @@ void EditorTranslator::Update(const MdCamera& cam, entt::entity sel,
     }
 
     // ── Held: apply delta each frame ──────────────────────────────────────
-    if (dragging_ && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+    if (dragging_ && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
         Vec3 cur = ComputePlaneHit(ray, op, active_axis_, entity_start_, cam);
 
         if (op == EditorGizmoOp::TRANSLATE) {
@@ -212,7 +213,7 @@ void EditorTranslator::Update(const MdCamera& cam, entt::entity sel,
     }
 
     // ── Release: end drag ─────────────────────────────────────────────────
-    if (dragging_ && IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
+    if (dragging_ && ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
         dragging_    = false;
         active_axis_ = -1;
     }

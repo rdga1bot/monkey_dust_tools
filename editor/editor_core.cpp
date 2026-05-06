@@ -10,20 +10,21 @@
 #include "editor_animation_panel.h"
 #include "editor_flare_browser.h"
 #include <monkey_dust/world/world_transform.h>
-#include "raymath.h"
+#include <monkey_dust/platform/input.h>
 #include <cmath>
 #include <cstring>
+
+static constexpr float DEG2R = 3.14159265f / 180.f;
 
 void EditorCore::Init() {
     EditorConsole::Get().Init();
     for (int i = 0; i < MAX_SELECTED; ++i)
         selected[i] = entt::null;
 
-    editor_cam.position   = { 0.f, 35.f, 35.f };
-    editor_cam.target     = cam_target;
-    editor_cam.up         = { 0.f, 1.f, 0.f };
-    editor_cam.fovy       = 60.0f;
-    editor_cam.projection = CAMERA_PERSPECTIVE;
+    editor_cam.pos    = { 0.f, 35.f, 35.f };
+    editor_cam.target = cam_target;
+    editor_cam.up     = { 0.f, 1.f, 0.f };
+    editor_cam.fovy   = 60.0f;
 }
 
 void EditorCore::Update(float dt) {
@@ -79,60 +80,56 @@ bool EditorCore::IsSelected(entt::entity e) const {
 void EditorCore::UpdateEditorCamera(float dt, bool viewport_hovered) {
     (void)viewport_hovered;
 
+    ImGuiIO& io = ImGui::GetIO();
+
     if (cam_flying) {
-        // WASD fly mode (RMB held)
-        if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
-            Vector2 md = GetMouseDelta();
-            cam_yaw   -= md.x * 0.3f;
-            cam_pitch  += md.y * 0.3f;
+        if (io.MouseDown[ImGuiMouseButton_Right]) {
+            cam_yaw   -= io.MouseDelta.x * 0.3f;
+            cam_pitch  += io.MouseDelta.y * 0.3f;
             if (cam_pitch >  89.f) cam_pitch =  89.f;
             if (cam_pitch < -89.f) cam_pitch = -89.f;
 
-            float yaw_r   = cam_yaw   * DEG2RAD;
-            float pitch_r = cam_pitch * DEG2RAD;
-            Vector3 fwd = {
+            float yaw_r   = cam_yaw   * DEG2R;
+            float pitch_r = cam_pitch * DEG2R;
+            Vec3 fwd = {
                 cosf(pitch_r) * sinf(yaw_r),
                 sinf(pitch_r),
                 cosf(pitch_r) * cosf(yaw_r)
             };
-            Vector3 right = Vector3Normalize(
-                Vector3CrossProduct(fwd, {0.f, 1.f, 0.f}));
+            Vec3 right = vec3_norm(vec3_cross(fwd, {0.f, 1.f, 0.f}));
 
             float speed = cam_speed * dt;
-            if (IsKeyDown(KEY_W)) cam_target = Vector3Add(cam_target, Vector3Scale(fwd,  speed));
-            if (IsKeyDown(KEY_S)) cam_target = Vector3Add(cam_target, Vector3Scale(fwd, -speed));
-            if (IsKeyDown(KEY_A)) cam_target = Vector3Add(cam_target, Vector3Scale(right,-speed));
-            if (IsKeyDown(KEY_D)) cam_target = Vector3Add(cam_target, Vector3Scale(right, speed));
+            if (input_key_down(KEY_W)) cam_target = vec3_add(cam_target, vec3_scale(fwd,  speed));
+            if (input_key_down(KEY_S)) cam_target = vec3_add(cam_target, vec3_scale(fwd, -speed));
+            if (input_key_down(KEY_A)) cam_target = vec3_add(cam_target, vec3_scale(right,-speed));
+            if (input_key_down(KEY_D)) cam_target = vec3_add(cam_target, vec3_scale(right, speed));
         }
     } else {
         // Orbit mode
-        if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
-            Vector2 md = GetMouseDelta();
-            cam_yaw   -= md.x * 0.4f;
-            cam_pitch  += md.y * 0.4f;
+        if (io.MouseDown[ImGuiMouseButton_Right]) {
+            cam_yaw   -= io.MouseDelta.x * 0.4f;
+            cam_pitch  += io.MouseDelta.y * 0.4f;
             if (cam_pitch >  89.f) cam_pitch =  89.f;
             if (cam_pitch < -89.f) cam_pitch = -89.f;
         }
         // MMB pan
-        if (IsMouseButtonDown(MOUSE_BUTTON_MIDDLE)) {
-            Vector2 md = GetMouseDelta();
-            float yaw_r = cam_yaw * DEG2RAD;
-            Vector3 right = { cosf(yaw_r), 0.f, -sinf(yaw_r) };
-            Vector3 up    = { 0.f, 1.f, 0.f };
+        if (io.MouseDown[ImGuiMouseButton_Middle]) {
+            float yaw_r = cam_yaw * DEG2R;
+            Vec3 right = { cosf(yaw_r), 0.f, -sinf(yaw_r) };
+            Vec3 up    = { 0.f, 1.f, 0.f };
             float pan = cam_dist * 0.002f;
-            cam_target = Vector3Subtract(cam_target, Vector3Scale(right, md.x * pan));
-            cam_target = Vector3Add(cam_target,      Vector3Scale(up,    md.y * pan));
+            cam_target = vec3_sub(cam_target, vec3_scale(right, io.MouseDelta.x * pan));
+            cam_target = vec3_add(cam_target, vec3_scale(up,    io.MouseDelta.y * pan));
         }
         // Scroll zoom
-        float wheel = GetMouseWheelMove();
-        cam_dist -= wheel * cam_dist * 0.1f;
+        cam_dist -= io.MouseWheel * cam_dist * 0.1f;
         if (cam_dist < 1.f)   cam_dist = 1.f;
         if (cam_dist > 500.f) cam_dist = 500.f;
     }
 
-    float yaw_r   = cam_yaw   * DEG2RAD;
-    float pitch_r = cam_pitch * DEG2RAD;
-    editor_cam.position = {
+    float yaw_r   = cam_yaw   * DEG2R;
+    float pitch_r = cam_pitch * DEG2R;
+    editor_cam.pos = {
         cam_target.x + cam_dist * cosf(pitch_r) * sinf(yaw_r),
         cam_target.y + cam_dist * sinf(pitch_r),
         cam_target.z + cam_dist * cosf(pitch_r) * cosf(yaw_r)
@@ -148,7 +145,7 @@ void EditorCore::FocusOnSelected() {
     if (!reg.valid(e)) return;
     if (!reg.all_of<WorldTransform>(e)) return;
     const auto& tr = reg.get<WorldTransform>(e);
-    cam_target = { tr.x, 0.f, tr.z };
+    cam_target = Vec3{ tr.x, 0.f, tr.z };
     cam_dist   = 15.f;
 }
 
