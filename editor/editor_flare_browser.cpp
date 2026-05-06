@@ -1,7 +1,7 @@
 #ifdef MONKEY_DUST_EDITOR
 #include "editor_flare_browser.h"
 #include "editor_core.h"
-#include "combat/power_manager.h"
+#include <monkey_dust/combat/power_manager.h>
 #include <monkey_dust/platform/md_log.h>
 #include "imgui.h"
 #include <cstdio>

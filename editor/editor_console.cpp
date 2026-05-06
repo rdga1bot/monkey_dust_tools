@@ -3,9 +3,9 @@
 #include "editor_core.h"
 #include <monkey_dust/ecs/registry.h>
 #include <monkey_dust/world/world_transform.h>
-#include "components/ai_agent.h"
-#include "components/health.h"
-#include "components/combat.h"
+#include <monkey_dust/components/ai_agent.h>
+#include <monkey_dust/components/health.h>
+#include <monkey_dust/components/combat.h>
 #include <monkey_dust/scripting/lua_system.h>
 #include <monkey_dust/save/save_system.h>
 #include <monkey_dust/nav/nav_system.h>

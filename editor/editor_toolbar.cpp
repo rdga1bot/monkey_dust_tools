@@ -3,11 +3,11 @@
 #include <monkey_dust/ecs/registry.h>
 #include "game_state.h"
 #include <monkey_dust/world/world_transform.h>
-#include "components/health.h"
-#include "components/ai_agent.h"
-#include "components/renderable.h"
-#include "components/combat.h"
-#include "components/building.h"
+#include <monkey_dust/components/health.h>
+#include <monkey_dust/components/ai_agent.h>
+#include <monkey_dust/components/renderable.h>
+#include <monkey_dust/components/combat.h>
+#include <monkey_dust/components/building.h>
 #include "world/faction_system.h"
 #include "building/build_system.h"
 #include "dialog/dialog_system.h"
