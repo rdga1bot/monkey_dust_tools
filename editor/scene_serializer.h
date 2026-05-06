@@ -10,7 +10,7 @@
 #include <monkey_dust/components/player_controller.h>
 #include <monkey_dust/components/ai_script.h>
 #include "building/build_system.h"
-#include "raylib.h"
+#include <monkey_dust/platform/md_log.h>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -32,7 +32,7 @@ inline bool Export(const char* path) {
 
     FILE* f = fopen(tmp_path, "w");
     if (!f) {
-        TraceLog(LOG_ERROR, "[SceneSerializer] Cannot open %s for write", tmp_path);
+        MD_LOG(MD_LOG_ERROR, "[SceneSerializer] Cannot open %s for write", tmp_path);
         return false;
     }
 
@@ -46,7 +46,7 @@ inline bool Export(const char* path) {
         if (!reg.valid(e)) continue;
         if (!reg.all_of<WorldTransform>(e)) continue;
         if (count >= MAX_EXPORT_ENTITIES) {
-            TraceLog(LOG_WARNING, "[SceneSerializer] Truncated at %d entities", MAX_EXPORT_ENTITIES);
+            MD_LOG(MD_LOG_WARNING, "[SceneSerializer] Truncated at %d entities", MAX_EXPORT_ENTITIES);
             break;
         }
 
@@ -121,11 +121,11 @@ inline bool Export(const char* path) {
 
     // Atomic rename
     if (rename(tmp_path, path) != 0) {
-        TraceLog(LOG_ERROR, "[SceneSerializer] Rename failed: %s → %s", tmp_path, path);
+        MD_LOG(MD_LOG_ERROR, "[SceneSerializer] Rename failed: %s → %s", tmp_path, path);
         return false;
     }
 
-    TraceLog(LOG_INFO, "[SceneSerializer] Exported %d entities to %s", count, path);
+    MD_LOG(MD_LOG_INFO, "[SceneSerializer] Exported %d entities to %s", count, path);
     return true;
 }
 
@@ -164,7 +164,7 @@ static bool SsParsStr(const char* p, const char* key, char* out, int maxlen) {
 inline bool Import(const char* path) {
     FILE* f = fopen(path, "r");
     if (!f) {
-        TraceLog(LOG_ERROR, "[SceneSerializer] Cannot open %s", path);
+        MD_LOG(MD_LOG_ERROR, "[SceneSerializer] Cannot open %s", path);
         return false;
     }
 
@@ -179,7 +179,7 @@ inline bool Import(const char* path) {
     int version = 0;
     SsParsInt(buf, "\"version\"", version);
     if (version != 1) {
-        TraceLog(LOG_WARNING, "[SceneSerializer] Unknown version %d", version);
+        MD_LOG(MD_LOG_WARNING, "[SceneSerializer] Unknown version %d", version);
     }
 
     auto& reg = Registry::Get();
@@ -329,7 +329,7 @@ inline bool Import(const char* path) {
     TransformSoA::Get().UploadToGPU();
 #endif
 
-    TraceLog(LOG_INFO, "[SceneSerializer] Imported %d entities from %s", count, path);
+    MD_LOG(MD_LOG_INFO, "[SceneSerializer] Imported %d entities from %s", count, path);
     return true;
 }
 

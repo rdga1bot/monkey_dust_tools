@@ -39,13 +39,13 @@ void EditorToolbar::Draw(float dt) {
 
     // Hotkeys — only when ImGui doesn't want keyboard
     if (!ImGui::GetIO().WantCaptureKeyboard) {
-        if (IsKeyPressed(KEY_W)) ec.gizmo_op    = EditorGizmoOp::TRANSLATE;
-        if (IsKeyPressed(KEY_E)) ec.gizmo_op    = EditorGizmoOp::ROTATE;
-        if (IsKeyPressed(KEY_R)) ec.gizmo_op    = EditorGizmoOp::SCALE;
-        if (IsKeyPressed(KEY_G)) ec.gizmo_space = (ec.gizmo_space == EditorGizmoSpace::WORLD)
+        if (ImGui::IsKeyPressed(ImGuiKey_W, false)) ec.gizmo_op    = EditorGizmoOp::TRANSLATE;
+        if (ImGui::IsKeyPressed(ImGuiKey_E, false)) ec.gizmo_op    = EditorGizmoOp::ROTATE;
+        if (ImGui::IsKeyPressed(ImGuiKey_R, false)) ec.gizmo_op    = EditorGizmoOp::SCALE;
+        if (ImGui::IsKeyPressed(ImGuiKey_G, false)) ec.gizmo_space = (ec.gizmo_space == EditorGizmoSpace::WORLD)
                                                    ? EditorGizmoSpace::LOCAL
                                                    : EditorGizmoSpace::WORLD;
-        if (IsKeyPressed(KEY_F)) ec.FocusOnSelected();
+        if (ImGui::IsKeyPressed(ImGuiKey_F, false)) ec.FocusOnSelected();
     }
 }
 
