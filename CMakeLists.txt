@@ -18,6 +18,8 @@ add_executable(monkey_dust_editor
     editor/main.cpp
     editor/editor_map_view.cpp
     ${EDITOR_IMGUI_SRC}
+    ${CMAKE_SOURCE_DIR}/engine/src/vendor/glad_impl.cpp
+    ${CMAKE_SOURCE_DIR}/engine/src/vendor/stb_image_impl.cpp
 )
 target_compile_definitions(monkey_dust_editor PRIVATE MONKEY_DUST_STANDALONE_EDITOR USE_SDL3)
 target_link_libraries(monkey_dust_editor PRIVATE
@@ -33,6 +35,7 @@ target_include_directories(monkey_dust_editor PRIVATE
     ${CMAKE_SOURCE_DIR}/third_party/raylib/src
     ${CMAKE_SOURCE_DIR}/third_party/recastnavigation/Recast/Include
     ${CMAKE_SOURCE_DIR}/third_party/recastnavigation/Detour/Include
+    ${CMAKE_SOURCE_DIR}/engine/src/vendor
 )
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     target_compile_options(monkey_dust_editor PRIVATE -O2 -march=native)
