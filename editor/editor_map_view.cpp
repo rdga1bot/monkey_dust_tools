@@ -864,12 +864,12 @@ void MapViewPanel::Draw(float dt) {
             origin_x_ += d.x;
             origin_y_ += d.y;
         }
-        // Zoom: scroll, anchored to cursor
+        // Zoom: scroll anchored to cursor, 5 % per wheel unit
         float scroll = ImGui::GetIO().MouseWheel;
         if (scroll != 0.0f) {
             float os = scale_;
-            scale_ = (scroll > 0) ? fminf(scale_ * 1.15f, 8.0f)
-                                   : fmaxf(scale_ * 0.87f, 0.01f);
+            float factor = powf(1.05f, scroll);
+            scale_ = fmaxf(fminf(scale_ * factor, 8.0f), 0.01f);
             origin_x_ = mx - (mx - origin_x_) * (scale_ / os);
             origin_y_ = my - (my - origin_y_) * (scale_ / os);
         }
