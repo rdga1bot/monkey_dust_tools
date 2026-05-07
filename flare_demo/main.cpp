@@ -159,8 +159,12 @@ int main(int argc, char** argv) {
 
         // Zoom toward screen center
         float old_scale = scale;
-        if (do_zoom_out || scroll_y < 0.f) scale = fmaxf(scale * 0.85f, 0.02f);
-        if (do_zoom_in  || scroll_y > 0.f) scale = fminf(scale * 1.18f, 4.0f);
+        if (do_zoom_out) scale = fmaxf(scale * 0.92f, 0.02f);
+        if (do_zoom_in)  scale = fminf(scale * 1.08f, 4.0f);
+        if (scroll_y != 0.f) {
+            float factor = powf(1.05f, scroll_y);  // 5 % per scroll unit
+            scale = fmaxf(fminf(scale * factor, 4.0f), 0.02f);
+        }
         if (scale != old_scale) {
             float cx = (float)vp_w * 0.5f, cy = (float)vp_h * 0.5f;
             origin_x = cx - (cx - origin_x) * (scale / old_scale);
