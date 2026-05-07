@@ -117,7 +117,7 @@ int main(int argc, char** argv) {
     };
     ResetOrigin();
 
-    const float PAN_SPEED = 12.f;
+    const float PAN_SPEED = 400.f;  // screen pixels / second
     uint64_t prev_ms = SDL_GetTicks();
     bool quit = false;
 
@@ -151,7 +151,7 @@ int main(int argc, char** argv) {
 
         // Continuous pan
         const bool* kb   = SDL_GetKeyboardState(nullptr);
-        float step = PAN_SPEED / scale;
+        float step = PAN_SPEED * dt;
         if (kb[SDL_SCANCODE_A] || kb[SDL_SCANCODE_LEFT])  origin_x += step;
         if (kb[SDL_SCANCODE_D] || kb[SDL_SCANCODE_RIGHT]) origin_x -= step;
         if (kb[SDL_SCANCODE_W] || kb[SDL_SCANCODE_UP])    origin_y += step;
