@@ -10,10 +10,12 @@
 #include <monkey_dust/components/player_controller.h>
 #include <monkey_dust/components/bt_component.h>
 #include <monkey_dust/components/ai_script.h>
+#include <monkey_dust/components/nav_agent.h>
+#include <monkey_dust/components/renderable.h>
+#include <monkey_dust/components/stat_sheet.h>
+#include <monkey_dust/components/faction.h>
 #include "building/build_system.h"
-#ifdef MD_OPENGL43_ENABLED
 #include <monkey_dust/world/transform_soa.h>
-#endif
 #include <entt/entt.hpp>
 #include <cstdio>
 #include <cstring>
@@ -81,24 +83,29 @@ void EditorHierarchy::DrawContextMenu(entt::entity e) {
         if (reg.valid(e) && reg.all_of<WorldTransform>(e)) {
             auto dst = reg.create();
             auto& tr = reg.emplace<WorldTransform>(dst, reg.get<WorldTransform>(e));
-            tr.x += 1.f;
-#ifdef MD_OPENGL43_ENABLED
+            tr.x += 1.f; tr.slot = 0xFFFFFFFFu;
             uint32_t fid = reg.all_of<AIAgent>(e) ? reg.get<AIAgent>(e).faction_id : 0u;
             tr.slot = TransformSoA::Get().Alloc(dst, tr.x, tr.z, (uint8_t)fid);
-#endif
+            // Copy all components present on source.
             if (reg.all_of<AIAgent>(e))       reg.emplace<AIAgent>(dst,      reg.get<AIAgent>(e));
             if (reg.all_of<Health>(e))         reg.emplace<Health>(dst,       reg.get<Health>(e));
             if (reg.all_of<Combat>(e))         reg.emplace<Combat>(dst,       reg.get<Combat>(e));
+            if (reg.all_of<Building>(e))       reg.emplace<Building>(dst,     reg.get<Building>(e));
+            if (reg.all_of<Inventory>(e))      reg.emplace<Inventory>(dst,    reg.get<Inventory>(e));
+            if (reg.all_of<BTComponent>(e))    reg.emplace<BTComponent>(dst,  reg.get<BTComponent>(e));
+            if (reg.all_of<AIScript>(e))       reg.emplace<AIScript>(dst,     reg.get<AIScript>(e));
+            if (reg.all_of<NavAgent>(e))       reg.emplace<NavAgent>(dst,     reg.get<NavAgent>(e));
+            if (reg.all_of<Renderable>(e))     reg.emplace<Renderable>(dst,   reg.get<Renderable>(e));
+            if (reg.all_of<StatSheet>(e))      reg.emplace<StatSheet>(dst,    reg.get<StatSheet>(e));
+            if (reg.all_of<Faction>(e))          reg.emplace<Faction>(dst,          reg.get<Faction>(e));
             ec.Select(dst);
-            cache_refresh_counter_ = 0; // force refresh
+            cache_refresh_counter_ = 0;
         }
     }
     if (ImGui::MenuItem("Delete")) {
         ec.Deselect(e);
-#ifdef MD_OPENGL43_ENABLED
         if (reg.valid(e) && reg.all_of<WorldTransform>(e))
             TransformSoA::Get().Free(e);
-#endif
         if (reg.valid(e)) reg.destroy(e);
         cache_refresh_counter_ = 0;
     }
@@ -151,9 +158,7 @@ void EditorHierarchy::Draw() {
         auto e = reg.create();
         auto& tr = reg.emplace<WorldTransform>(e);
         tr.x = ec.cam_target.x; tr.y = 0.f; tr.z = ec.cam_target.z; tr.rot_y = 0.f;
-#ifdef MD_OPENGL43_ENABLED
         tr.slot = TransformSoA::Get().Alloc(e, tr.x, tr.z, 0);
-#endif
         ec.Select(e);
         cache_refresh_counter_ = 0;
     }
@@ -162,9 +167,7 @@ void EditorHierarchy::Draw() {
         for (int i = ec.selected_count - 1; i >= 0; --i) {
             entt::entity e = ec.selected[i];
             if (!reg.valid(e)) continue;
-#ifdef MD_OPENGL43_ENABLED
             if (reg.all_of<WorldTransform>(e)) TransformSoA::Get().Free(e);
-#endif
             reg.destroy(e);
         }
         ec.DeselectAll();

@@ -1,5 +1,6 @@
 #ifdef MONKEY_DUST_EDITOR
 #include "editor_toolbar.h"
+#include "editor_command_palette.h"
 #include <monkey_dust/ecs/registry.h>
 #include "game_state.h"
 #include <monkey_dust/world/world_transform.h>
@@ -19,9 +20,7 @@
 #include "icon_definitions.h"
 #include <monkey_dust/platform/md_log.h>
 #include "editor_console.h"
-#ifdef MD_OPENGL43_ENABLED
 #include <monkey_dust/world/transform_soa.h>
-#endif
 #include <cstdio>
 #include <cstring>
 
@@ -36,6 +35,7 @@ void EditorToolbar::Draw(float dt) {
 
     DrawMenuBar();
     DrawButtonBar();
+    EditorCommandPalette::Get().Draw();
 
     // Hotkeys — only when ImGui doesn't want keyboard
     if (!ImGui::GetIO().WantCaptureKeyboard) {
@@ -58,9 +58,7 @@ void EditorToolbar::DrawMenuBar() {
         if (ImGui::MenuItem("New Scene")) {
             EditorCore::Get().DeselectAll();
             Registry::Get().clear();
-#ifdef MD_OPENGL43_ENABLED
             TransformSoA::Get().Init();
-#endif
             MD_LOG(MD_LOG_INFO, "[Editor] New scene");
         }
         if (ImGui::MenuItem("Import Scene (.json)...")) {
@@ -97,10 +95,9 @@ void EditorToolbar::DrawMenuBar() {
             if (reg.valid(src) && reg.all_of<WorldTransform>(src)) {
                 entt::entity dst = reg.create();
                 auto& tr = reg.emplace<WorldTransform>(dst, reg.get<WorldTransform>(src));
-                tr.x += 1.f;
-#ifdef MD_OPENGL43_ENABLED
-                tr.slot = TransformSoA::Get().Alloc(dst, tr.x, tr.z, 0);
-#endif
+                tr.x += 1.f; tr.slot = 0xFFFFFFFFu;
+                uint32_t fid = reg.all_of<AIAgent>(src) ? reg.get<AIAgent>(src).faction_id : 0u;
+                tr.slot = TransformSoA::Get().Alloc(dst, tr.x, tr.z, (uint8_t)fid);
                 if (reg.all_of<Health>(src))    reg.emplace<Health>(dst,    reg.get<Health>(src));
                 if (reg.all_of<AIAgent>(src))   reg.emplace<AIAgent>(dst,   reg.get<AIAgent>(src));
                 if (reg.all_of<Renderable>(src))reg.emplace<Renderable>(dst,reg.get<Renderable>(src));
@@ -113,10 +110,7 @@ void EditorToolbar::DrawMenuBar() {
             for (int i = ec.selected_count - 1; i >= 0; --i) {
                 entt::entity e = ec.selected[i];
                 if (!reg.valid(e)) continue;
-#ifdef MD_OPENGL43_ENABLED
-                if (reg.all_of<WorldTransform>(e))
-                    TransformSoA::Get().Free(e);
-#endif
+                if (reg.all_of<WorldTransform>(e)) TransformSoA::Get().Free(e);
                 reg.destroy(e);
             }
             ec.DeselectAll();
@@ -286,9 +280,7 @@ void EditorToolbar::SpawnEntity(const char* type) {
         auto e = reg.create();
         auto& tr = reg.emplace<WorldTransform>(e);
         tr.x = pos.x; tr.y = 0.f; tr.z = pos.z; tr.rot_y = 0.f;
-#ifdef MD_OPENGL43_ENABLED
         tr.slot = TransformSoA::Get().Alloc(e, pos.x, pos.z, 0);
-#endif
         ec.Select(e);
         MD_LOG(MD_LOG_INFO, "[Editor] Spawned Transform entity at (%.1f,%.1f)", pos.x, pos.z);
         return;
@@ -306,9 +298,7 @@ void EditorToolbar::SpawnEntity(const char* type) {
     auto e = reg.create();
     auto& tr = reg.emplace<WorldTransform>(e);
     tr.x = pos.x; tr.y = 0.f; tr.z = pos.z; tr.rot_y = 0.f;
-#ifdef MD_OPENGL43_ENABLED
     tr.slot = TransformSoA::Get().Alloc(e, pos.x, pos.z, faction);
-#endif
     auto& ai = reg.emplace<AIAgent>(e);
     ai.faction_id = faction;
     ai.lod_level  = 0;
