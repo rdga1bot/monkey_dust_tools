@@ -21,7 +21,17 @@ add_executable(monkey_dust_editor
     ${CMAKE_SOURCE_DIR}/engine/src/vendor/glad_impl.cpp
     ${CMAKE_SOURCE_DIR}/engine/src/vendor/stb_image_impl.cpp
 )
-target_compile_definitions(monkey_dust_editor PRIVATE MONKEY_DUST_STANDALONE_EDITOR USE_SDL3)
+target_compile_definitions(monkey_dust_editor PRIVATE
+    MONKEY_DUST_STANDALONE_EDITOR
+    USE_SDL3
+    IMGUI_IMPL_OPENGL_LOADER_CUSTOM)
+# The engine lib propagates MD_SDL_GPU=PUBLIC (Vulkan-only path).
+# The standalone editor uses OpenGL, not SDL_GPU — undefine it so window.h creates a GL context.
+# Force-include glad.h so GL function pointers are available in imgui_impl_opengl3.cpp
+# (IMGUI_IMPL_OPENGL_LOADER_CUSTOM disables ImGui's internal loader; we use glad2 instead)
+target_compile_options(monkey_dust_editor PRIVATE
+    -UMD_SDL_GPU
+    "-include${CMAKE_SOURCE_DIR}/engine/src/vendor/glad.h")
 target_link_libraries(monkey_dust_editor PRIVATE
     monkey_dust::engine
     Recast Detour
