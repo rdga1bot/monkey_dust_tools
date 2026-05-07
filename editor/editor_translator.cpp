@@ -6,9 +6,7 @@
 #include <monkey_dust/platform/window.h>
 #include <monkey_dust/platform/input.h>
 #include <cmath>
-#ifdef MD_OPENGL43_ENABLED
 #include <monkey_dust/world/transform_soa.h>
-#endif
 
 // ── Ray helpers ───────────────────────────────────────────────────────────────
 static float RaySphereIntersect(MdRay ray, Vec3 center, float radius) {
@@ -117,6 +115,8 @@ void EditorTranslator::Draw(const MdCamera& cam, entt::entity sel, EditorGizmoOp
 // ── Update (hit detection + drag) ────────────────────────────────────────────
 void EditorTranslator::Update(const MdCamera& cam, entt::entity sel,
                                EditorGizmoOp op, EditorGizmoSpace space) {
+#ifndef USE_SDL3
+    // Gizmo interaction uses Raylib 3D draw + ImGui input — SDL3/SDL_GPU path deferred.
     (void)space;
     if (sel == entt::null) return;
     auto& reg = Registry::Get();
@@ -217,5 +217,6 @@ void EditorTranslator::Update(const MdCamera& cam, entt::entity sel,
         dragging_    = false;
         active_axis_ = -1;
     }
+#endif // !USE_SDL3
 }
-#endif
+#endif // MONKEY_DUST_EDITOR
