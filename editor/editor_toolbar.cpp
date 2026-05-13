@@ -137,8 +137,13 @@ void EditorToolbar::DrawMenuBar() {
         ImGui::MenuItem("Camera",      nullptr, &pv[5]);
         ImGui::MenuItem("Animation",   nullptr, &pv[6]);
         ImGui::Separator();
+        ImGui::MenuItem("ViewCone Inspector", nullptr, &pv[8]);
+        ImGui::MenuItem("FlowGraph",          nullptr, &pv[9]);
+        ImGui::MenuItem("Director",           nullptr, &pv[10]);
+        ImGui::MenuItem("GPU Profiler",       nullptr, &pv[11]);
+        ImGui::Separator();
         if (ImGui::MenuItem("Reset Layout")) {
-            for (int i = 0; i < 8; ++i) pv[i] = (i < 6);
+            for (int i = 0; i < 12; ++i) pv[i] = (i < 6);
         }
         ImGui::EndMenu();
     }

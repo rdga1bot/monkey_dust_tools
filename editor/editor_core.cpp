@@ -9,6 +9,10 @@
 #include "editor_console.h"
 #include "editor_animation_panel.h"
 #include "editor_flare_browser.h"
+#include "editor_viewcone_panel.h"
+#include "editor_flowgraph_panel.h"
+#include "editor_director_panel.h"
+#include "editor_gpu_profiler_panel.h"
 #include <monkey_dust/world/world_transform.h>
 #include <monkey_dust/platform/input.h>
 #include <cmath>
@@ -37,6 +41,10 @@ void EditorCore::Update(float dt) {
     EditorConsole::Get().Draw();
     EditorAnimationPanel::Get().Draw();
     EditorFlareBrowser::Get().Draw();
+    EditorViewConePanel::Get().Draw();
+    EditorFlowGraphPanel::Get().Draw();
+    EditorDirectorPanel::Get().Draw();
+    EditorGpuProfilerPanel::Get().Draw();
 }
 
 void EditorCore::Shutdown() {
