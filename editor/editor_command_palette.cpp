@@ -100,6 +100,23 @@ static constexpr int kCommandCount = (int)(sizeof(kCommands) / sizeof(kCommands[
 
 } // namespace
 
+// Returns 0 = no match; >0 = score (higher = better match).
+// Case-insensitive subsequence match with consecutive and word-boundary bonuses.
+static int FuzzyScore(const char* pattern, const char* str) {
+    if (!pattern[0]) return 1;
+    int score = 0, pi = 0, prev_si = -2;
+    for (int si = 0; str[si] && pattern[pi]; ++si) {
+        if ((str[si] | 0x20) == (pattern[pi] | 0x20)) {
+            score += 1;
+            if (si == prev_si + 1)                              score += 4;  // consecutive
+            if (si == 0 || str[si-1] == ' ' || str[si-1] == ':') score += 2; // word start
+            prev_si = si;
+            ++pi;
+        }
+    }
+    return (pattern[pi] == '\0') ? score : 0;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 void EditorCommandPalette::Open() {
     open_        = true;
@@ -149,12 +166,20 @@ void EditorCommandPalette::Draw() {
         return;
     }
 
-    // Build filtered list (fixed array — no allocation).
-    static const PaletteCmd* visible[kCommandCount];
+    // Build filtered list with fuzzy scoring, sorted best-first (no allocation).
+    struct VEntry { const PaletteCmd* cmd; int score; };
+    static VEntry visible[kCommandCount];
     int vcount = 0;
     for (int i = 0; i < kCommandCount; ++i) {
-        if (filter_[0] == '\0' || strstr(kCommands[i].name, filter_) != nullptr)
-            visible[vcount++] = &kCommands[i];
+        int s = FuzzyScore(filter_, kCommands[i].name);
+        if (s > 0) visible[vcount++] = { &kCommands[i], s };
+    }
+    // Insertion sort by score descending (≤30 items, no std::sort needed).
+    for (int i = 1; i < vcount; ++i) {
+        VEntry key = visible[i];
+        int j = i - 1;
+        while (j >= 0 && visible[j].score < key.score) { visible[j+1] = visible[j]; --j; }
+        visible[j+1] = key;
     }
 
     // Clamp selection.
@@ -171,15 +196,16 @@ void EditorCommandPalette::Draw() {
     ImGui::BeginChild("##CmdList", ImVec2(0, (float)(vcount < 12 ? vcount : 12) * 22.f + 4.f), false);
 
     for (int i = 0; i < vcount; ++i) {
+        const PaletteCmd* c = visible[i].cmd;
         bool sel = (i == selected_);
-        if (ImGui::Selectable(visible[i]->name, sel, ImGuiSelectableFlags_AllowDoubleClick)) {
+        if (ImGui::Selectable(c->name, sel, ImGuiSelectableFlags_AllowDoubleClick)) {
             selected_ = i;
             if (ImGui::IsMouseDoubleClicked(0)) execute = true;
         }
         if (ImGui::IsItemHovered()) selected_ = i;
-        if (visible[i]->hint[0] != '\0') {
+        if (c->hint[0] != '\0') {
             ImGui::SameLine(ImGui::GetWindowWidth() - 80.f);
-            ImGui::TextDisabled("%s", visible[i]->hint);
+            ImGui::TextDisabled("%s", c->hint);
         }
         if (sel) ImGui::SetScrollHereY(0.5f);
     }
@@ -187,7 +213,7 @@ void EditorCommandPalette::Draw() {
     ImGui::EndChild();
 
     if (execute && vcount > 0) {
-        visible[selected_]->action();
+        visible[selected_].cmd->action();
         open_ = false;
     }
 

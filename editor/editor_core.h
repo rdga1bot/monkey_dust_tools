@@ -62,9 +62,11 @@ public:
     // [0]=Hierarchy [1]=Inspector  [2]=Assets    [3]=Console
     // [4]=Graphics  [5]=Camera     [6]=Animation [7]=Paint
     // [8]=ViewCone  [9]=FlowGraph  [10]=Director [11]=GPU Profiler
-    bool panels_visible[12] = { true,  true,  true,  true,
+    // [12]=NodeGraph [13]=Sequencer
+    bool panels_visible[14] = { true,  true,  true,  true,
                                 true,  true,  false, false,
-                                false, false, false, false };
+                                false, false, false, false,
+                                false, false };
 
     // Set by EditorToolbar::Draw each frame; read by camera/animation panels.
     float frame_fps   = 0.f;

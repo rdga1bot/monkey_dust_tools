@@ -1,6 +1,8 @@
 #pragma once
 #ifdef MONKEY_DUST_EDITOR
 
+#include "TextEditor.h"
+
 class EditorConsole {
 public:
     static EditorConsole& Get() { static EditorConsole inst; return inst; }
@@ -20,7 +22,7 @@ private:
     static constexpr int MAX_CMD      = 128;
 
     char log_lines_[MAX_LINES][LINE_LEN] = {};
-    int  log_level_[MAX_LINES]           = {};  // raylib LOG_* values
+    int  log_level_[MAX_LINES]           = {};
     int  log_count_  = 0;
     int  log_head_   = 0;   // ring index
     bool scroll_bottom_ = true;
@@ -34,6 +36,10 @@ private:
     bool  lua_mode_    = false;
     float frame_fps_   = 0.f;
     float frame_dt_ms_ = 0.f;
+
+    TextEditor lua_editor_;
+    bool       lua_editor_init_  = false;
+    bool       lua_editor_dirty_ = false;
 
     void ExecCommand(const char* cmd);
     void PushHistory(const char* cmd);

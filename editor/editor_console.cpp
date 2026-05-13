@@ -1,6 +1,7 @@
 #ifdef MONKEY_DUST_EDITOR
 #include "editor_console.h"
 #include "editor_core.h"
+#include <string>
 #include <monkey_dust/ecs/registry.h>
 #include <monkey_dust/world/world_transform.h>
 #include <monkey_dust/components/ai_agent.h>
@@ -28,6 +29,7 @@ void EditorConsole::Log(int level, const char* text) {
     log_head_++;
     if (log_count_ < MAX_LINES) log_count_++;
     scroll_bottom_ = true;
+    if (strstr(text, "[Lua]")) lua_editor_dirty_ = true;
 }
 
 void EditorConsole::PushHistory(const char* cmd) {
@@ -176,37 +178,62 @@ void EditorConsole::Draw() {
 
     ImGui::Separator();
 
-    // Log region
     float footer_h = ImGui::GetFrameHeightWithSpacing() + 4.f;
-    ImGui::BeginChild("##LogScroll", ImVec2(0, -footer_h), false,
-                      ImGuiWindowFlags_HorizontalScrollbar);
 
-    int start = (log_count_ < MAX_LINES) ? 0 : log_head_ % MAX_LINES;
-    for (int i = 0; i < log_count_; ++i) {
-        int idx = (start + i) % MAX_LINES;
-        const char* line = log_lines_[idx];
-        if (filter_[0] != '\0' && strstr(line, filter_) == nullptr) continue;
+    if (lua_mode_) {
+        // ── Lua mode: syntax-highlighted view of [Lua] log lines ──────────
+        if (!lua_editor_init_) {
+            lua_editor_.SetLanguageDefinition(TextEditor::LanguageDefinition::Lua());
+            lua_editor_.SetReadOnly(true);
+            lua_editor_init_ = true;
+            lua_editor_dirty_ = true;
+        }
+        if (lua_editor_dirty_) {
+            std::string text;
+            int start = (log_count_ < MAX_LINES) ? 0 : log_head_ % MAX_LINES;
+            for (int i = 0; i < log_count_; ++i) {
+                int idx = (start + i) % MAX_LINES;
+                if (strstr(log_lines_[idx], "[Lua]")) {
+                    text += log_lines_[idx];
+                    text += '\n';
+                }
+            }
+            lua_editor_.SetText(text);
+            lua_editor_dirty_ = false;
+        }
+        lua_editor_.Render("##luaed", ImVec2(0, -footer_h), false);
+    } else {
+        // ── Normal log scroll region ───────────────────────────────────────
+        ImGui::BeginChild("##LogScroll", ImVec2(0, -footer_h), false,
+                          ImGuiWindowFlags_HorizontalScrollbar);
 
-        ImVec4 col;
-        int lv = log_level_[idx];
-        if      (lv == MD_LOG_ERROR) col = {1.f, 0.3f, 0.3f, 1.f};
-        else if (lv == MD_LOG_WARNING)                     col = {1.f, 0.8f, 0.2f, 1.f};
-        else if (strstr(line, "[Lua]"))                 col = {0.4f, 0.8f, 1.f, 1.f};
-        else if (strstr(line, "[NavMesh]") ||
-                 strstr(line, "NavSystem"))             col = {0.4f, 1.f, 0.4f, 1.f};
-        else if (strstr(line, "[Console]"))             col = {0.8f, 0.8f, 1.f, 1.f};
-        else                                            col = {0.7f, 0.7f, 0.7f, 1.f};
+        int start = (log_count_ < MAX_LINES) ? 0 : log_head_ % MAX_LINES;
+        for (int i = 0; i < log_count_; ++i) {
+            int idx = (start + i) % MAX_LINES;
+            const char* line = log_lines_[idx];
+            if (filter_[0] != '\0' && strstr(line, filter_) == nullptr) continue;
 
-        ImGui::PushStyleColor(ImGuiCol_Text, col);
-        ImGui::TextUnformatted(line);
-        ImGui::PopStyleColor();
+            ImVec4 col;
+            int lv = log_level_[idx];
+            if      (lv == MD_LOG_ERROR)           col = {1.f, 0.3f, 0.3f, 1.f};
+            else if (lv == MD_LOG_WARNING)         col = {1.f, 0.8f, 0.2f, 1.f};
+            else if (strstr(line, "[Lua]"))        col = {0.4f, 0.8f, 1.f, 1.f};
+            else if (strstr(line, "[NavMesh]") ||
+                     strstr(line, "NavSystem"))    col = {0.4f, 1.f, 0.4f, 1.f};
+            else if (strstr(line, "[Console]"))    col = {0.8f, 0.8f, 1.f, 1.f};
+            else                                   col = {0.7f, 0.7f, 0.7f, 1.f};
+
+            ImGui::PushStyleColor(ImGuiCol_Text, col);
+            ImGui::TextUnformatted(line);
+            ImGui::PopStyleColor();
+        }
+
+        if (scroll_bottom_ && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 4.f) {
+            ImGui::SetScrollHereY(1.f);
+            scroll_bottom_ = false;
+        }
+        ImGui::EndChild();
     }
-
-    if (scroll_bottom_ && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 4.f) {
-        ImGui::SetScrollHereY(1.f);
-        scroll_bottom_ = false;
-    }
-    ImGui::EndChild();
 
     // Input line
     ImGui::Separator();

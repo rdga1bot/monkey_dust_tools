@@ -13,6 +13,8 @@
 #include "editor_flowgraph_panel.h"
 #include "editor_director_panel.h"
 #include "editor_gpu_profiler_panel.h"
+#include "editor_node_graph.h"
+#include "editor_sequencer_panel.h"
 #include <monkey_dust/world/world_transform.h>
 #include <monkey_dust/platform/input.h>
 #include <cmath>
@@ -22,6 +24,7 @@ static constexpr float DEG2R = 3.14159265f / 180.f;
 
 void EditorCore::Init() {
     EditorConsole::Get().Init();
+    EditorNodeGraphPanel::Get().Init();
     for (int i = 0; i < MAX_SELECTED; ++i)
         selected[i] = entt::null;
 
@@ -45,9 +48,13 @@ void EditorCore::Update(float dt) {
     EditorFlowGraphPanel::Get().Draw();
     EditorDirectorPanel::Get().Draw();
     EditorGpuProfilerPanel::Get().Draw();
+    EditorNodeGraphPanel::Get().Draw();
+    EditorSequencerPanel::Get().Draw();
 }
 
 void EditorCore::Shutdown() {
+    EditorNodeGraphPanel::Get().Shutdown();
+    EditorFlowGraphPanel::Get().Shutdown();
     DeselectAll();
 }
 
