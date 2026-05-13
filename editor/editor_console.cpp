@@ -13,9 +13,6 @@
 #include <monkey_dust/platform/md_log.h>
 #include <cstdio>
 #include <cstring>
-#ifdef MD_OPENGL43_ENABLED
-#include <monkey_dust/world/transform_soa.h>
-#endif
 
 void EditorConsole::Init() {
     MdLogSetHook([](int level, const char* msg) {
@@ -75,9 +72,6 @@ void EditorConsole::ExecCommand(const char* raw) {
         auto e = reg.create();
         auto& tr = reg.emplace<WorldTransform>(e);
         tr.x = cx; tr.y = 0.f; tr.z = cz; tr.rot_y = 0.f;
-#ifdef MD_OPENGL43_ENABLED
-        tr.slot = TransformSoA::Get().Alloc(e, cx, cz, (uint8_t)faction);
-#endif
         auto& ai = reg.emplace<AIAgent>(e);
         ai.faction_id = (uint32_t)faction;
         reg.emplace<Health>(e, Health{100.f, 100.f});

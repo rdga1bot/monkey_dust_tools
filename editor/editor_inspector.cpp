@@ -13,9 +13,6 @@
 #include <monkey_dust/components/ai_script.h>
 #include <monkey_dust/combat/hit_zones.h>
 #include "building/build_system.h"
-#ifdef MD_OPENGL43_ENABLED
-#include <monkey_dust/world/transform_soa.h>
-#endif
 #include <cstdio>
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -40,9 +37,6 @@ void EditorInspector::DrawTransform(entt::entity e) {
     ImGui::DragFloat("Z##tr", &tr.z, 0.1f);
     ImGui::DragFloat("RotY##tr", &tr.rot_y, 1.f, -180.f, 180.f);
 
-#ifdef MD_OPENGL43_ENABLED
-    ImGui::TextDisabled("SoA slot: %u", tr.slot);
-#endif
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

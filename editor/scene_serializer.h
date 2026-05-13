@@ -14,9 +14,6 @@
 #include <cstdio>
 #include <cstring>
 #include <ctime>
-#ifdef MD_OPENGL43_ENABLED
-#include <monkey_dust/world/transform_soa.h>
-#endif
 
 namespace SceneSerializer {
 
@@ -216,16 +213,6 @@ inline bool Import(const char* path) {
             SsParsFloat(tr_pos, "\"rot_y\"", tr.rot_y);
         }
 
-#ifdef MD_OPENGL43_ENABLED
-        {
-            uint8_t fid = 0;
-            const char* ai_pos2 = strstr(comp_pos, "\"ai\"");
-            if (ai_pos2) {
-                int fi = 0; SsParsInt(ai_pos2, "\"faction_id\"", fi); fid = (uint8_t)fi;
-            }
-            tr.slot = TransformSoA::Get().Alloc(e, tr.x, tr.z, fid);
-        }
-#endif
 
         // Health
         const char* hp_pos = strstr(comp_pos, "\"health\"");
@@ -324,10 +311,6 @@ inline bool Import(const char* path) {
     // Post-import: rebuild systems
     BuildSystem::Get().RebuildGridFromEntities();
 
-#ifdef MD_OPENGL43_ENABLED
-    TransformSoA::Get().FlushAoStoSoA(reg);
-    TransformSoA::Get().UploadToGPU();
-#endif
 
     MD_LOG(MD_LOG_INFO, "[SceneSerializer] Imported %d entities from %s", count, path);
     return true;

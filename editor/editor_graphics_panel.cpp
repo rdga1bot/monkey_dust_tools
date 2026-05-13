@@ -42,29 +42,12 @@ void EditorGraphicsPanel::Draw() {
 
     // ── Shadows ───────────────────────────────────────────────────────────
     if (ImGui::CollapsingHeader("Shadows")) {
-#ifdef MD_OPENGL43_ENABLED
-        ImGui::Checkbox("Shadows Enabled##gfx",  &gs.shadows_enabled);
-        ImGui::Checkbox("Soft Shadows (PCF)##gfx",&gs.soft_shadows);
-        static const char* quality[] = { "Low (1 cascade)", "Medium (2 cascades)", "High (3 cascades)" };
-        int q = gs.shadow_cascades - 1;
-        if (ImGui::Combo("Quality##shadow", &q, quality, 3))
-            gs.shadow_cascades = q + 1;
-        ImGui::SliderFloat("Distance##shadow", &gs.shadow_distance, 50.f, 500.f);
-#else
         ImGui::TextDisabled("Requires MD_OPENGL43_ENABLED");
-#endif
     }
 
     // ── IBL / Global Illumination ─────────────────────────────────────────
     if (ImGui::CollapsingHeader("Global Illumination")) {
-#ifdef MD_OPENGL43_ENABLED
-        ImGui::Checkbox("IBL Enabled##gfx", &gs.ibl_enabled);
-        if (gs.ibl_enabled) {
-            ImGui::SliderFloat("IBL Intensity##gfx", &gs.ibl_intensity, 0.f, 5.f);
-        }
-#else
         ImGui::TextDisabled("Requires MD_OPENGL43_ENABLED");
-#endif
     }
 
     // ── Debug Rendering ───────────────────────────────────────────────────

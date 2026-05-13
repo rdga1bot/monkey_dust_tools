@@ -188,10 +188,6 @@ void EditorTranslator::Update(const MdCamera& cam, entt::entity sel,
                 etr.z += delta.z;
             }
 
-#ifdef MD_OPENGL43_ENABLED
-            TransformSoA::Get().FlushAoStoSoA(reg);
-            TransformSoA::Get().UploadToGPU();
-#endif
 
         } else if (op == EditorGizmoOp::ROTATE && active_axis_ == 1) {
             float a0 = atan2f(drag_start_.z - entity_start_.z,
