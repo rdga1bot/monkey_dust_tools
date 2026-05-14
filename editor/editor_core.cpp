@@ -114,8 +114,8 @@ void EditorCore::UpdateEditorCamera(float dt, bool viewport_hovered) {
             Vec3 right = vec3_norm(vec3_cross(fwd, {0.f, 1.f, 0.f}));
 
             float speed = cam_speed * dt;
-            if (input_key_down(KEY_W)) cam_target = vec3_add(cam_target, vec3_scale(fwd,  speed));
-            if (input_key_down(KEY_S)) cam_target = vec3_add(cam_target, vec3_scale(fwd, -speed));
+            if (input_key_down(KEY_W)) cam_target = vec3_add(cam_target, vec3_scale(fwd, -speed));
+            if (input_key_down(KEY_S)) cam_target = vec3_add(cam_target, vec3_scale(fwd,  speed));
             if (input_key_down(KEY_A)) cam_target = vec3_add(cam_target, vec3_scale(right,-speed));
             if (input_key_down(KEY_D)) cam_target = vec3_add(cam_target, vec3_scale(right, speed));
         }
