@@ -9,7 +9,7 @@
 #include <monkey_dust/components/inventory.h>
 #include <monkey_dust/components/player_controller.h>
 #include <monkey_dust/components/ai_script.h>
-#include "building/build_system.h"
+#include <monkey_dust/building/build_system.h>
 #include <monkey_dust/platform/md_log.h>
 #include <cstdio>
 #include <cstring>

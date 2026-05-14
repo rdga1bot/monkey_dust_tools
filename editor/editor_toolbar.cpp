@@ -2,17 +2,15 @@
 #include "editor_toolbar.h"
 #include "editor_command_palette.h"
 #include <monkey_dust/ecs/registry.h>
-#include "game_state.h"
 #include <monkey_dust/world/world_transform.h>
 #include <monkey_dust/components/health.h>
 #include <monkey_dust/components/ai_agent.h>
 #include <monkey_dust/components/renderable.h>
 #include <monkey_dust/components/combat.h>
 #include <monkey_dust/components/building.h>
-#include "world/faction_system.h"
-#include "building/build_system.h"
-#include "dialog/dialog_system.h"
-#include "quest/quest_system.h"
+#include <monkey_dust/world/faction_system.h>
+#include <monkey_dust/building/build_system.h>
+#include "editor_game_context.h"
 #include <monkey_dust/nav/nav_system.h>
 #include <monkey_dust/save/save_system.h>
 #include <monkey_dust/tools/debug_system.h>
@@ -155,8 +153,9 @@ void EditorToolbar::DrawMenuBar() {
         if (ImGui::MenuItem("Reload JSON Data")) {
             FactionSystem::Get().LoadFromFile("data/factions/factions.json");
             BuildSystem::Get().LoadFromFile("data/buildings/buildings.json");
-            DialogSystem::LoadFromFile("data/dialogs/dialogs.json");
-            QuestSystem::Get().LoadFromFile("data/quests/quests.json");
+            auto& egc = EditorGameContext::Get();
+            if (egc.reload_dialogs) egc.reload_dialogs("data/dialogs/dialogs.json");
+            if (egc.reload_quests)  egc.reload_quests("data/quests/quests.json");
             MD_LOG(MD_LOG_INFO, "[Editor] JSON data reloaded");
         }
         if (ImGui::MenuItem("Rebuild NavMesh")) {

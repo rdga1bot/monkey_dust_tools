@@ -12,7 +12,7 @@
 #include <monkey_dust/components/player_controller.h>
 #include <monkey_dust/components/ai_script.h>
 #include <monkey_dust/combat/hit_zones.h>
-#include "building/build_system.h"
+#include <monkey_dust/building/build_system.h>
 #include <cstdio>
 
 // ─────────────────────────────────────────────────────────────────────────────

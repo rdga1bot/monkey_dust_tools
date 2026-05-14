@@ -10,7 +10,7 @@
 #include <monkey_dust/scripting/lua_system.h>
 #include <monkey_dust/save/save_system.h>
 #include <monkey_dust/nav/nav_system.h>
-#include "world/faction_system.h"
+#include <monkey_dust/world/faction_system.h>
 #include <monkey_dust/platform/md_log.h>
 #include <cstdio>
 #include <cstring>
