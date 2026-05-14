@@ -18,14 +18,14 @@ public:
     void Shutdown();  // destroys context, called from EditorCore::Shutdown
     void Draw();
 
-private:
-    EditorNodeGraphPanel() = default;
-
-    // ── Node types ─────────────────────────────────────────────────────────
+    // ── Node types (public: used in kMeta table in .cpp) ───────────────────
     enum class NK : uint8_t {
         TexSample=0, Multiply, Add, Lerp, ConstFloat, ConstColor, MatOutput
     };
     static constexpr int NK_COUNT = 7;
+
+private:
+    EditorNodeGraphPanel() = default;
 
     struct Pin {
         int         id;

@@ -102,7 +102,7 @@ void EditorNodeGraphPanel::BuildDefaultGraph() {
 // ── DrawNode ──────────────────────────────────────────────────────────────────
 
 void EditorNodeGraphPanel::DrawNode(Node& n) {
-    ed::BeginNode(n.id);
+    ed::BeginNode(ed::NodeId(n.id));
 
     // Node title
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 0.85f, 0.4f, 1.f));
@@ -128,7 +128,7 @@ void EditorNodeGraphPanel::DrawNode(Node& n) {
     // Input pins (left side)
     for (int i = 0; i < n.in_cnt; ++i) {
         const Pin& p = pins_[n.first_in + i];
-        ed::BeginPin(p.id, ed::PinKind::Input);
+        ed::BeginPin(ed::PinId(p.id), ed::PinKind::Input);
             ImGui::Text("▶ %s", p.label);
         ed::EndPin();
     }
@@ -136,7 +136,7 @@ void EditorNodeGraphPanel::DrawNode(Node& n) {
     // Output pins (right side, aligned)
     for (int i = 0; i < n.out_cnt; ++i) {
         const Pin& p = pins_[n.first_out + i];
-        ed::BeginPin(p.id, ed::PinKind::Output);
+        ed::BeginPin(ed::PinId(p.id), ed::PinKind::Output);
             float w = ImGui::CalcTextSize(p.label).x + 16.f;
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() +
                 ImGui::GetContentRegionAvail().x - w);
@@ -151,27 +151,31 @@ void EditorNodeGraphPanel::DrawNode(Node& n) {
 
 void EditorNodeGraphPanel::HandleCreateDelete() {
     if (ed::BeginCreate()) {
-        int from_id, to_id;
-        if (ed::QueryNewLink(&from_id, &to_id) &&
-            from_id != to_id &&
+        ed::PinId from_pid, to_pid;
+        if (ed::QueryNewLink(&from_pid, &to_pid) &&
+            from_pid != to_pid &&
             ed::AcceptNewItem(ImVec4(0.4f, 0.8f, 0.4f, 1.f), 2.f))
         {
             if (link_cnt_ < MAX_L)
-                links_[link_cnt_++] = { next_id_++, from_id, to_id, true };
+                links_[link_cnt_++] = { next_id_++,
+                    (int)(uintptr_t)from_pid.Get(),
+                    (int)(uintptr_t)to_pid.Get(), true };
         }
     }
     ed::EndCreate();
 
     if (ed::BeginDelete()) {
-        int link_id;
-        while (ed::QueryDeletedLink(&link_id)) {
+        ed::LinkId lid;
+        while (ed::QueryDeletedLink(&lid)) {
+            int link_id = (int)(uintptr_t)lid.Get();
             if (ed::AcceptDeletedItem()) {
                 for (int i = 0; i < link_cnt_; ++i)
                     if (links_[i].id == link_id) links_[i].alive = false;
             }
         }
-        int node_id;
-        while (ed::QueryDeletedNode(&node_id)) {
+        ed::NodeId nid;
+        while (ed::QueryDeletedNode(&nid)) {
+            int node_id = (int)(uintptr_t)nid.Get();
             if (ed::AcceptDeletedItem()) {
                 for (int i = 0; i < node_cnt_; ++i)
                     if (nodes_[i].id == node_id) nodes_[i].alive = false;
@@ -220,9 +224,9 @@ void EditorNodeGraphPanel::Draw() {
 
     for (int i = 0; i < link_cnt_; ++i)
         if (links_[i].alive)
-            ed::Link(links_[i].id,
-                     links_[i].from_pin,
-                     links_[i].to_pin,
+            ed::Link(ed::LinkId(links_[i].id),
+                     ed::PinId(links_[i].from_pin),
+                     ed::PinId(links_[i].to_pin),
                      ImVec4(0.8f, 0.7f, 0.2f, 1.f), 2.f);
 
     HandleCreateDelete();

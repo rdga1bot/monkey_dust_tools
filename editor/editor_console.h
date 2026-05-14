@@ -1,6 +1,7 @@
 #pragma once
 #ifdef MONKEY_DUST_EDITOR
 
+#include <cstdint>
 #include "TextEditor.h"
 
 class EditorConsole {
