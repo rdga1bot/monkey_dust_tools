@@ -352,6 +352,9 @@ int main(int argc, char** argv) {
     } else {
         fprintf(stderr, "[demo] Warning: no atlases — tiles invisible\n");
     }
+    // Load goblin sprite sheet into first free atlas slot (stance dir=5 frame=0).
+    tmr2d.SetNpcSpriteSheet(
+        "third_party/flare-game/mods/fantasycore/images/enemies/goblin.png");
 
     // ── ECS + BT setup ───────────────────────────────────────────────────────
     BTSystem::ConnectRegistry(Registry::Get());
