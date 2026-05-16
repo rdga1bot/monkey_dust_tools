@@ -1,11 +1,16 @@
-// md_flare_demo — Flare tile-map viewer via SDL_GPU.
+// md_flare_demo — Flare tile-map viewer + AI/ECS demo via SDL_GPU.
 //
-// Demonstrates the monkey_dust SDL_GPU API end-to-end:
-//   plain SDL3 window → GpuDevice::Init → SDL_GPU Vulkan/Metal/D3D12 backend
-//   → SPIR-V shaders → TileMap2DRenderer renders the tile map via SDL_GPU swapchain.
+// Systems exercised end-to-end:
+//   SDL3 window → GpuDevice (Vulkan/Metal/D3D12) → SPIR-V shaders
+//   → TileMap2DRenderer (tile map) + FlareAnimSystem (NPC sprites)
+//   → ECS entities: player + NPCs from Flare spawns
+//   → SenseSystemUpdate (Visual cone + Audio falloff per NPC)
+//   → BTSystem::Tick (SenseCheck → actDemoMove / actDemoWander)
+//   → ProjectileSystem::Tick (no projectiles in base demo; hook in place)
+//   → HotReload watching data/bt/demo_npc.bt.json (500ms poll)
 //
 // Controls:
-//   WASD / arrow keys — pan
+//   WASD / arrow keys — pan (moves player entity too)
 //   Q / E or scroll   — zoom out / in
 //   R                 — reset camera
 //   Escape            — quit
@@ -16,25 +21,230 @@
 #include <monkey_dust/flare/flare_runtime.h>
 #include <monkey_dust/flare/tile_map_2d_renderer.h>
 #include <monkey_dust/render/gpu_device.h>
+#include <monkey_dust/ai/sense_system.h>
+#include <monkey_dust/ai/bt_system.h>
+#include <monkey_dust/ai/bt_action_registry.h>
+#include <monkey_dust/ai/bt_json_loader.h>
+#include <monkey_dust/ai/fnv.h>
+#include <monkey_dust/ai/sense_registry.h>
+#include <monkey_dust/combat/projectile_system.h>
+#include <monkey_dust/components/agent_state.h>
+#include <monkey_dust/components/bt_components.h>
+#include <monkey_dust/components/sense_component.h>
+#include <monkey_dust/ecs/registry.h>
+#include <monkey_dust/ecs/engine_context.h>
+#include <monkey_dust/world/world_transform.h>
+#include <monkey_dust/tools/hot_reload.h>
 #include <SDL3/SDL.h>
 #include <cstdio>
 #include <cstring>
 #include <cmath>
-#include <unistd.h>
+#ifdef _WIN32
+#  include <windows.h>
+#else
+#  include <unistd.h>
+#endif
 
-// ── repo root detection ───────────────────────────────────────────────────────
+// ── Demo constants ────────────────────────────────────────────────────────────
+
+static constexpr int   DEMO_MAX_NPCS  = 32;
+static constexpr float LOGIC_TICK_S   = 0.1f;   // 10 TPS
+static const char*     BT_JSON_PATH   = "data/bt/demo_npc.bt.json";
+static const char*     SENSE_JSON     = "data/ai/view_cone_sets.json";
+
+// ── Demo state ────────────────────────────────────────────────────────────────
+
+static entt::entity    s_player       = entt::null;
+static entt::entity    s_npcs[DEMO_MAX_NPCS];
+static int             s_npc_count    = 0;
+static BTSystem        s_bt_sys;
+static md::EngineContext s_ctx;
+static volatile bool   s_reload_bt    = false;
+
+// ── Repo root ─────────────────────────────────────────────────────────────────
 
 static void ChdirToRepoRoot() {
+#ifdef _WIN32
+    // Windows: resolve from executable path (3 levels up from build/tools/<exe>)
+    char exe[512] = {};
+    DWORD n = GetModuleFileNameA(nullptr, exe, sizeof(exe) - 1);
+    if (!n) return;
+    for (int i = 0; i < 3; ++i) {
+        char* p = strrchr(exe, '\\');
+        if (!p) return; *p = '\0';
+    }
+    SetCurrentDirectoryA(exe);
+    fprintf(stdout, "[demo] repo root: %s\n", exe);
+#else
     char exe[512] = {};
     if (readlink("/proc/self/exe", exe, sizeof(exe) - 1) <= 0) return;
-    // Binary is at <repo>/build/tools/md_flare_demo — strip 3 path components.
     for (int i = 0; i < 3; ++i) {
         char* p = strrchr(exe, '/');
-        if (!p) return;
-        *p = '\0';
+        if (!p) return; *p = '\0';
     }
     if (exe[0] && chdir(exe) == 0)
         fprintf(stdout, "[demo] repo root: %s\n", exe);
+#endif
+}
+
+// ── BT leaf functions ─────────────────────────────────────────────────────────
+
+static BTStatus actDemoIdle(md::EngineContext&, entt::entity) {
+    return BTStatus::Running;
+}
+
+// Chase: move NPC toward SenseComponent::last_known_x/z at 2 m/s
+static BTStatus actDemoMove(md::EngineContext&, entt::entity e) {
+    auto& reg = Registry::Get();
+    auto* wt  = reg.try_get<WorldTransform>(e);
+    auto* sc  = reg.try_get<SenseComponent>(e);
+    if (!wt || !sc) return BTStatus::Failure;
+    float dx = sc->last_known_x - wt->x;
+    float dz = sc->last_known_z - wt->z;
+    float dist = sqrtf(dx * dx + dz * dz);
+    if (dist < 0.3f) return BTStatus::Success;
+    float step = 2.0f * LOGIC_TICK_S / dist;
+    wt->x += dx * step;
+    wt->z += dz * step;
+    wt->rot_y = atan2f(dx, dz);
+    return BTStatus::Running;
+}
+
+// Wander: LCG-pick a nearby tile, walk there at 1.5 m/s
+static BTStatus actDemoWander(md::EngineContext& ctx, entt::entity e) {
+    auto& reg = Registry::Get();
+    auto* wt  = reg.try_get<WorldTransform>(e);
+    auto* ab  = reg.try_get<AgentBlackboard>(e);
+    if (!wt) return BTStatus::Failure;
+
+    static const uint32_t kWX = md::fnv1a("wx");
+    static const uint32_t kWZ = md::fnv1a("wz");
+
+    float tx = ab ? bb_get_float(*ab, kWX, wt->x) : wt->x;
+    float tz = ab ? bb_get_float(*ab, kWZ, wt->z) : wt->z;
+    float dx = tx - wt->x, dz = tz - wt->z;
+    float dist = sqrtf(dx * dx + dz * dz);
+
+    if (dist < 0.3f) {
+        // pick a new random target within ±8 tiles
+        uint32_t r = ctx.frame_index * 2654435761u ^ static_cast<uint32_t>(entt::to_integral(e));
+        tx = wt->x + (float)((r >> 4)  & 0x1F) - 16.f;
+        tz = wt->z + (float)((r >> 20) & 0x1F) - 16.f;
+        if (ab) { bb_set_float(*ab, kWX, tx); bb_set_float(*ab, kWZ, tz); }
+        return BTStatus::Success;
+    }
+    float step = 1.5f * LOGIC_TICK_S / dist;
+    wt->x += dx * step;
+    wt->z += dz * step;
+    wt->rot_y = atan2f(dx, dz);
+    return BTStatus::Running;
+}
+
+// ── HotReload ─────────────────────────────────────────────────────────────────
+
+static void OnBTFileChanged(const char*) { s_reload_bt = true; }
+
+// ── BT setup ─────────────────────────────────────────────────────────────────
+
+static void RegisterDemoActions() {
+    auto& r = md::BTActionRegistry::Get();
+    r.Clear();
+    r.RegisterAction("actDemoIdle",   actDemoIdle);
+    r.RegisterAction("actDemoMove",   actDemoMove);
+    r.RegisterAction("actDemoWander", actDemoWander);
+}
+
+static void LoadNpcBT(BehaviorTree& bt) {
+    RegisterDemoActions();
+    if (!BTJsonLoader::LoadFromFile(bt, BT_JSON_PATH))
+        fprintf(stderr, "[demo] BT load failed: %s\n", BT_JSON_PATH);
+}
+
+// Destroy old BT, create a new one from JSON, attach to entity.
+static void RespawnNpcBT(entt::entity e) {
+    auto& reg = Registry::Get();
+    auto* old = reg.try_get<BehaviorTreeComponent>(e);
+    if (old && old->owning && old->tree) { delete old->tree; old->tree = nullptr; }
+
+    auto* tree = new BehaviorTree();
+    LoadNpcBT(*tree);
+    auto& btc  = reg.emplace_or_replace<BehaviorTreeComponent>(e);
+    btc.tree   = tree;
+    btc.owning = true;
+    btc.enabled = true;
+}
+
+// ── Entity spawning ───────────────────────────────────────────────────────────
+
+static void SpawnDemoEntities(const md::flare::FlareRuntime& rt) {
+    auto& reg      = Registry::Get();
+    const auto& map = rt.GetMap();
+
+    // ── Player entity (tracks camera center) ─────────────────────────────────
+    s_player = reg.create();
+    auto& pas = reg.emplace<AgentState>(s_player);
+    pas.lcflags.set(lcf::IS_PLAYER);
+    auto& pwt = reg.emplace<WorldTransform>(s_player);
+    pwt.x = map.hero_x; pwt.z = map.hero_y; pwt.y = 0.f; pwt.rot_y = 0.f;
+
+    // ── NPC entities from Flare [enemy] spawns ────────────────────────────────
+    s_npc_count = 0;
+    for (int i = 0; i < map.spawn_count && s_npc_count < DEMO_MAX_NPCS; ++i) {
+        const auto& sp = map.spawns[i];
+        int n = (sp.number_min < 1 ? 1 : sp.number_min);
+        for (int j = 0; j < n && s_npc_count < DEMO_MAX_NPCS; ++j) {
+            entt::entity e = reg.create();
+            s_npcs[s_npc_count++] = e;
+
+            reg.emplace<AgentState>(e);
+            reg.emplace<AgentBlackboard>(e);
+
+            auto& wt = reg.emplace<WorldTransform>(e);
+            wt.x = sp.center_x + (float)j * 0.8f;
+            wt.z = sp.center_y + (float)j * 0.8f;
+            wt.y = 0.f; wt.rot_y = 0.f;
+
+            auto& sc = reg.emplace<SenseComponent>(e);
+            sc.cone_set_idx = 0;   // first ViewConeSet (Normal vision)
+            sc.threshold_lo = 0.3f;
+            sc.threshold_hi = 0.7f;
+            for (int s = 0; s < MAX_SENSES; ++s) {
+                sc.activation[s]      = 0.f;
+                sc.last_activated_ms[s] = 0u;
+            }
+            sc.last_known_x = sp.center_x;
+            sc.last_known_z = sp.center_y;
+
+            RespawnNpcBT(e);
+        }
+    }
+    fprintf(stderr, "[demo] Spawned player + %d NPCs (from %d spawn entries)\n",
+            s_npc_count, map.spawn_count);
+}
+
+// ── Cleanup ───────────────────────────────────────────────────────────────────
+
+static void DestroyDemoEntities() {
+    auto& reg = Registry::Get();
+    for (int i = 0; i < s_npc_count; ++i) {
+        if (reg.valid(s_npcs[i])) reg.destroy(s_npcs[i]);
+    }
+    if (s_player != entt::null && reg.valid(s_player)) reg.destroy(s_player);
+    s_npc_count = 0;
+    s_player = entt::null;
+}
+
+// ── Logic tick (10 TPS) ───────────────────────────────────────────────────────
+
+static void LogicTick(float now_ms) {
+    ++s_ctx.logic_tick;
+    ++s_ctx.frame_index;
+    s_ctx.delta_time = LOGIC_TICK_S;
+    s_ctx.now_s      = now_ms * 0.001f;
+
+    SenseSystemUpdate(now_ms);
+    s_bt_sys.Tick(s_ctx, Registry::Get(), static_cast<uint32_t>(now_ms));
+    md::ProjectileSystem::Get().Tick(LOGIC_TICK_S);
 }
 
 // ── main ──────────────────────────────────────────────────────────────────────
@@ -46,16 +256,16 @@ int main(int argc, char** argv) {
     const char* mod_name  = (argc > 2) ? argv[2] : "empyrean_campaign";
     const char* map_name  = (argc > 3) ? argv[3] : "maps/goblin_camp.txt";
 
-    // ── SDL3 init (plain window — no SDL_WINDOW_OPENGL) ───────────────────────
+    // ── SDL3 init ─────────────────────────────────────────────────────────────
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         fprintf(stderr, "[demo] SDL_Init failed: %s\n", SDL_GetError());
         return 1;
     }
 
     const int WIN_W = 1280, WIN_H = 720;
-    SDL_Window* window = SDL_CreateWindow("md_flare_demo — SDL_GPU Tile Map",
-                                          WIN_W, WIN_H,
-                                          SDL_WINDOW_RESIZABLE);
+    SDL_Window* window = SDL_CreateWindow(
+        "md_flare_demo — SDL_GPU Tile Map + AI",
+        WIN_W, WIN_H, SDL_WINDOW_RESIZABLE);
     if (!window) {
         fprintf(stderr, "[demo] SDL_CreateWindow failed: %s\n", SDL_GetError());
         SDL_Quit();
@@ -64,12 +274,15 @@ int main(int argc, char** argv) {
 
     // ── GPU device ────────────────────────────────────────────────────────────
     if (!md::GpuDevice::Get().Init(window)) {
-        fprintf(stderr, "[demo] GpuDevice::Init failed — no Vulkan/Metal/D3D12 driver?\n");
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return 1;
+        fprintf(stderr, "[demo] GpuDevice::Init failed — no Vulkan/Metal/D3D12?\n");
+        SDL_DestroyWindow(window); SDL_Quit(); return 1;
     }
     fprintf(stderr, "[demo] SDL_GPU driver: %s\n", md::GpuDevice::Get().DriverName());
+
+    // ── Sense registry (view cones) ───────────────────────────────────────────
+    if (!SenseRegistry::Get().Load(SENSE_JSON))
+        fprintf(stderr, "[demo] Warning: '%s' not found — NPCs use fallback (no cone)\n",
+                SENSE_JSON);
 
     // ── Load Flare mod ────────────────────────────────────────────────────────
     fprintf(stderr, "[demo] LoadMod '%s' from '%s' ...\n", mod_name, mods_root);
@@ -77,36 +290,38 @@ int main(int argc, char** argv) {
     if (!rt.LoadMod(mod_name, mods_root, map_name, 1.0f)) {
         fprintf(stderr, "[demo] LoadMod FAILED\n");
         md::GpuDevice::Get().Shutdown();
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return 1;
+        SDL_DestroyWindow(window); SDL_Quit(); return 1;
     }
     const auto& map = rt.GetMap();
-    fprintf(stderr, "[demo] Map loaded: %dx%d '%s'\n", map.width, map.height, map.title);
     fprintf(stderr, "[demo] Map: %dx%d '%s'  enemies:%d  items:%d  powers:%d\n",
             map.width, map.height, map.title,
             rt.GetEnemies().count, rt.GetItems().count, rt.GetPowers().count);
 
-    // ── 2D renderer (SDL_GPU path selected automatically by Init) ─────────────
+    // ── 2D tile renderer ──────────────────────────────────────────────────────
     auto& tmr2d = md::flare::TileMap2DRenderer::Get();
     tmr2d.Init();
     if (map.tileset_atlas_count > 0) {
         tmr2d.SetAtlases(map);
-        fprintf(stderr, "[demo] %d atlas(es) loaded via SDL_GPU\n",
-                map.tileset_atlas_count);
+        fprintf(stderr, "[demo] %d atlas(es) loaded\n", map.tileset_atlas_count);
     } else {
-        fprintf(stderr, "[demo] Warning: no atlas paths — tiles invisible\n");
+        fprintf(stderr, "[demo] Warning: no atlases — tiles invisible\n");
     }
+
+    // ── ECS + BT setup ───────────────────────────────────────────────────────
+    BTSystem::ConnectRegistry(Registry::Get());
+    SpawnDemoEntities(rt);
+
+    // ── HotReload ─────────────────────────────────────────────────────────────
+    HotReload::Get().Watch(BT_JSON_PATH, OnBTFileChanged);
+    HotReload::Get().Start(500);
 
     // ── 2D camera state ───────────────────────────────────────────────────────
     const float MAP_SCR_W = (float)(map.width + map.height) * 96.f;
     const float MAP_SCR_H = (float)(map.width + map.height) * 48.f;
 
-    int vp_w = WIN_W, vp_h = WIN_H;
-    float scale = fminf((float)vp_w / MAP_SCR_W,
-                        (float)vp_h / MAP_SCR_H) * 0.82f;
+    int   vp_w = WIN_W, vp_h = WIN_H;
+    float scale = 1.f, origin_x = 0.f, origin_y = 0.f;
 
-    float origin_x = 0.f, origin_y = 0.f;
     auto ResetOrigin = [&]() {
         SDL_GetWindowSize(window, &vp_w, &vp_h);
         float cx_tile = (float)(map.width - map.height) * 48.f;
@@ -117,9 +332,11 @@ int main(int argc, char** argv) {
     };
     ResetOrigin();
 
-    const float PAN_SPEED = 400.f;  // screen pixels / second
-    uint64_t prev_ms = SDL_GetTicks();
-    bool quit = false;
+    const float PAN_SPEED = 400.f;   // screen pixels / second
+    float       logic_accum = 0.f;
+    uint32_t    frame_count = 0;
+    uint64_t    prev_ms = SDL_GetTicks();
+    bool        quit = false;
 
     // ── Game loop ─────────────────────────────────────────────────────────────
     while (!quit) {
@@ -127,6 +344,7 @@ int main(int argc, char** argv) {
         float dt = (float)(now_ms - prev_ms) * 0.001f;
         if (dt > 0.1f) dt = 0.1f;
         prev_ms = now_ms;
+        ++frame_count;
 
         float scroll_y = 0.f;
         bool  do_zoom_out = false, do_zoom_in = false, do_reset = false;
@@ -139,17 +357,17 @@ int main(int argc, char** argv) {
                 SDL_GetWindowSize(window, &vp_w, &vp_h);
             if (ev.type == SDL_EVENT_KEY_DOWN && !ev.key.repeat) {
                 switch (ev.key.scancode) {
-                case SDL_SCANCODE_ESCAPE: quit = true;         break;
-                case SDL_SCANCODE_Q:      do_zoom_out = true;  break;
-                case SDL_SCANCODE_E:      do_zoom_in  = true;  break;
-                case SDL_SCANCODE_R:      do_reset    = true;  break;
+                case SDL_SCANCODE_ESCAPE: quit = true;        break;
+                case SDL_SCANCODE_Q:     do_zoom_out = true;  break;
+                case SDL_SCANCODE_E:     do_zoom_in  = true;  break;
+                case SDL_SCANCODE_R:     do_reset    = true;  break;
                 default: break;
                 }
             }
         }
         if (quit) break;
 
-        // Continuous pan
+        // Pan camera
         const bool* kb   = SDL_GetKeyboardState(nullptr);
         float step = PAN_SPEED * dt;
         if (kb[SDL_SCANCODE_A] || kb[SDL_SCANCODE_LEFT])  origin_x += step;
@@ -162,7 +380,7 @@ int main(int argc, char** argv) {
         if (do_zoom_out) scale = fmaxf(scale * 0.92f, 0.02f);
         if (do_zoom_in)  scale = fminf(scale * 1.08f, 4.0f);
         if (scroll_y != 0.f) {
-            float factor = powf(1.05f, scroll_y);  // 5 % per scroll unit
+            float factor = powf(1.05f, scroll_y);
             scale = fmaxf(fminf(scale * factor, 4.0f), 0.02f);
         }
         if (scale != old_scale) {
@@ -172,15 +390,59 @@ int main(int argc, char** argv) {
         }
         if (do_reset) ResetOrigin();
 
+        // Track player entity position to camera center (in tile coords)
+        // iso tile mapping: screen_x = origin_x + (col - row) * 48 * scale
+        //                   screen_y = origin_y + (col + row) * 24 * scale
+        // center → col = ((sx - origin_x)/(48*scale) + (sy - origin_y)/(24*scale)) / 2
+        if (s_player != entt::null) {
+            if (auto* pwt = Registry::Get().try_get<WorldTransform>(s_player)) {
+                float sx = (float)vp_w * 0.5f - origin_x;
+                float sy = (float)vp_h * 0.5f - origin_y;
+                float s48 = 48.f * scale, s24 = 24.f * scale;
+                pwt->x = (sx / s48 + sy / s24) * 0.5f;
+                pwt->z = (sy / s24 - sx / s48) * 0.5f;
+            }
+        }
+
+        // Logic tick at 10 TPS
+        logic_accum += dt;
+        while (logic_accum >= LOGIC_TICK_S) {
+            logic_accum -= LOGIC_TICK_S;
+            LogicTick(static_cast<float>(now_ms));
+        }
+
+        // Hot-reload BT JSON if changed
+        if (s_reload_bt) {
+            s_reload_bt = false;
+            fprintf(stderr, "[demo] Reloading BT: %s\n", BT_JSON_PATH);
+            for (int i = 0; i < s_npc_count; ++i)
+                RespawnNpcBT(s_npcs[i]);
+        }
+
+        // HUD via window title (every 60 frames ≈ 1 s)
+        if (frame_count % 60 == 0) {
+            int sensed = 0;
+            Registry::Get().view<SenseComponent>().each([&](const SenseComponent& sc) {
+                if (sc.activation[0] >= sc.threshold_lo) ++sensed;
+            });
+            s_ctx.fps = (dt > 0.f) ? 1.f / dt : 0.f;
+            char title[160];
+            snprintf(title, sizeof(title),
+                     "md_flare_demo | FPS:%.0f | NPCs:%d | Detected:%d | Map:%s",
+                     s_ctx.fps, s_npc_count, sensed, map.title);
+            SDL_SetWindowTitle(window, title);
+        }
+
         rt.Tick(dt);
 
-        // Single call: acquires cmd buffer + swapchain, renders, submits.
         tmr2d.Render(map, (float)now_ms * 0.001f,
-                     origin_x, origin_y, scale,
-                     vp_w, vp_h);
+                     origin_x, origin_y, scale, vp_w, vp_h);
     }
 
     // ── Cleanup ───────────────────────────────────────────────────────────────
+    HotReload::Get().Stop();
+    HotReload::Get().Unwatch(BT_JSON_PATH);
+    DestroyDemoEntities();
     tmr2d.Shutdown();
     md::GpuDevice::Get().Shutdown();
     SDL_DestroyWindow(window);
