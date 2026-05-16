@@ -102,7 +102,7 @@ tools/
     editor_map_view.*  ← M9 map editor (FBO viewport + tile palette)
     editor_*_panel.*   ← Specialist panels (ViewCone, FlowGraph, Director, GPU Profiler …)
     scene_serializer.h ← Import/Export scene JSON
-    editor_game_context.h ← Callback bridge to game-side systems (dialog/quest reload)
+    editor_game_context.h ← Callback bridge to game-side systems (dialog/quest reload, NPC interaction trigger)
   flare_convert/       ← FLARE INI converter
   flare_demo/          ← Standalone tile viewer
   flare_2d_render.py   ← Python helper: renders a map frame to PNG (offline preview)
