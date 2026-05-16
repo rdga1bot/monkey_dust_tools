@@ -481,6 +481,25 @@ int main(int argc, char** argv) {
 
         rt.Tick(dt);
 
+        // Collect NPC dot positions (tile coords) for overlay rendering.
+        {
+            static constexpr int kMaxDots = 64;
+            static float dot_x[kMaxDots];
+            static float dot_z[kMaxDots];
+            int dot_n = 0;
+            auto& reg = Registry::Get();
+            for (int i = 0; i < s_npc_count && dot_n < kMaxDots; ++i) {
+                if (reg.valid(s_npcs[i])) {
+                    if (auto* wt = reg.try_get<WorldTransform>(s_npcs[i])) {
+                        dot_x[dot_n] = wt->x;
+                        dot_z[dot_n] = wt->z;
+                        ++dot_n;
+                    }
+                }
+            }
+            tmr2d.SetNpcDots(dot_x, dot_z, dot_n, 8.f);
+        }
+
         tmr2d.Render(map, (float)now_ms * 0.001f,
                      origin_x, origin_y, scale, vp_w, vp_h);
     }
