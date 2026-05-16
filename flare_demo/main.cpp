@@ -35,6 +35,9 @@
 #  include <windows.h>
 #else
 #  include <unistd.h>
+#  include <fcntl.h>
+#  include <signal.h>
+#  include <sys/wait.h>
 #endif
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -91,7 +94,29 @@ static BTSystem      s_bt_sys;
 static md::EngineContext s_ctx;
 static volatile bool s_reload_bt      = false;
 
-// Simple xorshift32 RNG for random damage.
+// ── Geodata collision ─────────────────────────────────────────────────────────
+
+// Collision layer values (FLARE geodata encoding):
+//   0 = OPEN   — walkable floor
+//   1 = FULL   — solid wall / cliff / object
+//   2 = WATER  — water (impassable for normal move type)
+//   3 = VOID   — outside map / completely blocked
+static int CollisionAt(const md::flare::FlareMap& map, int col, int row) {
+    if (col < 0 || col >= map.width || row < 0 || row >= map.height) return 3;
+    for (int li = 0; li < map.layer_count; ++li) {
+        if (map.layers[li].type == md::flare::LayerType::COLLISION)
+            return (int)map.layers[li].tiles[row * md::flare::MAX_MAP_WIDTH + col];
+    }
+    return 0; // no collision layer — assume passable
+}
+
+// Returns true if the fractional tile position (x, z) is walkable.
+// Rounds to nearest integer tile before lookup.
+static bool IsPassable(const md::flare::FlareMap& map, float x, float z) {
+    return CollisionAt(map, (int)floorf(x + 0.5f), (int)floorf(z + 0.5f)) == 0;
+}
+
+// ── Simple xorshift32 RNG for random damage.
 static uint32_t s_rng = 0xdeadbeef;
 static uint32_t RandU() {
     s_rng ^= s_rng << 13; s_rng ^= s_rng >> 17; s_rng ^= s_rng << 5;
@@ -99,6 +124,138 @@ static uint32_t RandU() {
 }
 static int RandRange(int lo, int hi) {
     return lo + (int)(RandU() % (uint32_t)(hi - lo + 1));
+}
+
+// ── Camera-button recording ───────────────────────────────────────────────────
+
+static constexpr int BTN_SZ     = 72;
+static constexpr int BTN_MARGIN = 14;
+
+static pid_t s_rec_pid   = -1;
+static bool  s_recording = false;
+
+// Draw camera icon into BTN_SZ×BTN_SZ RGBA8 buffer.
+// Pixel layout designed at 72×72.
+static void GenCamIcon(uint8_t* p, bool rec) {
+    const int W = BTN_SZ;
+    auto px = [&](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+        if (x<0||x>=W||y<0||y>=W) return;
+        int i = (y*W+x)*4; p[i]=r; p[i+1]=g; p[i+2]=b; p[i+3]=255;
+    };
+    auto rect = [&](int x, int y, int w, int h, uint8_t r, uint8_t g, uint8_t b) {
+        for (int py=y; py<y+h; ++py)
+        for (int px_=x; px_<x+w; ++px_) px(px_, py, r, g, b);
+    };
+    auto circ = [&](int cx, int cy, int rad, uint8_t r, uint8_t g, uint8_t b) {
+        for (int py=cy-rad; py<=cy+rad; ++py)
+        for (int px_=cx-rad; px_<=cx+rad; ++px_)
+            if ((px_-cx)*(px_-cx)+(py-cy)*(py-cy) <= rad*rad)
+                px(px_, py, r, g, b);
+    };
+    // Background (rounded feel via dark corners)
+    rect(0, 0, W, W, 30, 30, 40);
+    rect(3, 3, W-6, W-6, 45, 45, 55);
+    // Camera body (scaled from 56px design × 72/56)
+    rect(12, 26, 49, 31, 195, 195, 205);
+    // Viewfinder notch
+    rect(22, 17, 18, 12, 195, 195, 205);
+    // Lens rings
+    circ(36, 41, 13, 55, 55, 65);
+    circ(36, 41,  9, 195, 195, 205);
+    circ(36, 41,  5, 55, 55, 65);
+    circ(36, 41,  3, 100, 130, 155);
+    if (rec) {
+        // Red dot indicator (top-right)
+        circ(59, 12,  8, 180, 18, 18);
+        circ(59, 12,  5, 235, 55, 55);
+        // Red border (3 px)
+        for (int i = 0; i < W; ++i) {
+            px(i,0,195,20,20); px(i,1,195,20,20); px(i,2,195,20,20);
+            px(i,W-1,195,20,20); px(i,W-2,195,20,20); px(i,W-3,195,20,20);
+            px(0,i,195,20,20); px(1,i,195,20,20); px(2,i,195,20,20);
+            px(W-1,i,195,20,20); px(W-2,i,195,20,20); px(W-3,i,195,20,20);
+        }
+    } else {
+        // Subtle white border when idle
+        for (int i = 0; i < W; ++i) {
+            px(i,0,80,80,90); px(i,W-1,80,80,90);
+            px(0,i,80,80,90); px(W-1,i,80,80,90);
+        }
+    }
+}
+
+// Create a BTN_SZ×BTN_SZ RGBA8 SDL_GPU texture from pixel data.
+static SDL_GPUTexture* MakeCamTex(SDL_GPUDevice* dev, const uint8_t* pixels) {
+    SDL_GPUTextureCreateInfo ti {};
+    ti.type                 = SDL_GPU_TEXTURETYPE_2D;
+    ti.format               = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+    ti.width                = (uint32_t)BTN_SZ;
+    ti.height               = (uint32_t)BTN_SZ;
+    ti.layer_count_or_depth = 1;
+    ti.num_levels           = 1;
+    ti.usage                = SDL_GPU_TEXTUREUSAGE_SAMPLER;
+    SDL_GPUTexture* tex = SDL_CreateGPUTexture(dev, &ti);
+    if (!tex) return nullptr;
+
+    SDL_GPUTransferBufferCreateInfo tbi {};
+    tbi.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+    tbi.size  = (uint32_t)(BTN_SZ * BTN_SZ * 4);
+    SDL_GPUTransferBuffer* tb = SDL_CreateGPUTransferBuffer(dev, &tbi);
+    if (!tb) { SDL_ReleaseGPUTexture(dev, tex); return nullptr; }
+
+    void* ptr = SDL_MapGPUTransferBuffer(dev, tb, false);
+    if (ptr) memcpy(ptr, pixels, (size_t)(BTN_SZ * BTN_SZ * 4));
+    SDL_UnmapGPUTransferBuffer(dev, tb);
+
+    SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(dev);
+    SDL_GPUCopyPass*      cp  = SDL_BeginGPUCopyPass(cmd);
+    SDL_GPUTextureTransferInfo src {};
+    src.transfer_buffer = tb;
+    src.pixels_per_row  = (uint32_t)BTN_SZ;
+    src.rows_per_layer  = (uint32_t)BTN_SZ;
+    SDL_GPUTextureRegion dst {};
+    dst.texture = tex;
+    dst.w = (uint32_t)BTN_SZ;
+    dst.h = (uint32_t)BTN_SZ;
+    dst.d = 1;
+    SDL_UploadToGPUTexture(cp, &src, &dst, false);
+    SDL_EndGPUCopyPass(cp);
+    SDL_SubmitGPUCommandBuffer(cmd);
+    SDL_ReleaseGPUTransferBuffer(dev, tb);
+    return tex;
+}
+
+static void StartRecording() {
+    if (s_recording) return;
+#ifndef _WIN32
+    pid_t pid = fork();
+    if (pid == 0) {
+        // Child: redirect stderr to /dev/null, launch demo_capture --no-launch
+        int devnull = open("/dev/null", O_WRONLY);
+        if (devnull >= 0) { dup2(devnull, 2); close(devnull); }
+        execlp("python3", "python3", "scripts/demo_capture.py",
+               "--no-launch", "--record-fps", "10", nullptr);
+        _exit(1);
+    } else if (pid > 0) {
+        s_rec_pid = pid;
+        s_recording = true;
+        fprintf(stderr, "[rec] Recording started (pid=%d)\n", (int)pid);
+    }
+#endif
+}
+
+static void StopRecording() {
+    if (!s_recording) return;
+#ifndef _WIN32
+    if (s_rec_pid > 0) {
+        kill(s_rec_pid, SIGTERM);
+        // Reap child asynchronously — don't block the game loop.
+        waitpid(s_rec_pid, nullptr, WNOHANG);
+        s_rec_pid = -1;
+    }
+    s_recording = false;
+    fprintf(stderr, "[rec] Recording stopped\n");
+#endif
 }
 
 // ── Repo root ─────────────────────────────────────────────────────────────────
@@ -248,13 +405,16 @@ static void SpawnDemoEntities(const md::flare::FlareRuntime& rt) {
     auto& reg       = Registry::Get();
     const auto& map = rt.GetMap();
 
-    // Player — start at map center so goblins are nearby.
+    // Player — spawn at map's hero_pos, but for this demo use a position
+    // that's in the middle of the goblin camp (near NPC spawn groups).
+    // goblin_camp: hero_pos=5,2 is a dead-end corner; spawn at (18,26)
+    // which is passable and surrounded by the first two goblin groups.
     s_player = reg.create();
     auto& pas = reg.emplace<AgentState>(s_player);
     pas.lcflags.set(lcf::IS_PLAYER);
     auto& pwt = reg.emplace<WorldTransform>(s_player);
-    pwt.x = (float)map.width  * 0.5f;
-    pwt.z = (float)map.height * 0.5f;
+    pwt.x = 18.f;
+    pwt.z = 26.f;
     pwt.y = 0.f; pwt.rot_y = 0.f;
     s_player_hp      = PLAYER_HP_MAX;
     s_player_dead    = false;
@@ -354,6 +514,16 @@ int main(int argc, char** argv) {
     }
     fprintf(stderr, "[demo] GPU: %s\n", md::GpuDevice::Get().DriverName());
 
+    // Camera-button textures (idle + recording state).
+    SDL_GPUDevice*  sdl_dev      = md::GpuDevice::Get().SDLDevice();
+    SDL_GPUTexture* cam_idle_tex = nullptr;
+    SDL_GPUTexture* cam_rec_tex  = nullptr;
+    {
+        uint8_t px[BTN_SZ * BTN_SZ * 4] = {};
+        GenCamIcon(px, false); cam_idle_tex = MakeCamTex(sdl_dev, px);
+        GenCamIcon(px, true);  cam_rec_tex  = MakeCamTex(sdl_dev, px);
+    }
+
     if (!SenseRegistry::Get().Load(SENSE_JSON))
         fprintf(stderr, "[demo] No sense cones — NPCs use fallback\n");
 
@@ -387,13 +557,33 @@ int main(int argc, char** argv) {
     float scale    = CAMERA_SCALE_INIT;
     float origin_x = 0.f, origin_y = 0.f;
 
-    // Compute origin so camera centers on player's tile position.
+    // Compute origin so camera centers on player's tile position,
+    // then clamp so the map diamond fills at least half the viewport.
     auto ComputeOrigin = [&]() {
         if (s_player == entt::null) return;
         auto* pwt = Registry::Get().try_get<WorldTransform>(s_player);
         if (!pwt) return;
         origin_x = (float)vp_w * 0.5f - (pwt->x - pwt->z) * 96.f * scale;
         origin_y = (float)vp_h * 0.5f - (pwt->x + pwt->z) * 48.f * scale;
+
+        // Clamp origin so the map diamond's AABB exactly fills the viewport
+        // (diamond edge never visibly inside the screen rect).
+        // Diamond pixel extents (origin = screen pos of tile 0,0):
+        //   left:   origin_x - (H-1)*96*scale  (tile 0,H-1)
+        //   right:  origin_x + (W-1)*96*scale  (tile W-1,0)
+        //   top:    origin_y                    (tile 0,0)
+        //   bottom: origin_y + (W+H-2)*48*scale (tile W-1,H-1)
+        const float ext_x_l = (float)(map.height - 1) * 96.f * scale;  // left AABB half
+        const float ext_x_r = (float)(map.width  - 1) * 96.f * scale;  // right AABB half
+        const float full_h  = (float)(map.width + map.height - 2) * 48.f * scale;
+        // Keep left diamond edge ≤ viewport left edge (0)
+        origin_x = fminf(origin_x, ext_x_l);
+        // Keep right diamond edge ≥ viewport right edge (vp_w)
+        origin_x = fmaxf(origin_x, (float)vp_w - ext_x_r);
+        // Keep top diamond edge ≤ viewport top (0)
+        origin_y = fminf(origin_y, 0.f);
+        // Keep bottom diamond edge ≥ viewport bottom (vp_h)
+        origin_y = fmaxf(origin_y, (float)vp_h - full_h);
     };
 
     auto ResetCamera = [&]() {
@@ -447,46 +637,63 @@ int main(int argc, char** argv) {
         }
         if (quit) break;
 
-        // ── LMB click-to-move / click-to-attack ───────────────────────────────
-        // Click on empty ground → walk there.
-        // Click near a living goblin → set it as attack target (walk + auto-attack).
+        // ── LMB: click-to-move / hold-to-move / click-to-attack / camera btn ──
         {
             float mx_f = 0.f, my_f = 0.f;
             bool  lmb       = (SDL_GetMouseState(&mx_f, &my_f) & SDL_BUTTON_LMASK) != 0;
             bool  lmb_click = lmb && !prev_lmb;
             prev_lmb = lmb;
 
-            if (lmb_click && !s_player_dead && s_player != entt::null) {
+            // Camera button occupies bottom-right corner — handle on click only.
+            const int bx = vp_w - BTN_SZ - BTN_MARGIN;
+            const int by = vp_h - BTN_SZ - BTN_MARGIN;
+            const bool over_btn = ((int)mx_f >= bx && (int)mx_f < bx + BTN_SZ &&
+                                   (int)my_f >= by && (int)my_f < by + BTN_SZ);
+
+            if (lmb_click && over_btn) {
+                s_recording ? StopRecording() : StartRecording();
+            } else if (lmb && !over_btn && !s_player_dead && s_player != entt::null) {
                 // Mouse → tile coords (inverse isometric formula).
                 float xmz = (mx_f - origin_x) / (96.f * scale);
                 float xpz = (my_f - origin_y) / (48.f * scale);
                 float mtx = (xmz + xpz) * 0.5f;
                 float mtz = (xpz - xmz) * 0.5f;
 
-                // Find NPC closest to click (within ~1.5 tile click tolerance).
-                float best = 1.5f;
-                int   hit  = -1;
-                auto& reg  = Registry::Get();
-                for (int i = 0; i < s_npc_count; ++i) {
-                    if (s_npc_hp[i] <= 0) continue;
-                    if (!reg.valid(s_npcs[i])) continue;
-                    auto* nwt = reg.try_get<WorldTransform>(s_npcs[i]);
-                    if (!nwt) continue;
-                    float cx = nwt->x - mtx, cz = nwt->z - mtz;
-                    float d  = sqrtf(cx*cx + cz*cz);
-                    if (d < best) { best = d; hit = i; }
-                }
-
-                if (hit >= 0) {
-                    // Clicked on enemy → target it; walk toward it + attack when close.
-                    s_player_atk_tgt  = hit;
-                    s_player_has_tgt  = false;  // atk_tgt overrides move target
+                if (lmb_click) {
+                    // ── Rising edge: check NPC targeting first ────────────────
+                    float best = 1.5f;
+                    int   hit  = -1;
+                    auto& reg  = Registry::Get();
+                    for (int i = 0; i < s_npc_count; ++i) {
+                        if (s_npc_hp[i] <= 0) continue;
+                        if (!reg.valid(s_npcs[i])) continue;
+                        auto* nwt = reg.try_get<WorldTransform>(s_npcs[i]);
+                        if (!nwt) continue;
+                        float cx = nwt->x - mtx, cz = nwt->z - mtz;
+                        float d  = sqrtf(cx*cx + cz*cz);
+                        if (d < best) { best = d; hit = i; }
+                    }
+                    if (hit >= 0) {
+                        // Clicked on enemy → chase + attack.
+                        s_player_atk_tgt = hit;
+                        s_player_has_tgt = false;
+                    } else {
+                        // Clicked on ground → clear attack target, set move target.
+                        s_player_atk_tgt = -1;
+                        if (IsPassable(map, mtx, mtz)) {
+                            s_player_tgt_x   = mtx;
+                            s_player_tgt_z   = mtz;
+                            s_player_has_tgt = true;
+                        }
+                    }
                 } else {
-                    // Clicked on ground → walk there.
-                    s_player_atk_tgt  = -1;
-                    s_player_tgt_x    = mtx;
-                    s_player_tgt_z    = mtz;
-                    s_player_has_tgt  = true;
+                    // ── Hold (not initial click): stream move target to cursor ──
+                    // Only while no attack target is active (attack cancels hold-move).
+                    if (s_player_atk_tgt < 0 && IsPassable(map, mtx, mtz)) {
+                        s_player_tgt_x   = mtx;
+                        s_player_tgt_z   = mtz;
+                        s_player_has_tgt = true;
+                    }
                 }
             }
         }
@@ -551,11 +758,23 @@ int main(int argc, char** argv) {
                     float dist = sqrtf(dx*dx + dz*dz);
                     if (dist > 0.01f) {
                         float step = fminf(PLAYER_SPD * dt / dist, 1.f);
-                        pwt->x += dx * step;
-                        pwt->z += dz * step;
+                        float nx = pwt->x + dx * step;
+                        float nz = pwt->z + dz * step;
+                        nx = fmaxf(0.f, fminf(nx, (float)(map.width  - 1)));
+                        nz = fmaxf(0.f, fminf(nz, (float)(map.height - 1)));
                         pwt->rot_y = atan2f(dx, dz);
-                        pwt->x = fmaxf(0.f, fminf(pwt->x, (float)(map.width  - 1)));
-                        pwt->z = fmaxf(0.f, fminf(pwt->z, (float)(map.height - 1)));
+
+                        if (IsPassable(map, nx, nz)) {
+                            pwt->x = nx;
+                            pwt->z = nz;
+                        } else {
+                            // Wall-slide: try each axis separately.
+                            float sx = fmaxf(0.f, fminf(pwt->x + dx * step, (float)(map.width-1)));
+                            float sz = fmaxf(0.f, fminf(pwt->z + dz * step, (float)(map.height-1)));
+                            if (IsPassable(map, sx, pwt->z))      pwt->x = sx;
+                            else if (IsPassable(map, pwt->x, sz)) pwt->z = sz;
+                            // else fully blocked — stay in place
+                        }
                     }
                 }
                 s_player_moving = should_move;
@@ -660,11 +879,27 @@ int main(int argc, char** argv) {
                                 (float)now_ms * 0.001f);
         }
 
+        // Camera button: blink the REC icon at 1 Hz when recording.
+        {
+            void* btn_tex = (void*)cam_idle_tex;
+            if (s_recording)
+                btn_tex = ((now_ms / 500) & 1) ? (void*)cam_idle_tex : (void*)cam_rec_tex;
+            tmr2d.SetOverlayBlit(0, btn_tex,
+                                  vp_w - BTN_SZ - BTN_MARGIN,
+                                  vp_h - BTN_SZ - BTN_MARGIN,
+                                  BTN_SZ, BTN_SZ);
+        }
+
         tmr2d.Render(map, (float)now_ms * 0.001f,
                      origin_x, origin_y, scale, vp_w, vp_h);
     }
 
     // ── Cleanup ───────────────────────────────────────────────────────────────
+    StopRecording();
+    tmr2d.ClearOverlayBlit(0);
+    SDL_WaitForGPUIdle(sdl_dev);
+    if (cam_idle_tex) SDL_ReleaseGPUTexture(sdl_dev, cam_idle_tex);
+    if (cam_rec_tex)  SDL_ReleaseGPUTexture(sdl_dev, cam_rec_tex);
     HotReload::Get().Stop();
     HotReload::Get().Unwatch(BT_JSON_PATH);
     DestroyDemoEntities();
