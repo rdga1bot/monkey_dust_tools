@@ -111,73 +111,55 @@ static float MoveToward(WorldTransform& wt, float tx, float tz, float speed_mps)
     return dist;
 }
 
-// ENGAGE — fast chase toward last known player position.
+static constexpr uint32_t kSX = md::fnv1a("spawn_x");
+static constexpr uint32_t kSZ = md::fnv1a("spawn_z");
+static constexpr uint32_t kWX = md::fnv1a("wx");
+static constexpr uint32_t kWZ = md::fnv1a("wz");
+static constexpr float    WANDER_RADIUS = 3.f;  // Flare wander_radius≈1, we use 3 for visibility
+
+// ENGAGE — chase player at full speed; Running while chasing.
 static BTStatus actGuardChase(md::EngineContext&, entt::entity e) {
     auto& reg = Registry::Get();
     auto* wt  = reg.try_get<WorldTransform>(e);
     auto* sc  = reg.try_get<SenseComponent>(e);
     if (!wt || !sc) return BTStatus::Failure;
-    float dist = MoveToward(*wt, sc->last_known_x, sc->last_known_z, GUARD_CHASE_SPD);
-    return (dist < GUARD_MELEE_RANGE) ? BTStatus::Success : BTStatus::Running;
-}
-
-// ENGAGE — melee attack when close enough to player.
-static BTStatus actGuardMelee(md::EngineContext&, entt::entity e) {
-    auto& reg = Registry::Get();
-    auto* wt  = reg.try_get<WorldTransform>(e);
-    auto* sc  = reg.try_get<SenseComponent>(e);
-    if (!wt || !sc) return BTStatus::Failure;
-    float dx = sc->last_known_x - wt->x;
-    float dz = sc->last_known_z - wt->z;
-    if (dx * dx + dz * dz > GUARD_MELEE_RANGE * GUARD_MELEE_RANGE)
-        return BTStatus::Failure;
-    s_player_hp -= 5;
-    ++s_melee_hits;
-    if (s_player_hp < 0) s_player_hp = 0;
-    fprintf(stderr, "[guard] MELEE HIT — player HP: %d\n", s_player_hp);
+    MoveToward(*wt, sc->last_known_x, sc->last_known_z, GUARD_CHASE_SPD);
     return BTStatus::Running;
 }
 
-// INVESTIGATE — slow approach to last known position; Success when arrived.
+// INVESTIGATE — slow approach to last known; Running until sense drops below 0.3.
 static BTStatus actGuardInvestigate(md::EngineContext&, entt::entity e) {
     auto& reg = Registry::Get();
     auto* wt  = reg.try_get<WorldTransform>(e);
     auto* sc  = reg.try_get<SenseComponent>(e);
     if (!wt || !sc) return BTStatus::Failure;
-    float dist = MoveToward(*wt, sc->last_known_x, sc->last_known_z, GUARD_INVEST_SPD);
-    return (dist < 0.4f) ? BTStatus::Success : BTStatus::Running;
-}
-
-// CONVERGE — squad alert: move toward last known player position at medium speed.
-static BTStatus actGuardConverge(md::EngineContext&, entt::entity e) {
-    auto& reg = Registry::Get();
-    auto* wt  = reg.try_get<WorldTransform>(e);
-    auto* sc  = reg.try_get<SenseComponent>(e);
-    if (!wt) return BTStatus::Failure;
-    if (sc && sc->last_activated_ms[0] > 0u)
-        MoveToward(*wt, sc->last_known_x, sc->last_known_z, GUARD_CONV_SPD);
+    MoveToward(*wt, sc->last_known_x, sc->last_known_z, GUARD_INVEST_SPD);
     return BTStatus::Running;
 }
 
-// PATROL — random wander within ±8 tiles of current position.
+// PATROL — Flare-style wander within WANDER_RADIUS of spawn point.
 static BTStatus actGuardPatrol(md::EngineContext& ctx, entt::entity e) {
     auto& reg = Registry::Get();
     auto* wt  = reg.try_get<WorldTransform>(e);
     auto* ab  = reg.try_get<AgentBlackboard>(e);
-    if (!wt) return BTStatus::Failure;
+    if (!wt || !ab) return BTStatus::Failure;
 
-    static const uint32_t kWX = md::fnv1a("wx");
-    static const uint32_t kWZ = md::fnv1a("wz");
+    float sx = bb_get_float(*ab, kSX, wt->x);
+    float sz = bb_get_float(*ab, kSZ, wt->z);
+    float tx = bb_get_float(*ab, kWX, sx);
+    float tz = bb_get_float(*ab, kWZ, sz);
 
-    float tx = ab ? bb_get_float(*ab, kWX, wt->x) : wt->x;
-    float tz = ab ? bb_get_float(*ab, kWZ, wt->z) : wt->z;
     float dist = MoveToward(*wt, tx, tz, GUARD_PATROL_SPD);
 
     if (dist < 0.3f) {
+        // Pick new wander target within WANDER_RADIUS of spawn (polar coords for even distribution).
         uint32_t r = ctx.frame_index * 2654435761u ^ static_cast<uint32_t>(entt::to_integral(e));
-        tx = wt->x + (float)((int)((r >> 4) & 0x1F) - 16);
-        tz = wt->z + (float)((int)((r >> 20) & 0x1F) - 16);
-        if (ab) { bb_set_float(*ab, kWX, tx); bb_set_float(*ab, kWZ, tz); }
+        float angle  = (float)((r & 0xFFu)) / 255.f * 6.28318f;
+        float radius = (float)(((r >> 8) & 0xFFu)) / 255.f * WANDER_RADIUS;
+        tx = sx + cosf(angle) * radius;
+        tz = sz + sinf(angle) * radius;
+        bb_set_float(*ab, kWX, tx);
+        bb_set_float(*ab, kWZ, tz);
     }
     return BTStatus::Running;
 }
@@ -192,9 +174,7 @@ static void RegisterDemoActions() {
     auto& r = md::BTActionRegistry::Get();
     r.Clear();
     r.RegisterAction("actGuardChase",       actGuardChase);
-    r.RegisterAction("actGuardMelee",       actGuardMelee);
     r.RegisterAction("actGuardInvestigate", actGuardInvestigate);
-    r.RegisterAction("actGuardConverge",    actGuardConverge);
     r.RegisterAction("actGuardPatrol",      actGuardPatrol);
 }
 
@@ -241,24 +221,30 @@ static void SpawnDemoEntities(const md::flare::FlareRuntime& rt) {
             s_npcs[s_npc_count++] = e;
 
             reg.emplace<AgentState>(e);
-            reg.emplace<AgentBlackboard>(e);
-            reg.emplace<SquadMemberComponent>(e).squad_id = 0;  // all guards share squad 0
+            auto& ab = reg.emplace<AgentBlackboard>(e);
+            reg.emplace<SquadMemberComponent>(e).squad_id = 0;
+
+            float spx = sp.center_x + (float)j * 0.8f;
+            float spz = sp.center_y + (float)j * 0.8f;
 
             auto& wt = reg.emplace<WorldTransform>(e);
-            wt.x = sp.center_x + (float)j * 0.8f;
-            wt.z = sp.center_y + (float)j * 0.8f;
-            wt.y = 0.f; wt.rot_y = 0.f;
+            wt.x = spx; wt.z = spz; wt.y = 0.f; wt.rot_y = 0.f;
+
+            // Store spawn point for Flare-style wander radius patrol.
+            bb_set_float(ab, kSX, spx);
+            bb_set_float(ab, kSZ, spz);
 
             auto& sc = reg.emplace<SenseComponent>(e);
-            sc.cone_set_idx = 0;   // first ViewConeSet (Normal vision)
+            sc.cone_set_idx = 0;
             sc.threshold_lo = 0.3f;
             sc.threshold_hi = 0.7f;
             for (int s = 0; s < MAX_SENSES; ++s) {
-                sc.activation[s]      = 0.f;
+                sc.activation[s]        = 0.f;
                 sc.last_activated_ms[s] = 0u;
             }
-            sc.last_known_x = sp.center_x;
-            sc.last_known_z = sp.center_y;
+            // last_known starts at 0,0 — only meaningful after actual player sighting.
+            sc.last_known_x = 0.f;
+            sc.last_known_z = 0.f;
 
             RespawnNpcBT(e);
         }
@@ -499,16 +485,8 @@ int main(int argc, char** argv) {
                 sp_x[sp_n]   = wt->x;
                 sp_z[sp_n]   = wt->z;
                 sp_rot[sp_n] = wt->rot_y;
-                // "moving" = patrol/chase/investigate frame flags set
-                uint8_t moving = (as && (
-                    (as->frame_flags & (1ull << ff::SHOULD_PURSUE_TARGET)) ||
-                    (as->frame_flags & (1ull << ff::SHOULD_CIRCLE_TARGET)) ||
-                    (as->frame_flags & (1ull << ff::SHOULD_CROUCH_MOVE))
-                )) ? 1 : 0;
-                // Simpler: just check if NPC moved last tick (rot_y was set).
-                // Use rot_y != 0 as a proxy — actGuardPatrol/Chase always sets it.
-                moving = (wt->rot_y != 0.f) ? 1 : 0;
-                sp_mov[sp_n] = moving;
+                // Guards are always in run anim — they patrol or chase, never truly idle.
+                sp_mov[sp_n] = 1;
                 ++sp_n;
             }
             tmr2d.SetNpcSprites(sp_x, sp_z, sp_rot, sp_mov, sp_n,
