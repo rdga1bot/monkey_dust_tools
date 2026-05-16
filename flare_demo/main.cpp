@@ -484,23 +484,35 @@ int main(int argc, char** argv) {
 
         rt.Tick(dt);
 
-        // Collect NPC dot positions (tile coords) for overlay rendering.
+        // Collect NPC sprites (position + direction + animation state).
         {
-            static constexpr int kMaxDots = 64;
-            static float dot_x[kMaxDots];
-            static float dot_z[kMaxDots];
-            int dot_n = 0;
+            static constexpr int kMax = 64;
+            static float   sp_x[kMax], sp_z[kMax], sp_rot[kMax];
+            static uint8_t sp_mov[kMax];
+            int sp_n = 0;
             auto& reg = Registry::Get();
-            for (int i = 0; i < s_npc_count && dot_n < kMaxDots; ++i) {
-                if (reg.valid(s_npcs[i])) {
-                    if (auto* wt = reg.try_get<WorldTransform>(s_npcs[i])) {
-                        dot_x[dot_n] = wt->x;
-                        dot_z[dot_n] = wt->z;
-                        ++dot_n;
-                    }
-                }
+            for (int i = 0; i < s_npc_count && sp_n < kMax; ++i) {
+                if (!reg.valid(s_npcs[i])) continue;
+                auto* wt = reg.try_get<WorldTransform>(s_npcs[i]);
+                auto* as = reg.try_get<AgentState>(s_npcs[i]);
+                if (!wt) continue;
+                sp_x[sp_n]   = wt->x;
+                sp_z[sp_n]   = wt->z;
+                sp_rot[sp_n] = wt->rot_y;
+                // "moving" = patrol/chase/investigate frame flags set
+                uint8_t moving = (as && (
+                    (as->frame_flags & (1ull << ff::SHOULD_PURSUE_TARGET)) ||
+                    (as->frame_flags & (1ull << ff::SHOULD_CIRCLE_TARGET)) ||
+                    (as->frame_flags & (1ull << ff::SHOULD_CROUCH_MOVE))
+                )) ? 1 : 0;
+                // Simpler: just check if NPC moved last tick (rot_y was set).
+                // Use rot_y != 0 as a proxy — actGuardPatrol/Chase always sets it.
+                moving = (wt->rot_y != 0.f) ? 1 : 0;
+                sp_mov[sp_n] = moving;
+                ++sp_n;
             }
-            tmr2d.SetNpcDots(dot_x, dot_z, dot_n, 8.f);
+            tmr2d.SetNpcSprites(sp_x, sp_z, sp_rot, sp_mov, sp_n,
+                                (float)now_ms * 0.001f);
         }
 
         tmr2d.Render(map, (float)now_ms * 0.001f,
