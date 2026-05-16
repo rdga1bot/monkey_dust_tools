@@ -365,7 +365,7 @@ int main(int argc, char** argv) {
 
     // Load goblin sprite sheet (fantasycore).
     tmr2d.SetNpcSpriteSheet(
-        "third_party/flare-game/mods/fantasycore/images/sprites/goblin.png");
+        "third_party/flare-game/mods/fantasycore/images/enemies/goblin.png");
 
     // ECS + BT.
     BTSystem::ConnectRegistry(Registry::Get());
