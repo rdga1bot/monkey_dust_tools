@@ -82,6 +82,11 @@ static int           s_kills          = 0;
 static int           s_player_hp      = PLAYER_HP_MAX;
 static bool          s_player_dead    = false;
 static bool          s_player_moving  = false;
+static float         s_player_tgt_x   = 0.f;   // click-to-move destination
+static float         s_player_tgt_z   = 0.f;
+static bool          s_player_has_tgt = false;
+static int           s_player_atk_tgt = -1;    // index into s_npcs[] (-1 = none)
+static float         s_player_atk_cd  = 0.f;   // player attack cooldown (s)
 static BTSystem      s_bt_sys;
 static md::EngineContext s_ctx;
 static volatile bool s_reload_bt      = false;
@@ -251,9 +256,12 @@ static void SpawnDemoEntities(const md::flare::FlareRuntime& rt) {
     pwt.x = (float)map.width  * 0.5f;
     pwt.z = (float)map.height * 0.5f;
     pwt.y = 0.f; pwt.rot_y = 0.f;
-    s_player_hp   = PLAYER_HP_MAX;
-    s_player_dead = false;
-    s_player_moving = false;
+    s_player_hp      = PLAYER_HP_MAX;
+    s_player_dead    = false;
+    s_player_moving  = false;
+    s_player_has_tgt = false;
+    s_player_atk_tgt = -1;
+    s_player_atk_cd  = 0.f;
     s_kills = 0;
 
     // NPCs from Flare [enemy] spawns.
@@ -439,81 +447,118 @@ int main(int argc, char** argv) {
         }
         if (quit) break;
 
-        // ── Player movement (WASD / arrows) ───────────────────────────────────
-        // Isometric 4-direction: W=screen-up(NW tile), S=screen-down(SE),
-        //                        A=screen-left(SW), D=screen-right(NE).
-        if (!s_player_dead && s_player != entt::null) {
-            const bool* kb = SDL_GetKeyboardState(nullptr);
-            float dx = 0.f, dz = 0.f;
-            if (kb[SDL_SCANCODE_W] || kb[SDL_SCANCODE_UP])    { dx -= 1.f; dz -= 1.f; }
-            if (kb[SDL_SCANCODE_S] || kb[SDL_SCANCODE_DOWN])  { dx += 1.f; dz += 1.f; }
-            if (kb[SDL_SCANCODE_A] || kb[SDL_SCANCODE_LEFT])  { dx -= 1.f; dz += 1.f; }
-            if (kb[SDL_SCANCODE_D] || kb[SDL_SCANCODE_RIGHT]) { dx += 1.f; dz -= 1.f; }
-
-            s_player_moving = (dx != 0.f || dz != 0.f);
-            if (s_player_moving) {
-                auto* pwt = Registry::Get().try_get<WorldTransform>(s_player);
-                if (pwt) {
-                    float len = sqrtf(dx*dx + dz*dz);
-                    dx /= len; dz /= len;
-                    float spd = PLAYER_SPD * dt;
-                    pwt->x += dx * spd;
-                    pwt->z += dz * spd;
-                    pwt->rot_y = atan2f(dx, dz);
-                    // Clamp to map bounds.
-                    pwt->x = fmaxf(0.f, fminf(pwt->x, (float)(map.width  - 1)));
-                    pwt->z = fmaxf(0.f, fminf(pwt->z, (float)(map.height - 1)));
-                }
-            }
-        }
-
-        // ── Left-click: attack nearest goblin within melee range ───────────────
+        // ── LMB click-to-move / click-to-attack ───────────────────────────────
+        // Click on empty ground → walk there.
+        // Click near a living goblin → set it as attack target (walk + auto-attack).
         {
             float mx_f = 0.f, my_f = 0.f;
-            bool  lmb = (SDL_GetMouseState(&mx_f, &my_f) & SDL_BUTTON_LMASK) != 0;
+            bool  lmb       = (SDL_GetMouseState(&mx_f, &my_f) & SDL_BUTTON_LMASK) != 0;
             bool  lmb_click = lmb && !prev_lmb;
             prev_lmb = lmb;
 
             if (lmb_click && !s_player_dead && s_player != entt::null) {
-                auto* pwt = Registry::Get().try_get<WorldTransform>(s_player);
-                if (pwt) {
-                    // Mouse → tile coords (inverse isometric formula).
-                    float xmz = (mx_f - origin_x) / (96.f * scale);
-                    float xpz = (my_f - origin_y) / (48.f * scale);
-                    float mtx = (xmz + xpz) * 0.5f;
-                    float mtz = (xpz - xmz) * 0.5f;
+                // Mouse → tile coords (inverse isometric formula).
+                float xmz = (mx_f - origin_x) / (96.f * scale);
+                float xpz = (my_f - origin_y) / (48.f * scale);
+                float mtx = (xmz + xpz) * 0.5f;
+                float mtz = (xpz - xmz) * 0.5f;
 
-                    float best = PLAYER_ATK_RANGE + 1.f;  // click tolerance
-                    int   hit  = -1;
-                    auto& reg  = Registry::Get();
-                    for (int i = 0; i < s_npc_count; ++i) {
-                        if (!reg.valid(s_npcs[i])) continue;
-                        if (s_npc_hp[i] <= 0) continue;
-                        auto* nwt = reg.try_get<WorldTransform>(s_npcs[i]);
-                        if (!nwt) continue;
-                        // Must be within player melee range.
-                        float px = nwt->x - pwt->x, pz = nwt->z - pwt->z;
-                        if (sqrtf(px*px + pz*pz) > PLAYER_ATK_RANGE) continue;
-                        // Prefer nearest to mouse click.
-                        float cx = nwt->x - mtx, cz = nwt->z - mtz;
-                        float d  = sqrtf(cx*cx + cz*cz);
-                        if (d < best) { best = d; hit = i; }
-                    }
+                // Find NPC closest to click (within ~1.5 tile click tolerance).
+                float best = 1.5f;
+                int   hit  = -1;
+                auto& reg  = Registry::Get();
+                for (int i = 0; i < s_npc_count; ++i) {
+                    if (s_npc_hp[i] <= 0) continue;
+                    if (!reg.valid(s_npcs[i])) continue;
+                    auto* nwt = reg.try_get<WorldTransform>(s_npcs[i]);
+                    if (!nwt) continue;
+                    float cx = nwt->x - mtx, cz = nwt->z - mtz;
+                    float d  = sqrtf(cx*cx + cz*cz);
+                    if (d < best) { best = d; hit = i; }
+                }
 
-                    if (hit >= 0) {
-                        int dmg = RandRange(PLAYER_DMG_LO, PLAYER_DMG_HI);
-                        s_npc_hp[hit] -= dmg;
-                        fprintf(stderr, "[combat] Player hits NPC[%d] -%d  (hp=%d)\n",
-                                hit, dmg, s_npc_hp[hit]);
-                        if (s_npc_hp[hit] <= 0) {
-                            // Mark dead in ECS.
-                            auto* nas = Registry::Get().try_get<AgentState>(s_npcs[hit]);
-                            if (nas) nas->lcflags.set(lcf::IS_DEAD);
-                            ++s_kills;
-                            fprintf(stderr, "[combat] NPC[%d] killed!  kills=%d\n", hit, s_kills);
+                if (hit >= 0) {
+                    // Clicked on enemy → target it; walk toward it + attack when close.
+                    s_player_atk_tgt  = hit;
+                    s_player_has_tgt  = false;  // atk_tgt overrides move target
+                } else {
+                    // Clicked on ground → walk there.
+                    s_player_atk_tgt  = -1;
+                    s_player_tgt_x    = mtx;
+                    s_player_tgt_z    = mtz;
+                    s_player_has_tgt  = true;
+                }
+            }
+        }
+
+        // ── Player movement toward target ─────────────────────────────────────
+        if (!s_player_dead && s_player != entt::null) {
+            auto* pwt = Registry::Get().try_get<WorldTransform>(s_player);
+            if (pwt) {
+                float tx = pwt->x, tz = pwt->z;  // default: stay
+                bool  should_move = false;
+                auto& reg = Registry::Get();
+
+                if (s_player_atk_tgt >= 0) {
+                    // Validate attack target.
+                    if (s_npc_hp[s_player_atk_tgt] <= 0 ||
+                        !reg.valid(s_npcs[s_player_atk_tgt])) {
+                        s_player_atk_tgt = -1;  // target died
+                    } else {
+                        auto* nwt = reg.try_get<WorldTransform>(s_npcs[s_player_atk_tgt]);
+                        if (nwt) {
+                            float dx = nwt->x - pwt->x, dz = nwt->z - pwt->z;
+                            float dist = sqrtf(dx*dx + dz*dz);
+                            if (dist > PLAYER_ATK_RANGE) {
+                                // Walk toward enemy.
+                                tx = nwt->x; tz = nwt->z;
+                                should_move = true;
+                            } else {
+                                // In range — auto-attack on cooldown.
+                                if (s_player_atk_cd <= 0.f) {
+                                    int dmg = RandRange(PLAYER_DMG_LO, PLAYER_DMG_HI);
+                                    s_npc_hp[s_player_atk_tgt] -= dmg;
+                                    s_player_atk_cd = 0.6f;  // 0.6s attack speed
+                                    fprintf(stderr, "[combat] Player hits NPC[%d] -%d (hp=%d)\n",
+                                            s_player_atk_tgt, dmg,
+                                            s_npc_hp[s_player_atk_tgt]);
+                                    if (s_npc_hp[s_player_atk_tgt] <= 0) {
+                                        auto* nas = reg.try_get<AgentState>(
+                                            s_npcs[s_player_atk_tgt]);
+                                        if (nas) nas->lcflags.set(lcf::IS_DEAD);
+                                        ++s_kills;
+                                        fprintf(stderr, "[combat] NPC[%d] killed! kills=%d\n",
+                                                s_player_atk_tgt, s_kills);
+                                        s_player_atk_tgt = -1;
+                                    }
+                                }
+                            }
                         }
                     }
+                } else if (s_player_has_tgt) {
+                    float dx = s_player_tgt_x - pwt->x, dz = s_player_tgt_z - pwt->z;
+                    float dist = sqrtf(dx*dx + dz*dz);
+                    if (dist < 0.2f) {
+                        s_player_has_tgt = false;  // arrived
+                    } else {
+                        tx = s_player_tgt_x; tz = s_player_tgt_z;
+                        should_move = true;
+                    }
                 }
+
+                if (should_move) {
+                    float dx = tx - pwt->x, dz = tz - pwt->z;
+                    float dist = sqrtf(dx*dx + dz*dz);
+                    if (dist > 0.01f) {
+                        float step = fminf(PLAYER_SPD * dt / dist, 1.f);
+                        pwt->x += dx * step;
+                        pwt->z += dz * step;
+                        pwt->rot_y = atan2f(dx, dz);
+                        pwt->x = fmaxf(0.f, fminf(pwt->x, (float)(map.width  - 1)));
+                        pwt->z = fmaxf(0.f, fminf(pwt->z, (float)(map.height - 1)));
+                    }
+                }
+                s_player_moving = should_move;
             }
         }
 
@@ -537,7 +582,8 @@ int main(int argc, char** argv) {
         // Camera always follows player.
         ComputeOrigin();
 
-        // ── NPC attack cooldowns ───────────────────────────────────────────────
+        // ── Attack cooldowns ───────────────────────────────────────────────────
+        if (s_player_atk_cd > 0.f) s_player_atk_cd -= dt;
         for (int i = 0; i < s_npc_count; ++i)
             if (s_npc_atk_cd[i] > 0.f) s_npc_atk_cd[i] -= dt;
 
