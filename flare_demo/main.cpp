@@ -27,6 +27,7 @@
 #include <monkey_dust/ai/bt_json_loader.h>
 #include <monkey_dust/ai/fnv.h>
 #include <monkey_dust/ai/sense_registry.h>
+#include <monkey_dust/ai/squad_signal.h>
 #include <monkey_dust/combat/projectile_system.h>
 #include <monkey_dust/components/agent_state.h>
 #include <monkey_dust/components/bt_components.h>
@@ -47,19 +48,26 @@
 
 // ── Demo constants ────────────────────────────────────────────────────────────
 
-static constexpr int   DEMO_MAX_NPCS  = 32;
-static constexpr float LOGIC_TICK_S   = 0.1f;   // 10 TPS
-static const char*     BT_JSON_PATH   = "data/bt/demo_npc.bt.json";
-static const char*     SENSE_JSON     = "data/ai/view_cone_sets.json";
+static constexpr int   DEMO_MAX_NPCS    = 32;
+static constexpr float LOGIC_TICK_S     = 0.1f;   // 10 TPS
+static constexpr float GUARD_CHASE_SPD  = 2.5f;   // m/s — full engage
+static constexpr float GUARD_INVEST_SPD = 1.0f;   // m/s — suspicious approach
+static constexpr float GUARD_CONV_SPD   = 1.8f;   // m/s — converge on squad alert
+static constexpr float GUARD_PATROL_SPD = 1.5f;   // m/s — wander
+static constexpr float GUARD_MELEE_RANGE= 1.5f;   // m
+static const char*     BT_JSON_PATH     = "data/bt/guard_npc.bt.json";
+static const char*     SENSE_JSON       = "data/ai/view_cone_sets.json";
 
 // ── Demo state ────────────────────────────────────────────────────────────────
 
-static entt::entity    s_player       = entt::null;
+static entt::entity    s_player        = entt::null;
 static entt::entity    s_npcs[DEMO_MAX_NPCS];
-static int             s_npc_count    = 0;
+static int             s_npc_count     = 0;
 static BTSystem        s_bt_sys;
 static md::EngineContext s_ctx;
-static volatile bool   s_reload_bt    = false;
+static volatile bool   s_reload_bt     = false;
+static int             s_player_hp     = 100;    // decremented on melee hit
+static int             s_melee_hits    = 0;      // total hits this session
 
 // ── Repo root ─────────────────────────────────────────────────────────────────
 
@@ -87,31 +95,72 @@ static void ChdirToRepoRoot() {
 #endif
 }
 
-// ── BT leaf functions ─────────────────────────────────────────────────────────
+// ── Guard leaf functions ───────────────────────────────────────────────────────
 
-static BTStatus actDemoIdle(md::EngineContext&, entt::entity) {
-    return BTStatus::Running;
+// Shared move helper — move entity toward (tx,tz) at speed_mps; returns dist.
+static float MoveToward(WorldTransform& wt, float tx, float tz, float speed_mps) {
+    float dx = tx - wt.x, dz = tz - wt.z;
+    float dist = sqrtf(dx * dx + dz * dz);
+    if (dist > 0.01f) {
+        float step = speed_mps * LOGIC_TICK_S / dist;
+        if (step > 1.f) step = 1.f;
+        wt.x += dx * step;
+        wt.z += dz * step;
+        wt.rot_y = atan2f(dx, dz);
+    }
+    return dist;
 }
 
-// Chase: move NPC toward SenseComponent::last_known_x/z at 2 m/s
-static BTStatus actDemoMove(md::EngineContext&, entt::entity e) {
+// ENGAGE — fast chase toward last known player position.
+static BTStatus actGuardChase(md::EngineContext&, entt::entity e) {
+    auto& reg = Registry::Get();
+    auto* wt  = reg.try_get<WorldTransform>(e);
+    auto* sc  = reg.try_get<SenseComponent>(e);
+    if (!wt || !sc) return BTStatus::Failure;
+    float dist = MoveToward(*wt, sc->last_known_x, sc->last_known_z, GUARD_CHASE_SPD);
+    return (dist < GUARD_MELEE_RANGE) ? BTStatus::Success : BTStatus::Running;
+}
+
+// ENGAGE — melee attack when close enough to player.
+static BTStatus actGuardMelee(md::EngineContext&, entt::entity e) {
     auto& reg = Registry::Get();
     auto* wt  = reg.try_get<WorldTransform>(e);
     auto* sc  = reg.try_get<SenseComponent>(e);
     if (!wt || !sc) return BTStatus::Failure;
     float dx = sc->last_known_x - wt->x;
     float dz = sc->last_known_z - wt->z;
-    float dist = sqrtf(dx * dx + dz * dz);
-    if (dist < 0.3f) return BTStatus::Success;
-    float step = 2.0f * LOGIC_TICK_S / dist;
-    wt->x += dx * step;
-    wt->z += dz * step;
-    wt->rot_y = atan2f(dx, dz);
+    if (dx * dx + dz * dz > GUARD_MELEE_RANGE * GUARD_MELEE_RANGE)
+        return BTStatus::Failure;
+    s_player_hp -= 5;
+    ++s_melee_hits;
+    if (s_player_hp < 0) s_player_hp = 0;
+    fprintf(stderr, "[guard] MELEE HIT — player HP: %d\n", s_player_hp);
     return BTStatus::Running;
 }
 
-// Wander: LCG-pick a nearby tile, walk there at 1.5 m/s
-static BTStatus actDemoWander(md::EngineContext& ctx, entt::entity e) {
+// INVESTIGATE — slow approach to last known position; Success when arrived.
+static BTStatus actGuardInvestigate(md::EngineContext&, entt::entity e) {
+    auto& reg = Registry::Get();
+    auto* wt  = reg.try_get<WorldTransform>(e);
+    auto* sc  = reg.try_get<SenseComponent>(e);
+    if (!wt || !sc) return BTStatus::Failure;
+    float dist = MoveToward(*wt, sc->last_known_x, sc->last_known_z, GUARD_INVEST_SPD);
+    return (dist < 0.4f) ? BTStatus::Success : BTStatus::Running;
+}
+
+// CONVERGE — squad alert: move toward last known player position at medium speed.
+static BTStatus actGuardConverge(md::EngineContext&, entt::entity e) {
+    auto& reg = Registry::Get();
+    auto* wt  = reg.try_get<WorldTransform>(e);
+    auto* sc  = reg.try_get<SenseComponent>(e);
+    if (!wt) return BTStatus::Failure;
+    if (sc && sc->last_activated_ms[0] > 0u)
+        MoveToward(*wt, sc->last_known_x, sc->last_known_z, GUARD_CONV_SPD);
+    return BTStatus::Running;
+}
+
+// PATROL — random wander within ±8 tiles of current position.
+static BTStatus actGuardPatrol(md::EngineContext& ctx, entt::entity e) {
     auto& reg = Registry::Get();
     auto* wt  = reg.try_get<WorldTransform>(e);
     auto* ab  = reg.try_get<AgentBlackboard>(e);
@@ -122,21 +171,14 @@ static BTStatus actDemoWander(md::EngineContext& ctx, entt::entity e) {
 
     float tx = ab ? bb_get_float(*ab, kWX, wt->x) : wt->x;
     float tz = ab ? bb_get_float(*ab, kWZ, wt->z) : wt->z;
-    float dx = tx - wt->x, dz = tz - wt->z;
-    float dist = sqrtf(dx * dx + dz * dz);
+    float dist = MoveToward(*wt, tx, tz, GUARD_PATROL_SPD);
 
     if (dist < 0.3f) {
-        // pick a new random target within ±8 tiles
         uint32_t r = ctx.frame_index * 2654435761u ^ static_cast<uint32_t>(entt::to_integral(e));
-        tx = wt->x + (float)((r >> 4)  & 0x1F) - 16.f;
-        tz = wt->z + (float)((r >> 20) & 0x1F) - 16.f;
+        tx = wt->x + (float)((int)((r >> 4) & 0x1F) - 16);
+        tz = wt->z + (float)((int)((r >> 20) & 0x1F) - 16);
         if (ab) { bb_set_float(*ab, kWX, tx); bb_set_float(*ab, kWZ, tz); }
-        return BTStatus::Success;
     }
-    float step = 1.5f * LOGIC_TICK_S / dist;
-    wt->x += dx * step;
-    wt->z += dz * step;
-    wt->rot_y = atan2f(dx, dz);
     return BTStatus::Running;
 }
 
@@ -149,9 +191,11 @@ static void OnBTFileChanged(const char*) { s_reload_bt = true; }
 static void RegisterDemoActions() {
     auto& r = md::BTActionRegistry::Get();
     r.Clear();
-    r.RegisterAction("actDemoIdle",   actDemoIdle);
-    r.RegisterAction("actDemoMove",   actDemoMove);
-    r.RegisterAction("actDemoWander", actDemoWander);
+    r.RegisterAction("actGuardChase",       actGuardChase);
+    r.RegisterAction("actGuardMelee",       actGuardMelee);
+    r.RegisterAction("actGuardInvestigate", actGuardInvestigate);
+    r.RegisterAction("actGuardConverge",    actGuardConverge);
+    r.RegisterAction("actGuardPatrol",      actGuardPatrol);
 }
 
 static void LoadNpcBT(BehaviorTree& bt) {
@@ -198,6 +242,7 @@ static void SpawnDemoEntities(const md::flare::FlareRuntime& rt) {
 
             reg.emplace<AgentState>(e);
             reg.emplace<AgentBlackboard>(e);
+            reg.emplace<SquadMemberComponent>(e).squad_id = 0;  // all guards share squad 0
 
             auto& wt = reg.emplace<WorldTransform>(e);
             wt.x = sp.center_x + (float)j * 0.8f;
@@ -242,6 +287,7 @@ static void LogicTick(float now_ms) {
     s_ctx.delta_time = LOGIC_TICK_S;
     s_ctx.now_s      = now_ms * 0.001f;
 
+    SquadSignalBus::Get().ClearAll();   // reset signals before BT writes new ones
     SenseSystemUpdate(now_ms);
     s_bt_sys.Tick(s_ctx, Registry::Get(), static_cast<uint32_t>(now_ms));
     md::ProjectileSystem::Get().Tick(LOGIC_TICK_S);
@@ -426,10 +472,10 @@ int main(int argc, char** argv) {
                 if (sc.activation[0] >= sc.threshold_lo) ++sensed;
             });
             s_ctx.fps = (dt > 0.f) ? 1.f / dt : 0.f;
-            char title[160];
+            char title[220];
             snprintf(title, sizeof(title),
-                     "md_flare_demo | FPS:%.0f | NPCs:%d | Detected:%d | Map:%s",
-                     s_ctx.fps, s_npc_count, sensed, map.title);
+                     "md_flare_demo | FPS:%.0f | Guards:%d | Detected:%d | PlayerHP:%d | Hits:%d | Map:%s",
+                     s_ctx.fps, s_npc_count, sensed, s_player_hp, s_melee_hits, map.title);
             SDL_SetWindowTitle(window, title);
         }
 
