@@ -16,6 +16,7 @@
 #include <monkey_dust/render/gpu_hal.h>
 #include <monkey_dust/render/render_pass_graph.h>
 #include <monkey_dust/ecs/component_reflect.h>
+#include <monkey_dust/spatial/world_bvh.h>
 #include <monkey_dust/platform/math_types.h>
 #include <monkey_dust/ai/sense_system.h>
 #include <monkey_dust/ai/bt_system.h>
@@ -407,6 +408,7 @@ static void World3DRender(int vp_w, int vp_h, float dt) {
 }
 
 static void World3DShutdown() {
+    md::WorldBVH::Get().Shutdown();
     s_w3d_depth.Shutdown();
     s_w3d_vbuf.Shutdown();
     s_w3d_pipeline.Destroy();
@@ -719,8 +721,10 @@ int main(int argc, char** argv) {
         rpg.LoadFromJSON("data/render_settings.json");
     }
 
-    // ── 3D world renderer init ────────────────────────────────────────────────
+    // ── 3D world renderer + BVH for ray picking ───────────────────────────────
     World3DInit(window, map, 1.0f);
+    if (s_w3d_tri_count > 0)
+        md::WorldBVH::Get().Build(s_w3d_flat, s_w3d_tri_count);
 
     // ── Camera state ──────────────────────────────────────────────────────────
     int   vp_w = WIN_W, vp_h = WIN_H;
@@ -841,6 +845,80 @@ int main(int argc, char** argv) {
 
             if (lmb_click && over_btn) {
                 s_recording ? StopRecording() : StartRecording();
+            } else if (lmb_click && s_view_3d && md::WorldBVH::Get().IsBuilt()) {
+                // ── 3D mode: ray pick into world geometry ─────────────────────
+                // Reconstruct camera matrices for unproject.
+                Vec3 eye3d = {
+                    s_w3d_target.x + s_cam_dist * cosf(s_cam_el) * sinf(s_cam_az),
+                    s_w3d_target.y + s_cam_dist * sinf(s_cam_el),
+                    s_w3d_target.z - s_cam_dist * cosf(s_cam_el) * cosf(s_cam_az),
+                };
+                Mat4 view3d = mat4_lookat(eye3d, s_w3d_target, {0,1,0});
+                Mat4 proj3d = mat4_perspective(0.80f, (float)vp_w/(float)vp_h, 0.1f, 500.f);
+                Mat4 vp_inv = mat4_mul(
+                    // Invert proj*view via separate inv (simplified: NDC→world)
+                    mat4_identity(), mat4_identity());  // placeholder — use NDC unproject
+
+                // NDC mouse position [-1, 1]
+                float ndcx = (mx_f / (float)vp_w) * 2.f - 1.f;
+                float ndcy = 1.f - (my_f / (float)vp_h) * 2.f;
+
+                // Unproject: near plane point and far plane point in world space.
+                // Use inverse of (proj * view) applied to NDC clip positions.
+                Mat4 mvp3d = mat4_mul(proj3d, view3d);
+                const float* m = mat4_ptr(mvp3d);
+                // Simple unproject for ray direction using camera frustum.
+                // Ray origin = eye position.
+                float orig[3] = { eye3d.x, eye3d.y, eye3d.z };
+
+                // Forward direction at NDC position (simplified: use perspective divide).
+                // Proper unproject: clip_pos → divide by W → view → world.
+                // For simplicity use the forward-at-pixel approach:
+                //   ray_dir = normalize(pixel_world_pos - eye)
+                // pixel_world_pos at near plane from NDC:
+                float fov_y = 0.80f;
+                float tan_half = tanf(fov_y * 0.5f);
+                float aspect = (float)vp_w / (float)vp_h;
+                // Camera right and up in world space from view matrix.
+                // View matrix columns are right, up, -forward (row-major vs col-major).
+                // Compute from eye + target.
+                Vec3 fwd3d = {s_w3d_target.x - eye3d.x,
+                              s_w3d_target.y - eye3d.y,
+                              s_w3d_target.z - eye3d.z};
+                // Normalise forward
+                float fl = sqrtf(fwd3d.x*fwd3d.x + fwd3d.y*fwd3d.y + fwd3d.z*fwd3d.z);
+                if (fl > 1e-6f) { fwd3d.x/=fl; fwd3d.y/=fl; fwd3d.z/=fl; }
+                Vec3 worldup = {0,1,0};
+                Vec3 right3d = {
+                    fwd3d.y*worldup.z - fwd3d.z*worldup.y,
+                    fwd3d.z*worldup.x - fwd3d.x*worldup.z,
+                    fwd3d.x*worldup.y - fwd3d.y*worldup.x };
+                float rl = sqrtf(right3d.x*right3d.x + right3d.y*right3d.y + right3d.z*right3d.z);
+                if (rl > 1e-6f) { right3d.x/=rl; right3d.y/=rl; right3d.z/=rl; }
+                Vec3 up3d = {
+                    right3d.y*fwd3d.z - right3d.z*fwd3d.y,
+                    right3d.z*fwd3d.x - right3d.x*fwd3d.z,
+                    right3d.x*fwd3d.y - right3d.y*fwd3d.x };
+
+                float dir[3] = {
+                    fwd3d.x + right3d.x * ndcx * tan_half * aspect + up3d.x * ndcy * tan_half,
+                    fwd3d.y + right3d.y * ndcx * tan_half * aspect + up3d.y * ndcy * tan_half,
+                    fwd3d.z + right3d.z * ndcx * tan_half * aspect + up3d.z * ndcy * tan_half,
+                };
+                float dlen = sqrtf(dir[0]*dir[0]+dir[1]*dir[1]+dir[2]*dir[2]);
+                if (dlen > 1e-6f) { dir[0]/=dlen; dir[1]/=dlen; dir[2]/=dlen; }
+
+                auto hit3d = md::WorldBVH::Get().RayIntersect(orig, dir);
+                if (hit3d.hit()) {
+                    // Convert world hit position back to tile coordinates.
+                    // world_x = (col-row)*0.5, world_z = (col+row)*0.5
+                    float tile_col = hit3d.world_x + hit3d.world_z;
+                    float tile_row = hit3d.world_z - hit3d.world_x;
+                    fprintf(stdout, "[3D Pick] hit world=(%.2f,%.2f,%.2f) "
+                            "tile≈(col=%.1f, row=%.1f)\n",
+                            hit3d.world_x, hit3d.world_y, hit3d.world_z,
+                            tile_col, tile_row);
+                }
             } else if (lmb && !over_btn && !s_player_dead && s_player != entt::null) {
                 // Mouse → tile coords (inverse isometric formula).
                 float xmz = (mx_f - origin_x) / (96.f * scale);
