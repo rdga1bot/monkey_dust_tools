@@ -14,6 +14,7 @@
 #include <monkey_dust/flare/tile_collision.h>
 #include <monkey_dust/render/gpu_device.h>
 #include <monkey_dust/render/gpu_hal.h>
+#include <monkey_dust/render/render_pass_graph.h>
 #include <monkey_dust/platform/math_types.h>
 #include <monkey_dust/ai/sense_system.h>
 #include <monkey_dust/ai/bt_system.h>
@@ -704,6 +705,16 @@ int main(int argc, char** argv) {
     HotReload::Get().Watch(BT_JSON_PATH, OnBTFileChanged);
     HotReload::Get().Start(500);
 
+    // ── Render pass graph ─────────────────────────────────────────────────────
+    {
+        auto& rpg = md::RenderPassGraph::Get();
+        rpg.Register("tiles_2d",  true);   // 2D Flare isometric renderer
+        rpg.Register("npc_sprites", true); // goblin sprite overlay
+        rpg.Register("world_3d",  false);  // 3D geometry view (Tab toggle)
+        rpg.Register("overlay",   true);   // camera button + UI overlays
+        rpg.LoadFromJSON("data/render_settings.json");
+    }
+
     // ── 3D world renderer init ────────────────────────────────────────────────
     World3DInit(window, map, 1.0f);
 
@@ -1044,22 +1055,40 @@ int main(int argc, char** argv) {
                                 (float)now_ms * 0.001f);
         }
 
-        if (s_view_3d) {
-            // ── 3D orbit view ─────────────────────────────────────────────────
-            World3DRender(vp_w, vp_h, dt);
-        } else {
-            // ── 2D Flare view ─────────────────────────────────────────────────
-            // Camera button: blink the REC icon at 1 Hz when recording.
-            void* btn_tex = (void*)cam_idle_tex;
-            if (s_recording)
-                btn_tex = ((now_ms / 500) & 1) ? (void*)cam_idle_tex : (void*)cam_rec_tex;
-            tmr2d.SetOverlayBlit(0, btn_tex,
-                                  vp_w - BTN_SZ - BTN_MARGIN,
-                                  vp_h - BTN_SZ - BTN_MARGIN,
-                                  BTN_SZ, BTN_SZ);
+        {
+            auto& rpg = md::RenderPassGraph::Get();
 
-            tmr2d.Render(map, (float)now_ms * 0.001f,
-                         origin_x, origin_y, scale, vp_w, vp_h);
+            if (s_view_3d && rpg.IsEnabled("world_3d")) {
+                // ── Pass: world_3d ────────────────────────────────────────────
+                World3DRender(vp_w, vp_h, dt);
+            } else if (!s_view_3d) {
+                // ── Pass: npc_sprites ─────────────────────────────────────────
+                if (rpg.IsEnabled("npc_sprites")) {
+                    // (NPC sprite data already filled above — just keep in SetNpcSprites)
+                }
+
+                // ── Pass: overlay (camera button + UI) ────────────────────────
+                if (rpg.IsEnabled("overlay")) {
+                    void* btn_tex = (void*)cam_idle_tex;
+                    if (s_recording)
+                        btn_tex = ((now_ms / 500) & 1)
+                                  ? (void*)cam_idle_tex : (void*)cam_rec_tex;
+                    tmr2d.SetOverlayBlit(0, btn_tex,
+                                          vp_w - BTN_SZ - BTN_MARGIN,
+                                          vp_h - BTN_SZ - BTN_MARGIN,
+                                          BTN_SZ, BTN_SZ);
+                } else {
+                    tmr2d.ClearOverlayBlit(0);
+                }
+
+                // ── Pass: tiles_2d ────────────────────────────────────────────
+                if (rpg.IsEnabled("tiles_2d")) {
+                    uint8_t layer_mask = 0xFF;
+                    tmr2d.Render(map, (float)now_ms * 0.001f,
+                                 origin_x, origin_y, scale, vp_w, vp_h,
+                                 layer_mask);
+                }
+            }
         }
     }
 
