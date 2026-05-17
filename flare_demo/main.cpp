@@ -17,6 +17,7 @@
 #include <monkey_dust/render/render_pass_graph.h>
 #include <monkey_dust/render/cas_pass.h>
 #include <monkey_dust/render/moc_culler.h>
+#include <monkey_dust/render/oit_pass.h>
 #include <monkey_dust/ecs/component_reflect.h>
 #include <monkey_dust/spatial/world_bvh.h>
 #include <monkey_dust/platform/math_types.h>
@@ -279,6 +280,7 @@ static GpuPipeline    s_w3d_pipeline;
 static GpuStaticBuffer s_w3d_vbuf;
 static GpuDepthTexture s_w3d_depth;
 static md::CasPass    s_cas;
+static md::OitPass    s_oit;
 static int            s_w3d_tri_count = 0;
 static Vec3           s_w3d_target    = {0.f,0.f,0.f};  // look-at (map center, world space)
 static SDL_Window*    s_w3d_window    = nullptr;
@@ -344,6 +346,11 @@ static void World3DInit(SDL_Window* window,
 
     // CAS post-process pass — actual viewport size passed later in World3DRender.
     s_cas.Init(1, 1, 0.5f);
+
+    // OIT pass — infrastructure ready; composite pipeline creation crashes on
+    // this Intel HD 520 Vulkan driver when alpha-blend pipeline follows additive
+    // pipeline in the same session. Disabled until driver issue is identified.
+    // s_oit.Init(1, 1);
 
     // MaskedOcclusionCulling — CPU occlusion culling for NPC visibility.
     md::MocCuller::Get().Init(320, 160);
@@ -441,12 +448,109 @@ static void World3DRender(int vp_w, int vp_h, float dt) {
     // CAS pass: intermediate → swapchain.
     if (use_cas) s_cas.Apply(cmd, swap, vp_w, vp_h);
 
+    // OIT pass: transparent geometry (water, leaves, particles) over opaque scene.
+    const bool use_oit = s_oit.IsReady() &&
+                         md::RenderPassGraph::Get().IsEnabled("oit_transparency");
+    if (use_oit) {
+        s_oit.Resize(vp_w, vp_h);
+
+        // Demo: 8 semi-transparent quads at fixed world positions (simulate leaves).
+        // Each quad = 2 triangles = 6 verts × 28 bytes.
+        struct OitVert { float x,y,z; float r,g,b,a; };
+        static OitVert s_oit_verts[6 * 8];
+        static uint32_t s_oit_idx[6 * 8];
+        int nv = 0;
+
+        auto push_quad = [&](float wx, float wz, float wy,
+                              float r, float g, float b, float a) {
+            const float hs = 0.6f;
+            OitVert quad[4] = {
+                {wx-hs, wy, wz-hs, r,g,b,a},
+                {wx+hs, wy, wz-hs, r,g,b,a},
+                {wx+hs, wy, wz+hs, r,g,b,a},
+                {wx-hs, wy, wz+hs, r,g,b,a},
+            };
+            // Two triangles: 0-1-2, 0-2-3
+            int b0 = nv;
+            for (int k = 0; k < 4; ++k) s_oit_verts[nv++] = quad[k];
+            (void)b0;
+        };
+
+        // Place quads near the goblin camp centre in 3D isometric world coords.
+        // World: x=(col-row)*0.5, z=(col+row)*0.5 with tile_world_size=1.
+        push_quad( 3.f, 13.f, 1.0f, 0.2f, 0.8f, 0.2f, 0.5f);  // green leaves
+        push_quad(-2.f, 14.f, 0.8f, 0.3f, 0.7f, 0.1f, 0.4f);
+        push_quad( 5.f, 16.f, 1.2f, 0.2f, 0.6f, 0.3f, 0.6f);
+        push_quad( 0.f, 18.f, 0.9f, 0.1f, 0.9f, 0.2f, 0.35f);
+        push_quad(-4.f, 20.f, 1.1f, 0.3f, 0.7f, 0.15f, 0.45f);
+        push_quad( 2.f, 22.f, 0.7f, 0.15f,0.8f, 0.25f, 0.55f);
+        push_quad(-1.f, 12.f, 1.3f, 0.2f, 0.75f,0.3f, 0.5f);
+        push_quad( 4.f, 19.f, 1.0f, 0.25f,0.7f, 0.2f, 0.4f);
+
+        // Build index array for triangles (2 tris per quad = 6 indices per quad).
+        int ni = 0;
+        int nquads = nv / 4;
+        for (int q = 0; q < nquads; ++q) {
+            int b0 = q * 4;
+            s_oit_idx[ni++] = b0+0; s_oit_idx[ni++] = b0+1; s_oit_idx[ni++] = b0+2;
+            s_oit_idx[ni++] = b0+0; s_oit_idx[ni++] = b0+2; s_oit_idx[ni++] = b0+3;
+        }
+
+        // Upload vertex data via transfer buffer.
+        SDL_GPUDevice* sdl_dev = md::GpuDevice::Get().SDLDevice();
+        uint32_t vb_size = (uint32_t)(nv * sizeof(OitVert));
+
+        SDL_GPUBufferCreateInfo bci{};
+        bci.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
+        bci.size  = vb_size;
+        SDL_GPUBuffer* oit_vbuf = SDL_CreateGPUBuffer(sdl_dev, &bci);
+
+        SDL_GPUTransferBufferCreateInfo tci{};
+        tci.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+        tci.size  = vb_size;
+        SDL_GPUTransferBuffer* oit_tbuf = SDL_CreateGPUTransferBuffer(sdl_dev, &tci);
+        void* ptr = SDL_MapGPUTransferBuffer(sdl_dev, oit_tbuf, false);
+        if (ptr) memcpy(ptr, s_oit_verts, vb_size);
+        SDL_UnmapGPUTransferBuffer(sdl_dev, oit_tbuf);
+
+        // Copy pass: transfer → vertex buffer.
+        SDL_GPUCopyPass* cp = SDL_BeginGPUCopyPass(cmd);
+        SDL_GPUTransferBufferLocation src_loc{ oit_tbuf, 0 };
+        SDL_GPUBufferRegion dst_reg{ oit_vbuf, 0, vb_size };
+        SDL_UploadToGPUBuffer(cp, &src_loc, &dst_reg, false);
+        SDL_EndGPUCopyPass(cp);
+        SDL_ReleaseGPUTransferBuffer(sdl_dev, oit_tbuf);
+
+        // OIT accumulation pass.
+        SDL_GPURenderPass* oit_rp = s_oit.BeginAccum(cmd, nullptr);
+        if (oit_rp && s_oit.AccumPipeline()) {
+            SDL_BindGPUGraphicsPipeline(oit_rp, s_oit.AccumPipeline());
+
+            // Push MVP + View uniforms (slot 0 = set=1, binding=0).
+            struct OitUBO { float mvp[16]; float view[16]; } ubo;
+            memcpy(ubo.mvp,  mat4_ptr(mvp),  64);
+            memcpy(ubo.view, mat4_ptr(view), 64);
+            SDL_PushGPUVertexUniformData(cmd, 0, &ubo, sizeof(ubo));
+
+            SDL_GPUBufferBinding vb_bind{ oit_vbuf, 0 };
+            SDL_BindGPUVertexBuffers(oit_rp, 0, &vb_bind, 1);
+            SDL_DrawGPUPrimitives(oit_rp, (uint32_t)ni, 1, 0, 0);
+        }
+        s_oit.EndAccum();
+        SDL_ReleaseGPUBuffer(sdl_dev, oit_vbuf);
+
+        // Composite OIT over the scene (already on swapchain).
+        SDL_GPUTexture* composite_target = use_cas ? swap : swap;
+        s_oit.Composite(cmd, composite_target, vp_w, vp_h);
+    }
+
     md::GpuDevice::Get().Submit(cmd);
 }
 
 static void World3DShutdown() {
     md::MocCuller::Get().Shutdown();
     md::WorldBVH::Get().Shutdown();
+    s_oit.Shutdown();
     s_cas.Shutdown();
     s_w3d_depth.Shutdown();
     s_w3d_vbuf.Shutdown();
@@ -757,7 +861,8 @@ int main(int argc, char** argv) {
         rpg.Register("npc_sprites", true); // goblin sprite overlay
         rpg.Register("world_3d",  false);  // 3D geometry view (Tab toggle)
         rpg.Register("overlay",        true);   // camera button + UI overlays
-        rpg.Register("cas_sharpening", true);   // CAS post-process (3D mode)
+        rpg.Register("cas_sharpening",  true);   // CAS post-process (3D mode)
+        rpg.Register("oit_transparency", true);  // OIT transparent geometry (3D mode)
         rpg.LoadFromJSON("data/render_settings.json");
     }
 
