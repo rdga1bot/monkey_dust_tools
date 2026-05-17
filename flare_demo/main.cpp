@@ -1250,6 +1250,7 @@ int main(int argc, char** argv) {
     DestroyDemoEntities();
     tmr2d.Shutdown();
     MdTextureCache_Shutdown();
+    MdSpvCache_Shutdown();
     md::GpuDevice::Get().Shutdown();
     SDL_DestroyWindow(window);
     SDL_Quit();
