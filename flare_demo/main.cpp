@@ -467,46 +467,33 @@ static void World3DRender(int vp_w, int vp_h, float dt) {
         s_oit.Resize(vp_w, vp_h);
 
         // Demo: 8 semi-transparent quads at fixed world positions (simulate leaves).
-        // Each quad = 2 triangles = 6 verts × 28 bytes.
+        // Non-indexed triangle list: 6 verts per quad (0-1-2, 0-2-3).
         struct OitVert { float x,y,z; float r,g,b,a; };
-        static OitVert s_oit_verts[6 * 8];
-        static uint32_t s_oit_idx[6 * 8];
+        static OitVert s_oit_verts[6 * 8];  // 48 verts max
         int nv = 0;
 
         auto push_quad = [&](float wx, float wz, float wy,
                               float r, float g, float b, float a) {
             const float hs = 0.6f;
-            OitVert quad[4] = {
-                {wx-hs, wy, wz-hs, r,g,b,a},
-                {wx+hs, wy, wz-hs, r,g,b,a},
-                {wx+hs, wy, wz+hs, r,g,b,a},
-                {wx-hs, wy, wz+hs, r,g,b,a},
-            };
-            // Two triangles: 0-1-2, 0-2-3
-            int b0 = nv;
-            for (int k = 0; k < 4; ++k) s_oit_verts[nv++] = quad[k];
-            (void)b0;
+            OitVert v0 = {wx-hs, wy, wz-hs, r,g,b,a};
+            OitVert v1 = {wx+hs, wy, wz-hs, r,g,b,a};
+            OitVert v2 = {wx+hs, wy, wz+hs, r,g,b,a};
+            OitVert v3 = {wx-hs, wy, wz+hs, r,g,b,a};
+            s_oit_verts[nv++] = v0; s_oit_verts[nv++] = v1; s_oit_verts[nv++] = v2;
+            s_oit_verts[nv++] = v0; s_oit_verts[nv++] = v2; s_oit_verts[nv++] = v3;
         };
 
-        // Place quads near the goblin camp centre in 3D isometric world coords.
-        // World: x=(col-row)*0.5, z=(col+row)*0.5 with tile_world_size=1.
-        push_quad( 3.f, 13.f, 1.0f, 0.2f, 0.8f, 0.2f, 0.5f);  // green leaves
-        push_quad(-2.f, 14.f, 0.8f, 0.3f, 0.7f, 0.1f, 0.4f);
-        push_quad( 5.f, 16.f, 1.2f, 0.2f, 0.6f, 0.3f, 0.6f);
-        push_quad( 0.f, 18.f, 0.9f, 0.1f, 0.9f, 0.2f, 0.35f);
-        push_quad(-4.f, 20.f, 1.1f, 0.3f, 0.7f, 0.15f, 0.45f);
-        push_quad( 2.f, 22.f, 0.7f, 0.15f,0.8f, 0.25f, 0.55f);
-        push_quad(-1.f, 12.f, 1.3f, 0.2f, 0.75f,0.3f, 0.5f);
-        push_quad( 4.f, 19.f, 1.0f, 0.25f,0.7f, 0.2f, 0.4f);
-
-        // Build index array for triangles (2 tris per quad = 6 indices per quad).
-        int ni = 0;
-        int nquads = nv / 4;
-        for (int q = 0; q < nquads; ++q) {
-            int b0 = q * 4;
-            s_oit_idx[ni++] = b0+0; s_oit_idx[ni++] = b0+1; s_oit_idx[ni++] = b0+2;
-            s_oit_idx[ni++] = b0+0; s_oit_idx[ni++] = b0+2; s_oit_idx[ni++] = b0+3;
-        }
+        // Quads placed on verified dry ground tiles east of the camp clearing.
+        // Water spans wx=-14..18.5, wz=4.5..46 — these positions are confirmed
+        // non-water (collision==0) with 3-tile buffer from any water tile.
+        push_quad(10.0f, 20.0f, 1.0f, 0.2f, 0.8f, 0.2f, 0.5f);  // col=30,row=10
+        push_quad(12.0f, 22.0f, 0.8f, 0.3f, 0.7f, 0.1f, 0.4f);  // col=34,row=10
+        push_quad( 9.0f, 20.0f, 1.2f, 0.2f, 0.6f, 0.3f, 0.6f);  // col=29,row=11
+        push_quad(12.5f, 23.5f, 0.9f, 0.1f, 0.9f, 0.2f, 0.35f); // col=36,row=11
+        push_quad(11.5f, 22.5f, 1.1f, 0.3f, 0.7f, 0.15f, 0.45f);// col=34,row=11
+        push_quad( 8.5f, 20.5f, 0.7f, 0.15f,0.8f, 0.25f, 0.55f);// col=29,row=12
+        push_quad(11.0f, 21.0f, 1.3f, 0.2f, 0.75f,0.3f, 0.5f);  // col=32,row=10
+        push_quad(10.5f, 20.5f, 1.0f, 0.25f,0.7f, 0.2f, 0.4f);  // col=30,row=11
 
         // Upload vertex data via transfer buffer.
         SDL_GPUDevice* sdl_dev = md::GpuDevice::Get().SDLDevice();
@@ -533,8 +520,8 @@ static void World3DRender(int vp_w, int vp_h, float dt) {
         SDL_EndGPUCopyPass(cp);
         SDL_ReleaseGPUTransferBuffer(sdl_dev, oit_tbuf);
 
-        // OIT accumulation pass.
-        SDL_GPURenderPass* oit_rp = s_oit.BeginAccum(cmd, nullptr);
+        // OIT accumulation pass — pass scene depth so quads are clipped by walls.
+        SDL_GPURenderPass* oit_rp = s_oit.BeginAccum(cmd, scene_depth);
         if (oit_rp && s_oit.AccumPipeline()) {
             SDL_BindGPUGraphicsPipeline(oit_rp, s_oit.AccumPipeline());
 
@@ -546,7 +533,7 @@ static void World3DRender(int vp_w, int vp_h, float dt) {
 
             SDL_GPUBufferBinding vb_bind{ oit_vbuf, 0 };
             SDL_BindGPUVertexBuffers(oit_rp, 0, &vb_bind, 1);
-            SDL_DrawGPUPrimitives(oit_rp, (uint32_t)ni, 1, 0, 0);
+            SDL_DrawGPUPrimitives(oit_rp, (uint32_t)nv, 1, 0, 0);
         }
         s_oit.EndAccum();
         SDL_ReleaseGPUBuffer(sdl_dev, oit_vbuf);
