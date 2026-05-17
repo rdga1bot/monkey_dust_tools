@@ -18,6 +18,7 @@
 #include <monkey_dust/render/cas_pass.h>
 #include <monkey_dust/render/moc_culler.h>
 #include <monkey_dust/render/oit_pass.h>
+#include <monkey_dust/render/npc_gpu_culler.h>
 #include <monkey_dust/ecs/component_reflect.h>
 #include <monkey_dust/spatial/world_bvh.h>
 #include <monkey_dust/platform/math_types.h>
@@ -354,6 +355,9 @@ static void World3DInit(SDL_Window* window,
 
     // MaskedOcclusionCulling — CPU occlusion culling for NPC visibility.
     md::MocCuller::Get().Init(320, 160);
+
+    // GPU frustum culling via Vulkan compute (3D mode).
+    md::NpcGpuCuller::Get().Init();
 }
 
 static void World3DRender(int vp_w, int vp_h, float dt) {
@@ -548,6 +552,7 @@ static void World3DRender(int vp_w, int vp_h, float dt) {
 }
 
 static void World3DShutdown() {
+    md::NpcGpuCuller::Get().Shutdown();
     md::MocCuller::Get().Shutdown();
     md::WorldBVH::Get().Shutdown();
     s_oit.Shutdown();
@@ -1278,6 +1283,36 @@ int main(int argc, char** argv) {
 
         rt.Tick(dt);
 
+        // ── GPU frustum cull (3D mode only, before sprite list) ──────────────
+        // Dispatch npc_cull.comp: tests all NPC positions against camera frustum.
+        // Result used below to skip off-screen NPCs.
+        if (s_view_3d && md::NpcGpuCuller::Get().IsReady()) {
+            // Collect raw NPC positions for the GPU cull pass.
+            static float cull_x[64], cull_z[64];
+            int cull_n = 0;
+            auto& creg = Registry::Get();
+            for (int i = 0; i < s_npc_count && cull_n < 64; ++i) {
+                if (s_npc_hp[i] <= 0 || !creg.valid(s_npcs[i])) continue;
+                auto* wt = creg.try_get<WorldTransform>(s_npcs[i]);
+                if (!wt) continue;
+                cull_x[cull_n] = wt->x;
+                cull_z[cull_n] = wt->z;
+                ++cull_n;
+            }
+            // Rebuild MVP for the current frame's orbit camera.
+            Vec3 eye3d = {
+                s_w3d_target.x + s_cam_dist * cosf(s_cam_el) * sinf(s_cam_az),
+                s_w3d_target.y + s_cam_dist * sinf(s_cam_el),
+                s_w3d_target.z - s_cam_dist * cosf(s_cam_el) * cosf(s_cam_az),
+            };
+            Mat4 v3d = mat4_lookat(eye3d, s_w3d_target, {0,1,0});
+            Mat4 p3d = mat4_perspective(0.80f, (float)vp_w/(float)vp_h, 0.1f, 500.f);
+            Mat4 mvp3d = mat4_mul(p3d, v3d);
+            int n_visible = md::NpcGpuCuller::Get().Cull(
+                cull_x, cull_z, cull_n, mat4_ptr(mvp3d));
+            (void)n_visible;  // result used per-NPC via IsVisible() below
+        }
+
         // ── Collect sprites: player first, then living NPCs ───────────────────
         {
             static constexpr int kMax = 64;
@@ -1298,16 +1333,27 @@ int main(int argc, char** argv) {
                 }
             }
 
-            // NPC sprites — skip dead ones.
-            // In 3D mode: pre-cull via MocCuller before adding to sprite list.
-            const bool use_moc = s_view_3d && md::MocCuller::Get().IsReady();
+            // NPC sprites — skip dead ones, apply culling in 3D mode.
+            // Two complementary cullers run in 3D mode:
+            //   GPU frustum cull (npc_cull.comp): off-screen NPCs → skip
+            //   CPU MOC (MaskedOcclusionCulling): occluded NPCs → skip
+            const bool use_gpu_cull = s_view_3d && md::NpcGpuCuller::Get().IsReady();
+            const bool use_moc      = s_view_3d && md::MocCuller::Get().IsReady();
+            int gpu_cull_idx = 0;  // parallel index into NpcGpuCuller results
             int culled = 0;
             for (int i = 0; i < s_npc_count && sp_n < kMax; ++i) {
                 if (s_npc_hp[i] <= 0) continue;
                 if (!reg.valid(s_npcs[i])) continue;
                 auto* wt = reg.try_get<WorldTransform>(s_npcs[i]);
                 if (!wt) continue;
-                // MOC visibility test (3D mode only, conservative — no false negatives).
+
+                // GPU frustum cull result (if available).
+                if (use_gpu_cull) {
+                    bool gpu_vis = md::NpcGpuCuller::Get().IsVisible(gpu_cull_idx);
+                    ++gpu_cull_idx;
+                    if (!gpu_vis) { ++culled; continue; }
+                }
+                // CPU MOC occlusion cull.
                 if (use_moc) {
                     if (!md::MocCuller::Get().IsBoxVisible(wt->x, 0.5f, wt->z, 0.5f)) {
                         ++culled;
@@ -1320,8 +1366,7 @@ int main(int argc, char** argv) {
                 sp_mov[sp_n] = 1;
                 ++sp_n;
             }
-            if (use_moc && culled > 0)
-                (void)culled; // could log culled count here for perf tracking
+            (void)culled;
 
             tmr2d.SetNpcSprites(sp_x, sp_z, sp_rot, sp_mov, sp_n,
                                 (float)now_ms * 0.001f);
