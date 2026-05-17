@@ -15,6 +15,7 @@
 #include <monkey_dust/render/gpu_device.h>
 #include <monkey_dust/render/gpu_hal.h>
 #include <monkey_dust/render/render_pass_graph.h>
+#include <monkey_dust/render/cas_pass.h>
 #include <monkey_dust/ecs/component_reflect.h>
 #include <monkey_dust/spatial/world_bvh.h>
 #include <monkey_dust/platform/math_types.h>
@@ -276,6 +277,7 @@ static float s_cam_dist = 40.f;   // distance from map center
 static GpuPipeline    s_w3d_pipeline;
 static GpuStaticBuffer s_w3d_vbuf;
 static GpuDepthTexture s_w3d_depth;
+static md::CasPass    s_cas;
 static int            s_w3d_tri_count = 0;
 static Vec3           s_w3d_target    = {0.f,0.f,0.f};  // look-at (map center, world space)
 static SDL_Window*    s_w3d_window    = nullptr;
@@ -338,6 +340,10 @@ static void World3DInit(SDL_Window* window,
     else
         fprintf(stdout, "[World3D] ready: %d tris, %.1f KB VB\n",
                 nt, flat_bytes / 1024.f);
+
+    // CAS post-process pass — actual viewport size passed later in World3DRender.
+    // Init with placeholder size (1x1); Resize() is called on first render.
+    s_cas.Init(1, 1, 0.5f);
 }
 
 static void World3DRender(int vp_w, int vp_h, float dt) {
@@ -370,6 +376,13 @@ static void World3DRender(int vp_w, int vp_h, float dt) {
         s_w3d_depth.Init(vp_w, vp_h);
     }
 
+    // Decide whether to apply CAS post-process.
+    const bool use_cas = s_cas.IsReady() &&
+                         md::RenderPassGraph::Get().IsEnabled("cas_sharpening");
+
+    // Resize CAS textures if viewport changed.
+    if (use_cas) s_cas.Resize(vp_w, vp_h);
+
     // Acquire command buffer + swapchain texture.
     SDL_GPUCommandBuffer* cmd = md::GpuDevice::Get().AcquireCommandBuffer();
     SDL_GPUTexture* swap = nullptr;
@@ -379,12 +392,16 @@ static void World3DRender(int vp_w, int vp_h, float dt) {
         return;
     }
 
-    // Render pass with depth.
+    // Choose render target: intermediate texture (CAS) or swapchain (direct).
+    SDL_GPUTexture* scene_target = use_cas ? s_cas.SceneTex() : swap;
+    SDL_GPUTexture* scene_depth  = use_cas ? s_cas.DepthTex() : s_w3d_depth.SDLTexture();
+
+    // Scene render pass.
     GpuCommandBuffer cb;
     GpuCommandBuffer::ColorPassDesc cpd;
     cpd.cmd            = cmd;
-    cpd.color_tex      = swap;
-    cpd.depth_tex      = s_w3d_depth.SDLTexture();
+    cpd.color_tex      = scene_target;
+    cpd.depth_tex      = scene_depth;
     cpd.clear_color[0] = 0.12f;
     cpd.clear_color[1] = 0.16f;
     cpd.clear_color[2] = 0.24f;
@@ -394,21 +411,21 @@ static void World3DRender(int vp_w, int vp_h, float dt) {
     cb.BeginColorPass(cpd);
 
     cb.BindPipeline(&s_w3d_pipeline);
-
-    // Bind static vertex buffer directly via SDL_GPU.
     SDL_GPUBufferBinding vb { s_w3d_vbuf.SDLBuffer(), 0u };
     SDL_BindGPUVertexBuffers(cb.SDLPass(), 0, &vb, 1);
-
-    // Push 64-byte MVP uniform (slot 0 → set=1, binding=0 in SPIR-V).
     cb.PushVertexUniforms(0, mat4_ptr(mvp), 64);
-
     cb.Draw((uint32_t)(s_w3d_tri_count * 3));
     cb.EndPass();
+
+    // CAS pass: intermediate → swapchain.
+    if (use_cas) s_cas.Apply(cmd, swap, vp_w, vp_h);
+
     md::GpuDevice::Get().Submit(cmd);
 }
 
 static void World3DShutdown() {
     md::WorldBVH::Get().Shutdown();
+    s_cas.Shutdown();
     s_w3d_depth.Shutdown();
     s_w3d_vbuf.Shutdown();
     s_w3d_pipeline.Destroy();
@@ -717,7 +734,8 @@ int main(int argc, char** argv) {
         rpg.Register("tiles_2d",  true);   // 2D Flare isometric renderer
         rpg.Register("npc_sprites", true); // goblin sprite overlay
         rpg.Register("world_3d",  false);  // 3D geometry view (Tab toggle)
-        rpg.Register("overlay",   true);   // camera button + UI overlays
+        rpg.Register("overlay",        true);   // camera button + UI overlays
+        rpg.Register("cas_sharpening", true);   // CAS post-process (3D mode)
         rpg.LoadFromJSON("data/render_settings.json");
     }
 
