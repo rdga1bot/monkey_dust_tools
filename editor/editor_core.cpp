@@ -116,8 +116,8 @@ void EditorCore::UpdateEditorCamera(float dt, bool viewport_hovered) {
             float speed = cam_speed * dt;
             if (input_key_down(KEY_W)) cam_target = vec3_add(cam_target, vec3_scale(fwd, -speed));
             if (input_key_down(KEY_S)) cam_target = vec3_add(cam_target, vec3_scale(fwd,  speed));
-            if (input_key_down(KEY_A)) cam_target = vec3_add(cam_target, vec3_scale(right,-speed));
-            if (input_key_down(KEY_D)) cam_target = vec3_add(cam_target, vec3_scale(right, speed));
+            if (input_key_down(KEY_A)) cam_target = vec3_add(cam_target, vec3_scale(right, speed));
+            if (input_key_down(KEY_D)) cam_target = vec3_add(cam_target, vec3_scale(right,-speed));
         }
     } else {
         // Orbit mode
