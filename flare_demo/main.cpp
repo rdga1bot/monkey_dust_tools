@@ -19,6 +19,7 @@
 #include <monkey_dust/render/moc_culler.h>
 #include <monkey_dust/render/oit_pass.h>
 #include <monkey_dust/render/npc_gpu_culler.h>
+#include <monkey_dust/render/evsm_shadow.h>
 #include <monkey_dust/ecs/component_reflect.h>
 #include <monkey_dust/spatial/world_bvh.h>
 #include <monkey_dust/platform/math_types.h>
@@ -358,6 +359,10 @@ static void World3DInit(SDL_Window* window,
 
     // GPU frustum culling via Vulkan compute (3D mode).
     md::NpcGpuCuller::Get().Init();
+
+    // EVSM shadow infrastructure (used by the main game's forward pass).
+    // Demo: init with smaller map (512) since no actual shadow casters here.
+    md::EvsmShadow::Get().Init(512, 40.f);
 }
 
 static void World3DRender(int vp_w, int vp_h, float dt) {
@@ -552,6 +557,7 @@ static void World3DRender(int vp_w, int vp_h, float dt) {
 }
 
 static void World3DShutdown() {
+    md::EvsmShadow::Get().Shutdown();
     md::NpcGpuCuller::Get().Shutdown();
     md::MocCuller::Get().Shutdown();
     md::WorldBVH::Get().Shutdown();
@@ -863,8 +869,9 @@ int main(int argc, char** argv) {
     {
         auto& rpg = md::RenderPassGraph::Get();
         rpg.Register("tiles_2d",  true);   // 2D Flare isometric renderer
-        rpg.Register("npc_sprites", true); // goblin sprite overlay
-        rpg.Register("world_3d",  false);  // 3D geometry view (Tab toggle)
+        rpg.Register("npc_sprites",     true);   // goblin sprite overlay
+        rpg.Register("evsm_shadows",    true);   // EVSM soft shadow pass (before world_3d)
+        rpg.Register("world_3d",        false);  // 3D geometry view (Tab toggle)
         rpg.Register("overlay",         true);   // camera button + UI overlays
         rpg.Register("cas_sharpening",  true);   // CAS post-process (3D mode)
         // OIT split into two sub-passes for correct resource tracking:
@@ -881,6 +888,8 @@ int main(int argc, char** argv) {
         //
         // 3D pipeline:  world_3d → [scene_color] → cas_sharpening → swapchain
         // OIT pipeline: oit_accum → [oit_accum_tex] → oit_composite → swapchain
+        rpg.DeclareWrite("evsm_shadows",  "evsm_moment_tex");  // shadow pass
+        rpg.DeclareRead ("world_3d",      "evsm_moment_tex");  // main pass reads shadow
         rpg.DeclareWrite("world_3d",      "scene_color");
         rpg.DeclareRead ("cas_sharpening","scene_color");
         rpg.DeclareWrite("cas_sharpening","swapchain");
