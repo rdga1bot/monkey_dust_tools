@@ -412,12 +412,16 @@ static void World3DRender(int vp_w, int vp_h, float dt) {
         s_w3d_depth.Init(vp_w, vp_h);
     }
 
-    // Decide whether to apply CAS post-process.
+    // OIT manual-blend composite requires scene_tex != output_tex (Vulkan constraint).
+    // Route scene through an intermediate (cas.SceneTex()) whenever OIT or CAS is active.
     const bool use_cas = s_cas.IsReady() &&
                          md::RenderPassGraph::Get().IsEnabled("cas_sharpening");
+    const bool use_oit_check = s_oit.IsReady() &&
+                               md::RenderPassGraph::Get().IsEnabled("oit_transparency");
+    const bool need_intermediate = use_cas || use_oit_check;
 
-    // Resize CAS textures if viewport changed.
-    if (use_cas) s_cas.Resize(vp_w, vp_h);
+    // Resize CAS/OIT intermediate textures if viewport changed.
+    if (need_intermediate && s_cas.IsReady()) s_cas.Resize(vp_w, vp_h);
 
     // Acquire command buffer + swapchain texture.
     SDL_GPUCommandBuffer* cmd = md::GpuDevice::Get().AcquireCommandBuffer();
@@ -428,9 +432,11 @@ static void World3DRender(int vp_w, int vp_h, float dt) {
         return;
     }
 
-    // Choose render target: intermediate texture (CAS) or swapchain (direct).
-    SDL_GPUTexture* scene_target = use_cas ? s_cas.SceneTex() : swap;
-    SDL_GPUTexture* scene_depth  = use_cas ? s_cas.DepthTex() : s_w3d_depth.SDLTexture();
+    // When OIT or CAS is active, scene always goes to cas.SceneTex() so OIT
+    // composite can read scene_target (cas.SceneTex()) and write to swap without
+    // the Vulkan same-texture read+write restriction.
+    SDL_GPUTexture* scene_target = (need_intermediate && s_cas.IsReady()) ? s_cas.SceneTex() : swap;
+    SDL_GPUTexture* scene_depth  = (need_intermediate && s_cas.IsReady()) ? s_cas.DepthTex() : s_w3d_depth.SDLTexture();
 
     // Scene render pass.
     GpuCommandBuffer cb;
@@ -453,12 +459,10 @@ static void World3DRender(int vp_w, int vp_h, float dt) {
     cb.Draw((uint32_t)(s_w3d_tri_count * 3));
     cb.EndPass();
 
-    // CAS pass: intermediate → swapchain.
-    if (use_cas) s_cas.Apply(cmd, swap, vp_w, vp_h);
-
     // OIT pass: transparent geometry (water, leaves, particles) over opaque scene.
-    const bool use_oit = s_oit.IsReady() &&
-                         md::RenderPassGraph::Get().IsEnabled("oit_transparency");
+    // Must run BEFORE CAS apply so scene is still in scene_target (cas.SceneTex())
+    // and we can pass it as scene_tex to OIT Composite (scene_tex != output=swap).
+    const bool use_oit = use_oit_check;
     if (use_oit) {
         s_oit.Resize(vp_w, vp_h);
 
@@ -547,9 +551,13 @@ static void World3DRender(int vp_w, int vp_h, float dt) {
         s_oit.EndAccum();
         SDL_ReleaseGPUBuffer(sdl_dev, oit_vbuf);
 
-        // Composite OIT over the scene (already on swapchain).
-        SDL_GPUTexture* composite_target = use_cas ? swap : swap;
-        s_oit.Composite(cmd, composite_target, vp_w, vp_h);
+        // OIT manual composite: reads scene_target (cas.SceneTex()) + accum_tex_,
+        // writes merged result to swap. No same-texture conflict.
+        // CAS sharpening is skipped this frame (swap already has final output).
+        s_oit.Composite(cmd, scene_target, swap, vp_w, vp_h);
+    } else {
+        // No OIT: apply CAS sharpening normally (scene_target → swap).
+        if (use_cas) s_cas.Apply(cmd, swap, vp_w, vp_h);
     }
 
     md::GpuDevice::Get().Submit(cmd);
