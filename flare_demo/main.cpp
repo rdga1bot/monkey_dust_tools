@@ -142,8 +142,9 @@ static int RandRange(int lo, int hi) {
 static constexpr int BTN_SZ     = 72;
 static constexpr int BTN_MARGIN = 14;
 
-static pid_t s_rec_pid   = -1;
-static bool  s_recording = false;
+static pid_t s_rec_pid         = -1;  // active recording child PID
+static pid_t s_rec_pid_pending = -1;  // PID awaiting blocking reap at shutdown
+static bool  s_recording       = false;
 
 // Draw camera icon into BTN_SZ×BTN_SZ RGBA8 buffer.
 // Pixel layout designed at 72×72.
@@ -241,12 +242,12 @@ static void StartRecording() {
 #ifndef _WIN32
     pid_t pid = fork();
     if (pid == 0) {
-        // Child: silence child's stderr (ffmpeg/python noise), keep stdout
-        // connected to the terminal so the post-process banner appears cleanly
-        // after the parent's blocking waitpid completes at shutdown.
+        // New session: detach from the demo's controlling terminal so that
+        // grandchild processes (ffmpeg) can't accidentally freeze the shell.
+        setsid();
+        // Silence stderr (ffmpeg/python noise). Keep stdout for the banner.
         int devnull = open("/dev/null", O_WRONLY);
         if (devnull >= 0) { dup2(devnull, 2); close(devnull); }
-        // stdout stays as-is (terminal) — banner prints after waitpid unblocks.
         execlp("python3", "python3", "scripts/demo_capture.py",
                "--no-launch", "--record-fps", "10", nullptr);
         _exit(1);
@@ -258,24 +259,38 @@ static void StartRecording() {
 #endif
 }
 
-// block=false: non-blocking reap (safe to call during game loop).
-// block=true : blocking waitpid (call at shutdown so Python finishes cleanly
-//              before the shell returns — no stray output after the prompt).
-static void StopRecording(bool block = false) {
+// Non-blocking stop — safe to call during the game loop.
+// Sends SIGTERM and does a non-blocking WNOHANG poll.
+// If the child hasn't exited yet, saves the PID in s_rec_pid_pending
+// so WaitRecordingChild() can do a blocking reap at shutdown.
+static void StopRecording() {
     if (!s_recording) return;
 #ifndef _WIN32
     if (s_rec_pid > 0) {
         kill(s_rec_pid, SIGTERM);
-        if (block) {
-            // Wait for demo_capture.py to finish encoding + frame extraction.
-            waitpid(s_rec_pid, nullptr, 0);
+        int st = 0;
+        pid_t r = waitpid(s_rec_pid, &st, WNOHANG);
+        if (r == s_rec_pid) {
+            s_rec_pid = -1;          // already exited — nothing to reap at shutdown
         } else {
-            waitpid(s_rec_pid, nullptr, WNOHANG);
+            s_rec_pid_pending = s_rec_pid;  // still running — block at shutdown
+            s_rec_pid = -1;
         }
-        s_rec_pid = -1;
     }
     s_recording = false;
     fprintf(stderr, "[rec] Recording stopped\n");
+#endif
+}
+
+// Blocking reap of any pending recording child.
+// Call once at shutdown — blocks until demo_capture.py finishes encoding
+// and frame extraction so the banner prints before the shell prompt returns.
+static void WaitRecordingChild() {
+#ifndef _WIN32
+    if (s_rec_pid_pending > 0) {
+        waitpid(s_rec_pid_pending, nullptr, 0);
+        s_rec_pid_pending = -1;
+    }
 #endif
 }
 
@@ -1423,7 +1438,8 @@ int main(int argc, char** argv) {
     }
 
     // ── Cleanup ───────────────────────────────────────────────────────────────
-    StopRecording(/*block=*/true);  // block so Python finishes before shell returns
+    StopRecording();        // non-blocking SIGTERM (no-op if already stopped)
+    WaitRecordingChild();   // block until demo_capture.py finishes; banner prints here
     World3DShutdown();
     tmr2d.ClearOverlayBlit(0);
     SDL_WaitForGPUIdle(sdl_dev);
