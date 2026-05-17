@@ -61,13 +61,17 @@ Converts FLARE engine `.ini` tileset / map files to the monkey\_dust JSON format
 
 ---
 
-### `md_flare_demo` — Standalone Flare Tile Viewer
+### `md_flare_demo` — Standalone Flare Tile + 3D World Viewer
 
 Renders a FLARE map file using the engine's `TileMapRenderer` without the game layer.
-Useful for validating atlas packing, animation timing, and TINST stride correctness.
+Press **S** to toggle between 2D isometric tile view and 3D world view.
+
+**2D mode:** validates atlas packing, animation timing, NPC sprite overlay, `uint64_t` depth sort, `fadeOverlapTile` transparency.
+
+**3D mode:** exercises the full SDL_GPU pipeline — GPU NPC frustum culling (`npc_cull.comp`), EVSM soft shadows (3-cascade CSM with texel-snap), OIT transparent quads (2-MRT compute composite), deferred lighting, SSAO, SMAA.
 
 ```
-Controls: WASD = pan · Scroll = zoom · F3 = stats overlay
+Controls: WASD = pan/fly · Scroll = zoom · S = toggle 2D/3D · F3 = stats overlay
 ```
 
 ---
