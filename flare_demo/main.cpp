@@ -15,6 +15,7 @@
 #include <monkey_dust/render/gpu_device.h>
 #include <monkey_dust/render/gpu_hal.h>
 #include <monkey_dust/render/render_pass_graph.h>
+#include <monkey_dust/ecs/component_reflect.h>
 #include <monkey_dust/platform/math_types.h>
 #include <monkey_dust/ai/sense_system.h>
 #include <monkey_dust/ai/bt_system.h>
@@ -702,6 +703,9 @@ int main(int argc, char** argv) {
     BTSystem::ConnectRegistry(Registry::Get());
     SpawnDemoEntities(rt);
 
+    // ── Component reflection ──────────────────────────────────────────────────
+    md::RegisterCoreComponents();
+
     HotReload::Get().Watch(BT_JSON_PATH, OnBTFileChanged);
     HotReload::Get().Start(500);
 
@@ -787,6 +791,18 @@ int main(int argc, char** argv) {
                     case SDL_SCANCODE_ESCAPE: quit = true; break;
                     case SDL_SCANCODE_Q:      do_zoom_out = true; break;
                     case SDL_SCANCODE_E:      do_zoom_in  = true; break;
+                    case SDL_SCANCODE_I: {
+                        // Dump reflected fields of the player entity.
+                        if (s_player != entt::null) {
+                            auto* pwt = Registry::Get().try_get<WorldTransform>(s_player);
+                            if (pwt) {
+                                const auto* d = md::ComponentReflect::Get()
+                                                    .Find("world_transform");
+                                if (d) md::ComponentReflect::Dump(pwt, *d);
+                            }
+                        }
+                        break;
+                    }
                     case SDL_SCANCODE_TAB:
                         s_view_3d = !s_view_3d;
                         fprintf(stdout, "[demo] View: %s\n", s_view_3d ? "3D" : "2D");
