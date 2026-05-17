@@ -349,10 +349,9 @@ static void World3DInit(SDL_Window* window,
     // CAS post-process pass — actual viewport size passed later in World3DRender.
     s_cas.Init(1, 1, 0.5f);
 
-    // OIT pass — infrastructure ready; composite pipeline creation crashes on
-    // this Intel HD 520 Vulkan driver when alpha-blend pipeline follows additive
-    // pipeline in the same session. Disabled until driver issue is identified.
-    // s_oit.Init(1, 1);
+    // OIT pass — investigation: composite pipeline created FIRST (before accum).
+    // Testing if Intel HD 520 driver crash was order-dependent.
+    s_oit.Init(1, 1);
 
     // MaskedOcclusionCulling — CPU occlusion culling for NPC visibility.
     md::MocCuller::Get().Init(320, 160);
