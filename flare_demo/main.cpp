@@ -241,9 +241,12 @@ static void StartRecording() {
 #ifndef _WIN32
     pid_t pid = fork();
     if (pid == 0) {
-        // Child: redirect stderr to /dev/null, launch demo_capture --no-launch
+        // Child: silence child's stderr (ffmpeg/python noise), keep stdout
+        // connected to the terminal so the post-process banner appears cleanly
+        // after the parent's blocking waitpid completes at shutdown.
         int devnull = open("/dev/null", O_WRONLY);
         if (devnull >= 0) { dup2(devnull, 2); close(devnull); }
+        // stdout stays as-is (terminal) — banner prints after waitpid unblocks.
         execlp("python3", "python3", "scripts/demo_capture.py",
                "--no-launch", "--record-fps", "10", nullptr);
         _exit(1);
@@ -255,13 +258,20 @@ static void StartRecording() {
 #endif
 }
 
-static void StopRecording() {
+// block=false: non-blocking reap (safe to call during game loop).
+// block=true : blocking waitpid (call at shutdown so Python finishes cleanly
+//              before the shell returns — no stray output after the prompt).
+static void StopRecording(bool block = false) {
     if (!s_recording) return;
 #ifndef _WIN32
     if (s_rec_pid > 0) {
         kill(s_rec_pid, SIGTERM);
-        // Reap child asynchronously — don't block the game loop.
-        waitpid(s_rec_pid, nullptr, WNOHANG);
+        if (block) {
+            // Wait for demo_capture.py to finish encoding + frame extraction.
+            waitpid(s_rec_pid, nullptr, 0);
+        } else {
+            waitpid(s_rec_pid, nullptr, WNOHANG);
+        }
         s_rec_pid = -1;
     }
     s_recording = false;
@@ -1413,7 +1423,7 @@ int main(int argc, char** argv) {
     }
 
     // ── Cleanup ───────────────────────────────────────────────────────────────
-    StopRecording();
+    StopRecording(/*block=*/true);  // block so Python finishes before shell returns
     World3DShutdown();
     tmr2d.ClearOverlayBlit(0);
     SDL_WaitForGPUIdle(sdl_dev);
