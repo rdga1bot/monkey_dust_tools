@@ -11,7 +11,10 @@
 
 #include <monkey_dust/flare/flare_runtime.h>
 #include <monkey_dust/flare/tile_map_2d_renderer.h>
+#include <monkey_dust/flare/tile_collision.h>
 #include <monkey_dust/render/gpu_device.h>
+#include <monkey_dust/render/gpu_hal.h>
+#include <monkey_dust/platform/math_types.h>
 #include <monkey_dust/ai/sense_system.h>
 #include <monkey_dust/ai/bt_system.h>
 #include <monkey_dust/ai/bt_action_registry.h>
@@ -256,6 +259,155 @@ static void StopRecording() {
     s_recording = false;
     fprintf(stderr, "[rec] Recording stopped\n");
 #endif
+}
+
+// ── World 3D renderer (Step 4) ────────────────────────────────────────────────
+// Toggle 2D / 3D view with Tab.
+// In 3D mode: orbit camera (arrow keys = rotate, scroll = zoom).
+
+static bool s_view_3d  = false;
+static float s_cam_az  = 0.f;     // orbit azimuth  (radians)
+static float s_cam_el  = 0.9f;    // orbit elevation (radians, 0=horizon 1.57=top)
+static float s_cam_dist = 40.f;   // distance from map center
+
+static GpuPipeline    s_w3d_pipeline;
+static GpuStaticBuffer s_w3d_vbuf;
+static GpuDepthTexture s_w3d_depth;
+static int            s_w3d_tri_count = 0;
+static Vec3           s_w3d_target    = {0.f,0.f,0.f};  // look-at (map center, world space)
+static SDL_Window*    s_w3d_window    = nullptr;
+
+// Geometry scratch — static (BSS), not on stack.
+static float s_w3d_raw_verts[md::flare::GEO_MAX_VERTS * 3];
+static int   s_w3d_raw_tris [md::flare::GEO_MAX_TRIS  * 3];
+static float s_w3d_flat     [md::flare::GEO_MAX_TRIS  * 9];  // expanded flat VB
+
+static void World3DInit(SDL_Window* window,
+                        const md::flare::FlareMap& map,
+                        float tile_world_size = 1.f) {
+    s_w3d_window = window;
+
+    // Build indexed triangle soup.
+    int nv = 0, nt = 0;
+    if (!md::flare::BuildWorldGeometry(map, tile_world_size,
+                                       s_w3d_raw_verts, md::flare::GEO_MAX_VERTS, nv,
+                                       s_w3d_raw_tris,  md::flare::GEO_MAX_TRIS,  nt)) {
+        fprintf(stderr, "[World3D] geometry build failed\n");
+        return;
+    }
+
+    // Expand indexed → flat: 3 verts × float[3] per triangle.
+    for (int i = 0; i < nt; ++i) {
+        for (int k = 0; k < 3; ++k) {
+            int vi = s_w3d_raw_tris[i * 3 + k];
+            s_w3d_flat[i * 9 + k * 3 + 0] = s_w3d_raw_verts[vi * 3 + 0];
+            s_w3d_flat[i * 9 + k * 3 + 1] = s_w3d_raw_verts[vi * 3 + 1];
+            s_w3d_flat[i * 9 + k * 3 + 2] = s_w3d_raw_verts[vi * 3 + 2];
+        }
+    }
+    s_w3d_tri_count = nt;
+
+    // Upload to GPU (one-shot static buffer, GL_ARRAY_BUFFER = 0x8892 → VERTEX usage).
+    const uint32_t flat_bytes = (uint32_t)(nt * 9 * sizeof(float));
+    s_w3d_vbuf.Init(0x8892u, s_w3d_flat, flat_bytes);
+
+    // Isometric world-space map center:
+    //   world_z_center = (map_w-1 + map_h-1) * 0.5 * h = (W+H-2)*0.25*tsz
+    const float h_half = tile_world_size * 0.5f;
+    s_w3d_target = { 0.f,
+                     0.f,
+                     (float)(map.width + map.height - 2) * h_half * 0.5f };
+
+    // 3D pipeline — simple MVP + height-coloured geometry.
+    GpuPipeline::Desc pd;
+    pd.vert_path = "shaders/world3d.vert";
+    pd.frag_path = "shaders/world3d.frag";
+    pd.layout.count      = 1;
+    pd.layout.stride     = 12;                       // float[3]
+    pd.layout.attribs[0] = { 0, 0, GpuAttribFmt::F3 };
+    pd.raster.depth_test  = true;
+    pd.raster.depth_write = true;
+    pd.raster.cull_back   = false;  // see inside walls from any angle
+    pd.has_depth_target   = true;
+    pd.vert_uniform_bufs  = 1;      // WorldUBO (MVP matrix)
+    if (!s_w3d_pipeline.Create(pd))
+        fprintf(stderr, "[World3D] pipeline create failed\n");
+    else
+        fprintf(stdout, "[World3D] ready: %d tris, %.1f KB VB\n",
+                nt, flat_bytes / 1024.f);
+}
+
+static void World3DRender(int vp_w, int vp_h, float dt) {
+    if (s_w3d_tri_count == 0 || !s_w3d_pipeline.SDLPipeline()) return;
+
+    // Orbit camera: arrow keys update azimuth/elevation each frame.
+    const bool* ks = SDL_GetKeyboardState(nullptr);
+    if (ks[SDL_SCANCODE_LEFT])  s_cam_az -= 1.4f * dt;
+    if (ks[SDL_SCANCODE_RIGHT]) s_cam_az += 1.4f * dt;
+    if (ks[SDL_SCANCODE_UP])    s_cam_el  = fminf(s_cam_el + 1.0f * dt, 1.55f);
+    if (ks[SDL_SCANCODE_DOWN])  s_cam_el  = fmaxf(s_cam_el - 1.0f * dt, 0.05f);
+
+    // Eye position from orbit angles.
+    Vec3 eye = {
+        s_w3d_target.x + s_cam_dist * cosf(s_cam_el) * sinf(s_cam_az),
+        s_w3d_target.y + s_cam_dist * sinf(s_cam_el),
+        s_w3d_target.z - s_cam_dist * cosf(s_cam_el) * cosf(s_cam_az),
+    };
+    Vec3 up = {0.f, 1.f, 0.f};
+
+    Mat4 view = mat4_lookat(eye, s_w3d_target, up);
+    Mat4 proj = mat4_perspective(0.80f,
+                                  (float)vp_w / (float)vp_h,
+                                  0.1f, 500.f);
+    Mat4 mvp  = mat4_mul(proj, view);
+
+    // Depth texture — recreate on viewport resize.
+    if (s_w3d_depth.Width() != vp_w || s_w3d_depth.Height() != vp_h) {
+        s_w3d_depth.Shutdown();
+        s_w3d_depth.Init(vp_w, vp_h);
+    }
+
+    // Acquire command buffer + swapchain texture.
+    SDL_GPUCommandBuffer* cmd = md::GpuDevice::Get().AcquireCommandBuffer();
+    SDL_GPUTexture* swap = nullptr;
+    if (!SDL_AcquireGPUSwapchainTexture(cmd, s_w3d_window, &swap, nullptr, nullptr)
+        || !swap) {
+        md::GpuDevice::Get().Submit(cmd);
+        return;
+    }
+
+    // Render pass with depth.
+    GpuCommandBuffer cb;
+    GpuCommandBuffer::ColorPassDesc cpd;
+    cpd.cmd            = cmd;
+    cpd.color_tex      = swap;
+    cpd.depth_tex      = s_w3d_depth.SDLTexture();
+    cpd.clear_color[0] = 0.12f;
+    cpd.clear_color[1] = 0.16f;
+    cpd.clear_color[2] = 0.24f;
+    cpd.clear_color[3] = 1.0f;
+    cpd.load_color     = false;
+    cpd.load_depth     = false;
+    cb.BeginColorPass(cpd);
+
+    cb.BindPipeline(&s_w3d_pipeline);
+
+    // Bind static vertex buffer directly via SDL_GPU.
+    SDL_GPUBufferBinding vb { s_w3d_vbuf.SDLBuffer(), 0u };
+    SDL_BindGPUVertexBuffers(cb.SDLPass(), 0, &vb, 1);
+
+    // Push 64-byte MVP uniform (slot 0 → set=1, binding=0 in SPIR-V).
+    cb.PushVertexUniforms(0, mat4_ptr(mvp), 64);
+
+    cb.Draw((uint32_t)(s_w3d_tri_count * 3));
+    cb.EndPass();
+    md::GpuDevice::Get().Submit(cmd);
+}
+
+static void World3DShutdown() {
+    s_w3d_depth.Shutdown();
+    s_w3d_vbuf.Shutdown();
+    s_w3d_pipeline.Destroy();
 }
 
 // ── Repo root ─────────────────────────────────────────────────────────────────
@@ -552,6 +704,9 @@ int main(int argc, char** argv) {
     HotReload::Get().Watch(BT_JSON_PATH, OnBTFileChanged);
     HotReload::Get().Start(500);
 
+    // ── 3D world renderer init ────────────────────────────────────────────────
+    World3DInit(window, map, 1.0f);
+
     // ── Camera state ──────────────────────────────────────────────────────────
     int   vp_w = WIN_W, vp_h = WIN_H;
     float scale    = CAMERA_SCALE_INIT;
@@ -621,6 +776,13 @@ int main(int argc, char** argv) {
                     case SDL_SCANCODE_ESCAPE: quit = true; break;
                     case SDL_SCANCODE_Q:      do_zoom_out = true; break;
                     case SDL_SCANCODE_E:      do_zoom_in  = true; break;
+                    case SDL_SCANCODE_TAB:
+                        s_view_3d = !s_view_3d;
+                        fprintf(stdout, "[demo] View: %s\n", s_view_3d ? "3D" : "2D");
+                        break;
+                    case SDL_SCANCODE_O:
+                        md::flare::ExportWorldOBJ(map, 1.0f, "qa/world.obj");
+                        break;
                     case SDL_SCANCODE_R:
                         // Restart if dead, else reset camera.
                         if (s_player_dead) {
@@ -781,8 +943,12 @@ int main(int argc, char** argv) {
             }
         }
 
-        // ── Zoom ──────────────────────────────────────────────────────────────
-        {
+        // ── Zoom (2D) / distance (3D) ────────────────────────────────────────
+        if (s_view_3d) {
+            // Scroll changes orbit distance in 3D mode.
+            if (scroll_y != 0.f)
+                s_cam_dist = fmaxf(fminf(s_cam_dist - scroll_y * 2.f, 200.f), 3.f);
+        } else {
             float old_scale = scale;
             if (do_zoom_out)    scale = fmaxf(scale * 0.92f, 0.1f);
             if (do_zoom_in)     scale = fminf(scale * 1.08f, 4.0f);
@@ -791,7 +957,6 @@ int main(int argc, char** argv) {
                 scale = fmaxf(fminf(scale * f, 4.0f), 0.1f);
             }
             if (scale != old_scale) {
-                // Zoom toward screen center while keeping player centered.
                 (void)old_scale;
                 ComputeOrigin();
             }
@@ -879,8 +1044,12 @@ int main(int argc, char** argv) {
                                 (float)now_ms * 0.001f);
         }
 
-        // Camera button: blink the REC icon at 1 Hz when recording.
-        {
+        if (s_view_3d) {
+            // ── 3D orbit view ─────────────────────────────────────────────────
+            World3DRender(vp_w, vp_h, dt);
+        } else {
+            // ── 2D Flare view ─────────────────────────────────────────────────
+            // Camera button: blink the REC icon at 1 Hz when recording.
             void* btn_tex = (void*)cam_idle_tex;
             if (s_recording)
                 btn_tex = ((now_ms / 500) & 1) ? (void*)cam_idle_tex : (void*)cam_rec_tex;
@@ -888,14 +1057,15 @@ int main(int argc, char** argv) {
                                   vp_w - BTN_SZ - BTN_MARGIN,
                                   vp_h - BTN_SZ - BTN_MARGIN,
                                   BTN_SZ, BTN_SZ);
-        }
 
-        tmr2d.Render(map, (float)now_ms * 0.001f,
-                     origin_x, origin_y, scale, vp_w, vp_h);
+            tmr2d.Render(map, (float)now_ms * 0.001f,
+                         origin_x, origin_y, scale, vp_w, vp_h);
+        }
     }
 
     // ── Cleanup ───────────────────────────────────────────────────────────────
     StopRecording();
+    World3DShutdown();
     tmr2d.ClearOverlayBlit(0);
     SDL_WaitForGPUIdle(sdl_dev);
     if (cam_idle_tex) SDL_ReleaseGPUTexture(sdl_dev, cam_idle_tex);
@@ -904,6 +1074,7 @@ int main(int argc, char** argv) {
     HotReload::Get().Unwatch(BT_JSON_PATH);
     DestroyDemoEntities();
     tmr2d.Shutdown();
+    MdTextureCache_Shutdown();
     md::GpuDevice::Get().Shutdown();
     SDL_DestroyWindow(window);
     SDL_Quit();
