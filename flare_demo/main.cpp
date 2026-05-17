@@ -37,6 +37,8 @@
 #include <monkey_dust/ecs/registry.h>
 #include <monkey_dust/ecs/engine_context.h>
 #include <monkey_dust/world/world_transform.h>
+#include <monkey_dust/world/terrain_gen.h>
+#include <monkey_dust/render/terrain_renderer.h>
 #include <monkey_dust/tools/hot_reload.h>
 #include <SDL3/SDL.h>
 #include <cstdio>
@@ -312,6 +314,12 @@ static int            s_w3d_tri_count = 0;
 static Vec3           s_w3d_target    = {0.f,0.f,0.f};  // look-at (map center, world space)
 static SDL_Window*    s_w3d_window    = nullptr;
 
+// Terrain
+static TerrainChunk    s_terrain_chunk;
+static TerrainRenderer s_terrain_renderer;
+static bool            s_terrain_ready   = false;
+static bool            s_show_terrain    = true;   // 'T' toggles terrain vs world3d geometry
+
 // Geometry scratch — static (BSS), not on stack.
 static float s_w3d_raw_verts[md::flare::GEO_MAX_VERTS * 3];
 static int   s_w3d_raw_tris [md::flare::GEO_MAX_TRIS  * 3];
@@ -371,6 +379,31 @@ static void World3DInit(SDL_Window* window,
         fprintf(stdout, "[World3D] ready: %d tris, %.1f KB VB\n",
                 nt, flat_bytes / 1024.f);
 
+    // Terrain chunk — generated once, covers world [0..64m × 0..64m].
+    {
+        // Flare isometric world geometry centre:
+        //   X centred at 0, Z = (W+H-2)*tile_sz*0.5*0.5 ≈ 29.5 for 60×60 map.
+        // Offset the chunk so it covers [−32..32] × [−2.5..61.5] in world space,
+        // centred on the Flare map geometry.
+        const float map_cx = 0.f;
+        const float map_cz = (float)(map.width + map.height - 2) * 0.5f * 0.5f;
+        TerrainGenParams tgp;
+        tgp.seed         = 77;
+        tgp.amplitude    = 4.f;    // modest hills — easier to see shape
+        tgp.octaves      = 4;
+        tgp.nav_cs       = 1.0f;
+        tgp.nav_ch       = 0.4f;
+        tgp.world_offset_x = map_cx - CHUNK_SIZE * 0.5f;  // centre chunk on map
+        tgp.world_offset_z = map_cz - CHUNK_SIZE * 0.5f;
+        ChunkCoord origin { 0, 0 };
+        if (TerrainGen_Build(s_terrain_chunk, origin, tgp)) {
+            TerrainGen_Upload(s_terrain_chunk);
+        }
+        s_terrain_ready = s_terrain_chunk.loaded && s_terrain_renderer.Init();
+        fprintf(stdout, "[Terrain] %s (amplitude=%.1fm)\n",
+                s_terrain_ready ? "ready" : "FAILED", tgp.amplitude);
+    }
+
     // CAS post-process pass — actual viewport size passed later in World3DRender.
     s_cas.Init(1, 1, 0.5f);
 
@@ -399,15 +432,30 @@ static void World3DRender(int vp_w, int vp_h, float dt) {
     if (ks[SDL_SCANCODE_UP])    s_cam_el  = fminf(s_cam_el + 1.0f * dt, 1.55f);
     if (ks[SDL_SCANCODE_DOWN])  s_cam_el  = fmaxf(s_cam_el - 1.0f * dt, 0.05f);
 
+    // 'T' — toggle between terrain and old world-geometry view (edge-triggered)
+    {
+        static bool s_t_prev = false;
+        bool t_now = ks[SDL_SCANCODE_T];
+        if (t_now && !s_t_prev) s_show_terrain = !s_show_terrain;
+        s_t_prev = t_now;
+    }
+
+    // In terrain mode, re-center camera on chunk centre (32, 0, 32) with wider view.
+    // Terrain mode: same target as world view (terrain is now centred on Flare map).
+    const bool terrain_mode = s_terrain_ready && s_show_terrain;
+    Vec3  cam_target = s_w3d_target;
+    float cam_dist   = terrain_mode ? 80.f : s_cam_dist;
+    float cam_el     = terrain_mode ? fmaxf(s_cam_el, 0.8f) : s_cam_el;
+
     // Eye position from orbit angles.
     Vec3 eye = {
-        s_w3d_target.x + s_cam_dist * cosf(s_cam_el) * sinf(s_cam_az),
-        s_w3d_target.y + s_cam_dist * sinf(s_cam_el),
-        s_w3d_target.z - s_cam_dist * cosf(s_cam_el) * cosf(s_cam_az),
+        cam_target.x + cam_dist * cosf(cam_el) * sinf(s_cam_az),
+        cam_target.y + cam_dist * sinf(cam_el),
+        cam_target.z - cam_dist * cosf(cam_el) * cosf(s_cam_az),
     };
     Vec3 up = {0.f, 1.f, 0.f};
 
-    Mat4 view = mat4_lookat(eye, s_w3d_target, up);
+    Mat4 view = mat4_lookat(eye, cam_target, up);
     Mat4 proj = mat4_perspective(0.80f,
                                   (float)vp_w / (float)vp_h,
                                   0.1f, 500.f);
@@ -477,11 +525,18 @@ static void World3DRender(int vp_w, int vp_h, float dt) {
     cpd.load_depth     = false;
     cb.BeginColorPass(cpd);
 
-    cb.BindPipeline(&s_w3d_pipeline);
-    SDL_GPUBufferBinding vb { s_w3d_vbuf.SDLBuffer(), 0u };
-    SDL_BindGPUVertexBuffers(cb.SDLPass(), 0, &vb, 1);
-    cb.PushVertexUniforms(0, mat4_ptr(mvp), 64);
-    cb.Draw((uint32_t)(s_w3d_tri_count * 3));
+    if (s_terrain_ready && s_show_terrain) {
+        // Terrain view: heightmap mesh with splat colouring + Lambertian lighting.
+        s_terrain_renderer.Draw(cb, s_terrain_chunk, mat4_ptr(mvp),
+                                TerrainRenderer::SunParams::Default());
+    } else {
+        // Old Flare world-geometry view (flat tile extrusion).
+        cb.BindPipeline(&s_w3d_pipeline);
+        SDL_GPUBufferBinding vb { s_w3d_vbuf.SDLBuffer(), 0u };
+        SDL_BindGPUVertexBuffers(cb.SDLPass(), 0, &vb, 1);
+        cb.PushVertexUniforms(0, mat4_ptr(mvp), 64);
+        cb.Draw((uint32_t)(s_w3d_tri_count * 3));
+    }
     cb.EndPass();
 
     // OIT pass: transparent geometry (water, leaves, particles) over opaque scene.
