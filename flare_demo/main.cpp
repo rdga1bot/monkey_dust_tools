@@ -1066,7 +1066,7 @@ int main(int argc, char** argv) {
                         fprintf(stdout, "[demo] View: %s\n", s_view_3d ? "3D" : "2D");
                         break;
                     case SDL_SCANCODE_O:
-                        md::flare::ExportWorldOBJ(map, 1.0f, "qa/world.obj");
+                        md::flare::ExportWorldOBJ(map, 1.0f, "tools/qa/world.obj");
                         break;
                     case SDL_SCANCODE_R:
                         // Restart if dead, else reset camera.
