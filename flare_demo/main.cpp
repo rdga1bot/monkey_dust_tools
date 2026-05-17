@@ -16,6 +16,7 @@
 #include <monkey_dust/render/gpu_hal.h>
 #include <monkey_dust/render/render_pass_graph.h>
 #include <monkey_dust/render/cas_pass.h>
+#include <monkey_dust/render/moc_culler.h>
 #include <monkey_dust/ecs/component_reflect.h>
 #include <monkey_dust/spatial/world_bvh.h>
 #include <monkey_dust/platform/math_types.h>
@@ -342,8 +343,10 @@ static void World3DInit(SDL_Window* window,
                 nt, flat_bytes / 1024.f);
 
     // CAS post-process pass — actual viewport size passed later in World3DRender.
-    // Init with placeholder size (1x1); Resize() is called on first render.
     s_cas.Init(1, 1, 0.5f);
+
+    // MaskedOcclusionCulling — CPU occlusion culling for NPC visibility.
+    md::MocCuller::Get().Init(320, 160);
 }
 
 static void World3DRender(int vp_w, int vp_h, float dt) {
@@ -369,6 +372,24 @@ static void World3DRender(int vp_w, int vp_h, float dt) {
                                   (float)vp_w / (float)vp_h,
                                   0.1f, 500.f);
     Mat4 mvp  = mat4_mul(proj, view);
+
+    // ── MocCuller: render world occluders, then NPC visibility is tested
+    // in the NPC sprite loop (above, before SetNpcSprites is called).
+    // We call BeginFrame here so the depth buffer is fresh for this frame.
+    // RenderOccluders submits ground tiles as occluders for the NPC test.
+    if (md::MocCuller::Get().IsReady() && s_w3d_tri_count > 0) {
+        md::MocCuller::Get().BeginFrame(mat4_ptr(mvp), vp_w, vp_h);
+        // Use only ground/water triangles (first quarter of flat buffer) as occluders.
+        // Wall prisms are occluders too but we only need approximate coverage.
+        int occ_tri_count = s_w3d_tri_count / 4;  // sample subset for speed
+        if (occ_tri_count > 0) {
+            // Expand flat buffer to indexed form for MOC (build index array).
+            static uint32_t s_occ_idx[1024 * 3];
+            int n = occ_tri_count < 1024 ? occ_tri_count : 1024;
+            for (int i = 0; i < n * 3; ++i) s_occ_idx[i] = (uint32_t)i;
+            md::MocCuller::Get().RenderOccluders(s_w3d_flat, n * 3, s_occ_idx, n);
+        }
+    }
 
     // Depth texture — recreate on viewport resize.
     if (s_w3d_depth.Width() != vp_w || s_w3d_depth.Height() != vp_h) {
@@ -424,6 +445,7 @@ static void World3DRender(int vp_w, int vp_h, float dt) {
 }
 
 static void World3DShutdown() {
+    md::MocCuller::Get().Shutdown();
     md::WorldBVH::Get().Shutdown();
     s_cas.Shutdown();
     s_w3d_depth.Shutdown();
@@ -1151,17 +1173,29 @@ int main(int argc, char** argv) {
             }
 
             // NPC sprites — skip dead ones.
+            // In 3D mode: pre-cull via MocCuller before adding to sprite list.
+            const bool use_moc = s_view_3d && md::MocCuller::Get().IsReady();
+            int culled = 0;
             for (int i = 0; i < s_npc_count && sp_n < kMax; ++i) {
                 if (s_npc_hp[i] <= 0) continue;
                 if (!reg.valid(s_npcs[i])) continue;
                 auto* wt = reg.try_get<WorldTransform>(s_npcs[i]);
                 if (!wt) continue;
+                // MOC visibility test (3D mode only, conservative — no false negatives).
+                if (use_moc) {
+                    if (!md::MocCuller::Get().IsBoxVisible(wt->x, 0.5f, wt->z, 0.5f)) {
+                        ++culled;
+                        continue;
+                    }
+                }
                 sp_x[sp_n]   = wt->x;
                 sp_z[sp_n]   = wt->z;
                 sp_rot[sp_n] = wt->rot_y;
                 sp_mov[sp_n] = 1;
                 ++sp_n;
             }
+            if (use_moc && culled > 0)
+                (void)culled; // could log culled count here for perf tracking
 
             tmr2d.SetNpcSprites(sp_x, sp_z, sp_rot, sp_mov, sp_n,
                                 (float)now_ms * 0.001f);
