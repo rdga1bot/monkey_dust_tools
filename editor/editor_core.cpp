@@ -15,6 +15,7 @@
 #include "editor_gpu_profiler_panel.h"
 #include "editor_node_graph.h"
 #include "editor_sequencer_panel.h"
+#include "editor_terrain_panel.h"
 #include <monkey_dust/world/world_transform.h>
 #include <monkey_dust/platform/input.h>
 #include <cmath>
@@ -50,6 +51,7 @@ void EditorCore::Update(float dt) {
     EditorGpuProfilerPanel::Get().Draw();
     EditorNodeGraphPanel::Get().Draw();
     EditorSequencerPanel::Get().Draw();
+    EditorTerrainPanel::Get().Draw(dt);
 }
 
 void EditorCore::Shutdown() {

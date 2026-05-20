@@ -141,9 +141,10 @@ void EditorToolbar::DrawMenuBar() {
         ImGui::MenuItem("GPU Profiler",       nullptr, &pv[11]);
         ImGui::MenuItem("Node Graph",         nullptr, &pv[12]);
         ImGui::MenuItem("Sequencer",          nullptr, &pv[13]);
+        ImGui::MenuItem("Terrain Sculpt",     nullptr, &pv[14]);
         ImGui::Separator();
         if (ImGui::MenuItem("Reset Layout")) {
-            for (int i = 0; i < 14; ++i) pv[i] = (i < 6);
+            for (int i = 0; i < 15; ++i) pv[i] = (i < 6);
         }
         ImGui::EndMenu();
     }
