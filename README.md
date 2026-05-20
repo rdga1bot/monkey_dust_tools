@@ -1,7 +1,9 @@
 # monkey_dust — Tools
 
-Editor, asset converter, and Flare demo viewer for the monkey_dust engine.
+Editor, asset converter, terrain pipeline, and Flare demo viewer for the monkey_dust engine.
 Depends on [monkey\_dust\_engine](https://github.com/rdga1bot/monkey_dust_engine) as a submodule.
+
+All tool names use the `md_` prefix (no proprietary asset branding in public repos).
 
 > **Full documentation →** [rdga1bot.github.io/monkey\_dust\_engine/monkey\_dust\_docs.html](https://rdga1bot.github.io/monkey_dust_engine/monkey_dust_docs.html)
 
@@ -48,6 +50,51 @@ Fuzzy-scored command search (+1 prefix · +4 acronym · +2 substring) across all
 **Camera:**
 - *Orbit*: RMB drag rotates around `cam_target`; scroll = zoom
 - *Flythrough*: hold RMB + WASD flies in look direction; Q/E = up/down
+
+---
+
+### `ozz_bake` — GLB → ozz Animation Converter
+
+Offline converter: reads a GLB file with embedded skeleton and animations, writes `.ozz` skeleton + per-clip animation files consumed by `OzzAnimPlayer`.
+
+```bash
+ninja -C build ozz_bake
+./build/tools/ozz_bake   # input: game/data/props/md_human.glb
+                          # output: game/data/anim/md_human.ozz
+```
+
+---
+
+### `md_extract_terrain.py` — Terrain Atlas Builder
+
+Extracts all 4096 terrain zones from `fullmap.tif` (16385×16385 uint16) and packs them into a single `world_hmap.r32` atlas (67 MB).
+
+```bash
+# Extract individual zone files:
+python3 tools/md_extract_terrain.py extract
+
+# Pack into atlas:
+python3 tools/md_extract_terrain.py pack_atlas
+# → game/data/terrain/world_hmap.r32
+```
+
+Atlas format: `magic=0x414D4800` · 4096 zones (64×64 grid) · each zone = `float hmin + float hmax + float[65×65]` heights.
+
+---
+
+### `md_convert.py` — Mesh Pipeline
+
+OGRE XML skeleton/mesh → cgltf GLB with embedded animations. Used for character assets.
+
+```bash
+python3 tools/md_convert.py   # → game/data/props/md_human.glb
+```
+
+---
+
+### `md_mod_import.py` — World Data Import
+
+Imports JSON mod data into `game/data/md_world.json`. Uses `md_id` as the canonical identifier key.
 
 ---
 
@@ -104,9 +151,19 @@ tools/
     editor_inspector.* ← Component inspector
     editor_console.*   ← Log panel + Lua REPL
     editor_map_view.*  ← M9 map editor (FBO viewport + tile palette)
+    editor_world_panel.h ← World tab: Zone/Faction/Town + map preview (KEN-5)
     editor_*_panel.*   ← Specialist panels (ViewCone, FlowGraph, Director, GPU Profiler …)
     scene_serializer.h ← Import/Export scene JSON
-    editor_game_context.h ← Callback bridge to game-side systems (dialog/quest reload, NPC interaction trigger)
+    editor_game_context.h ← Callback bridge to game-side systems
+  ozz_bake/            ← GLB → ozz animation converter
+  md_terrain/          ← md2terrain.py terrain zone helpers
+  md_mesh_conv/        ← md_chars.py · ogre2glb.py — OGRE XML → GLB
+  md_extract_terrain.py ← fullmap.tif → 4096 zone r32 → world_hmap.r32 atlas
+  md_convert.py        ← OGRE mesh → GLB pipeline
+  md_mod_import.py     ← JSON mod data → md_world.json (key: md_id)
+  md_biome_import.py   ← Biome map JSON import
+  md_heightmap_import.py ← Raw heightmap → atlas format
+  md_stitch_terrain.py ← Post-process zone edge stitching
   flare_convert/       ← FLARE INI converter
   flare_demo/          ← Standalone tile viewer
   flare_2d_render.py   ← Python helper: renders a map frame to PNG (offline preview)
