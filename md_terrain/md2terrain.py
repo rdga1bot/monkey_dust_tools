@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-kenshi2terrain.py — Extract 1km×1km terrain heightmaps from Kenshi fullmap.tif.
+md2terrain.py — Extract 1km×1km terrain heightmaps from Kenshi fullmap.tif.
 
 All 33 named Kenshi zones extracted, each saved as game/data/terrain/<name>.r32.
 Format: uint32 width + uint32 height + float32 hmin + float32 hmax + float32[w*h] heights.
 Heights are mean-centred (mean=0), range [-hmin..hmax] in metres.
 
 Usage:
-    python3 kenshi2terrain.py list         — show all zones with terrain relief
-    python3 kenshi2terrain.py all          — extract all 33 zones (~143 MB total)
-    python3 kenshi2terrain.py <zone_name>  — extract single zone
-    python3 kenshi2terrain.py dramatic     — only zones with spread > 300m (13 zones)
+    python3 md2terrain.py list         — show all zones with terrain relief
+    python3 md2terrain.py all          — extract all 33 zones (~143 MB total)
+    python3 md2terrain.py <zone_name>  — extract single zone
+    python3 md2terrain.py dramatic     — only zones with spread > 300m (13 zones)
 
 ★ = dramatic (spread >300m)   ● = moderate (150-300m)   flat = <150m
 """

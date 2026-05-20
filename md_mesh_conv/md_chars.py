@@ -59,27 +59,27 @@ if __name__ == '__main__':
 
     targets = [
         # Full human body (torso + merged limbs) → npc_human
-        ("kenshi_human", [
+        ("md_human", [
             f"{H}/human_male.mesh",
             f"{H}/human_left_arm.mesh",
             f"{H}/human_right_arm.mesh",
             f"{H}/human_left_leg.mesh",
             f"{H}/human_right_leg.mesh",
-        ], f"{OUT}/kenshi_human.glb"),
+        ], f"{OUT}/md_human.glb"),
 
         # Body only (player distinct colour in code, same mesh)
-        ("kenshi_human_f", [
+        ("md_human_f", [
             f"{H}/human_female.mesh",
             f"{H}/human_left_arm.mesh",
             f"{H}/human_right_arm.mesh",
             f"{H}/human_left_leg.mesh",
             f"{H}/human_right_leg.mesh",
-        ], f"{OUT}/kenshi_human_f.glb"),
+        ], f"{OUT}/md_human_f.glb"),
 
         # Robot skeleton (bandits, enemies)
-        ("kenshi_skeleton", [
+        ("md_skeleton", [
             f"{KENSHI}/character/meshes/bone/bone_male.mesh",
-        ], f"{OUT}/kenshi_skeleton.glb"),
+        ], f"{OUT}/md_skeleton.glb"),
     ]
 
     ok = 0
