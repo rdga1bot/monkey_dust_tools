@@ -9,6 +9,7 @@
 #include "faction_editor.h"
 #include "settings_editor.h"
 #include "editor_map_view.h"
+#include "editor_world_panel.h"
 #include <cstdio>
 #include <cstring>
 
@@ -76,6 +77,7 @@ int main(void) {
     ItemEditor::Load("data/items/items.json");
     FactionEditor::Load("data/factions/factions.json");
     MapViewPanel::Get().Init();
+    WorldPanel::Init();
 
     // ── Main loop ─────────────────────────────────────────
     char  status_msg  [64] = "";
@@ -281,6 +283,11 @@ int main(void) {
             if (ImGui::BeginTabItem("Map")) {
                 ImGui::SetCursorPos({8, ImGui::GetCursorPosY() + 4});
                 MapViewPanel::Get().Draw(dt);
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("World")) {
+                ImGui::SetCursorPos({8, ImGui::GetCursorPosY() + 4});
+                WorldPanel::Draw(dt);
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Settings")) {
