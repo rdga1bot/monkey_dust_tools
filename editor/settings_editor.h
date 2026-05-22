@@ -109,6 +109,7 @@ inline void Draw(const char* config_path,
         if (!ImGui::Begin("Settings##float", &open)) {
             ImGui::End();
             if (!open) g_detached = false;
+            ImGui::Dummy({0,0});
             return;
         }
         g_win_pos  = ImGui::GetWindowPos();
@@ -215,7 +216,7 @@ inline void Draw(const char* config_path,
     ImGui::SameLine();
     ImGui::TextDisabled("(перезапустити редактор для застосування шрифтів)");
 
-    if (g_detached) ImGui::End();
+    if (g_detached) { ImGui::End(); ImGui::Dummy({0,0}); }
 }
 
 } // namespace SettingsEditor

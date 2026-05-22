@@ -157,6 +157,7 @@ inline void Draw() {
         if (!ImGui::Begin("NPC Archetypes##float", &open)) {
             ImGui::End();
             if (!open) g_detached = false;
+            ImGui::Dummy({0,0});
             return;
         }
         g_win_pos  = ImGui::GetWindowPos();
@@ -278,7 +279,7 @@ inline void Draw() {
 
     ImGui::Columns(1);
 
-    if (g_detached) ImGui::End();
+    if (g_detached) { ImGui::End(); ImGui::Dummy({0,0}); }
 }
 
 } // namespace NpcArchetypeEditor

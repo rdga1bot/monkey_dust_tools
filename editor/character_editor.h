@@ -231,6 +231,7 @@ static void Draw() {
         if (!ImGui::Begin("Characters##float", &open)) {
             ImGui::End();
             if (!open) g_detached = false;
+            ImGui::Dummy({0,0});
             return;
         }
         g_win_pos  = ImGui::GetWindowPos();
@@ -391,7 +392,7 @@ static void Draw() {
 #endif
 
     ImGui::EndChild();
-    if (g_detached) ImGui::End();
+    if (g_detached) { ImGui::End(); ImGui::Dummy({0,0}); }
 }
 
 } // namespace CharacterEditor

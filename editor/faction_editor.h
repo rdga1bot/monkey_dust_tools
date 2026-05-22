@@ -118,6 +118,7 @@ inline bool Draw(const char* path) {
         if (!ImGui::Begin("Factions##float", &open)) {
             ImGui::End();
             if (!open) g_detached = false;
+            ImGui::Dummy({0,0});
             return saved;
         }
         g_win_pos  = ImGui::GetWindowPos();
@@ -229,7 +230,7 @@ inline bool Draw(const char* path) {
     }
 
     ImGui::EndChild();
-    if (g_detached) ImGui::End();
+    if (g_detached) { ImGui::End(); ImGui::Dummy({0,0}); }
     return saved;
 }
 
