@@ -38,6 +38,12 @@ static PropRenderer       s_props;
 static TerrainChunk       s_chunks[EDITOR_TNKN][EDITOR_TNKN];
 static bool               s_loaded = false;
 
+// Prop scatter state — rebuilt once per zone change when atlas is ready
+static constexpr int  PROPS_PER_CHUNK = 8;   // rocks per 500×500m chunk
+static float          s_prop_pos[PropRenderer::MAX_PROPS * 3] = {};
+static int            s_prop_count = 0;
+static bool           s_props_built = false;
+
 // Async loading state
 static std::atomic<bool>  s_atlas_ready{false};   // atlas + terrain renderer ready
 static std::atomic<int>   s_chunks_built{0};       // near chunks built so far (main thread)
@@ -66,6 +72,38 @@ static bool                s_ov_gpu_ready  = false;
 // Staging in BSS (~9.3 MB + 768 B; OS lazy-maps pages)
 static OvVtx    s_ov_stage[OV_TOTAL_V];
 static uint16_t s_ov_ibo_data[OV_IDX];
+
+// Build deterministic rock positions across the 7×7 near-zone viewport.
+// Uses LCG seeded per-chunk so positions are stable across camera moves.
+// Called once after atlas is ready; rebuilt when zone_ox/oz changes.
+static void s_build_prop_positions() {
+    s_prop_count = 0;
+    const int max = PropRenderer::MAX_PROPS;
+    for (int dz = 0; dz < EDITOR_TNKN && s_prop_count < max; ++dz) {
+        for (int dx = 0; dx < EDITOR_TNKN && s_prop_count < max; ++dx) {
+            int zx = s_zone_ox_saved + dx;
+            int zz = s_zone_oz_saved + dz;
+            // LCG seed from chunk coords — deterministic scatter
+            unsigned int rng = (unsigned int)(zx * 73856093u ^ zz * 19349663u ^ 2654435761u);
+            for (int p = 0; p < PROPS_PER_CHUNK && s_prop_count < max; ++p) {
+                rng = rng * 1664525u + 1013904223u;
+                float lx = (float)((rng >> 8) & 0xFFFF) / 65535.f * CHUNK_SIZE;
+                rng = rng * 1664525u + 1013904223u;
+                float lz = (float)((rng >> 8) & 0xFFFF) / 65535.f * CHUNK_SIZE;
+                float wx = zx * CHUNK_SIZE + lx;
+                float wz = zz * CHUNK_SIZE + lz;
+                // Atlas grid coords (0-63 per zone, atlas col/row in [0,64))
+                int col = (int)(lx / CHUNK_SIZE * 63.f);
+                int row = (int)(lz / CHUNK_SIZE * 63.f);
+                float wy = TerrainAtlas_GetHeight(zx, zz, col, row);
+                float* p3 = &s_prop_pos[s_prop_count * 3];
+                p3[0] = wx; p3[1] = wy; p3[2] = wz;
+                ++s_prop_count;
+            }
+        }
+    }
+    s_props_built = true;
+}
 
 static void s_load_zone_amplitudes(const char* cfg_path) {
     for (int i = 0; i < 64; ++i)
@@ -396,6 +434,7 @@ static bool Init(const char* hmap_path, const char* overlay_path,
         s_terrain.InitKenshiOverlay(op);
         s_terrain.InitPOM("game/data/terrain/pom_detail.png");
         s_atlas_ready = true;
+        s_build_prop_positions();  // scatter rocks across 7×7 viewport (GitHub #4)
         s_build_overview_cpu();
         s_ov_data_ready = true;
     });
@@ -573,11 +612,10 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt) {
                                          vp.m, sun,
                                          s_cx, s_cy, s_cz,
                                          6000.f, 2000.f, 1.f / 8000.f);
-            // GitHub #4: draw rock props over terrain if asset is loaded
-            if (s_props.IsReady()) {
-                float pos[3] = { s_cx, 0.f, s_cz };
-                const float* sun32 = &sun.dir[0]; // SunParams is 32B contiguous
-                s_props.DrawRaw(rp, cmd, pos, 1, vp.m, sun32);
+            // GitHub #4: draw scattered rock props over terrain
+            if (s_props.IsReady() && s_props_built && s_prop_count > 0) {
+                const float* sun32 = &sun.dir[0];
+                s_props.DrawRaw(rp, cmd, s_prop_pos, s_prop_count, vp.m, sun32);
             }
         }
         SDL_EndGPURenderPass(rp);
