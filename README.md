@@ -14,7 +14,9 @@ All tool names use the `md_` prefix (no proprietary asset branding in public rep
 ### `monkey_dust_editor` — Wicked-style Level Editor
 
 ImGui-based editor compiled into the engine binary via `MONKEY_DUST_EDITOR=ON`.
-Runs in a separate window with full SDL\_GPU rendering behind it.
+Runs as a standalone SDL\_GPU/Vulkan window (RD-3: migrated from OpenGL).
+Includes a **3D terrain viewport** (`editor_world_3d_sdlgpu.h`): 7×7 chunk terrain, async atlas load, RTT → ImGui::Image.
+`TerrainAtlas_SmoothBoundaries()` applied at startup (same zone-seam fix as the game).
 
 **14 panels:**
 
@@ -152,6 +154,7 @@ tools/
     editor_console.*   ← Log panel + Lua REPL
     editor_map_view.*  ← M9 map editor (FBO viewport + tile palette)
     editor_world_panel.h ← World tab: Zone/Faction/Town + map preview (KEN-5)
+    editor_world_3d_sdlgpu.h ← 3D terrain viewport (SDL_GPU, 7×7 chunks, async atlas load, RTT→ImGui)
     editor_*_panel.*   ← Specialist panels (ViewCone, FlowGraph, Director, GPU Profiler …)
     scene_serializer.h ← Import/Export scene JSON
     editor_game_context.h ← Callback bridge to game-side systems
