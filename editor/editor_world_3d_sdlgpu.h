@@ -13,6 +13,7 @@
 
 #include "imgui.h"
 #include <monkey_dust/render/terrain_renderer.h>
+#include <monkey_dust/render/prop_renderer.h>
 #include <monkey_dust/render/gpu_device.h>
 #include <monkey_dust/render/gpu_hal.h>
 #include <monkey_dust/world/terrain_gen.h>
@@ -33,6 +34,7 @@ static constexpr int   EDITOR_TNKN = 7;   // 7×7 near chunks = 3500×3500m (ful
 static constexpr float WORLD_HALF  = (EDITOR_TNKN * CHUNK_SIZE) * 0.5f;
 
 static TerrainRenderer    s_terrain;
+static PropRenderer       s_props;
 static TerrainChunk       s_chunks[EDITOR_TNKN][EDITOR_TNKN];
 static bool               s_loaded = false;
 
@@ -390,6 +392,7 @@ static bool Init(const char* hmap_path, const char* overlay_path,
         if (!s_terrain.Init()) {
             fprintf(stderr, "[W3D-SDLGPU] TerrainRenderer init failed\n"); return;
         }
+        s_props.Init("game/data/props/rocks/rock_01.glb"); // no-op if missing
         s_terrain.InitKenshiOverlay(op);
         s_terrain.InitPOM("game/data/terrain/pom_detail.png");
         s_atlas_ready = true;
@@ -570,6 +573,12 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt) {
                                          vp.m, sun,
                                          s_cx, s_cy, s_cz,
                                          6000.f, 2000.f, 1.f / 8000.f);
+            // GitHub #4: draw rock props over terrain if asset is loaded
+            if (s_props.IsReady()) {
+                float pos[3] = { s_cx, 0.f, s_cz };
+                const float* sun32 = &sun.dir[0]; // SunParams is 32B contiguous
+                s_props.DrawRaw(rp, cmd, pos, 1, vp.m, sun32);
+            }
         }
         SDL_EndGPURenderPass(rp);
     }
