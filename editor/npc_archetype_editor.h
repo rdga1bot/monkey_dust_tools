@@ -36,7 +36,9 @@ static NpcArchetypeDef g_archs[MAX_ARCHETYPES];
 static int             g_count = 0;
 static int             g_sel   = -1;
 static bool            g_dirty    = false;
-static bool            g_detached = false;   // true = floating window
+static bool            g_detached = false;
+static ImVec2          g_win_pos  = {80.f, 60.f};
+static ImVec2          g_win_size = {660.f, 540.f};
 static char            g_path[256] = "game/data/defs/npc_archetypes.json";
 
 // ── strstr helpers ──────────────────────────────────────────────────────────
@@ -149,15 +151,16 @@ inline void Draw() {
     static const char* armor_names[]  = { "None", "Leather", "Chain", "Plate" };
 
     if (g_detached) {
-        ImGui::SetNextWindowSize(ImVec2(660, 540), ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowPos(ImVec2(80, 60),    ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowBgAlpha(0.96f);
+        ImGui::SetNextWindowPos(g_win_pos,   ImGuiCond_Appearing);
+        ImGui::SetNextWindowSize(g_win_size, ImGuiCond_Appearing);
         bool open = true;
         if (!ImGui::Begin("NPC Archetypes##float", &open)) {
             ImGui::End();
             if (!open) g_detached = false;
             return;
         }
+        g_win_pos  = ImGui::GetWindowPos();
+        g_win_size = ImGui::GetWindowSize();
     }
 
     // ── Toolbar ──────────────────────────────────────────────────────────

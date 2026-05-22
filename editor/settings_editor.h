@@ -25,6 +25,9 @@ static Config g_cfg = {
     {"data/fonts/Arimo-Bold.ttf",    16},
     {"data/fonts/UbuntuMono-R.ttf",  14},
 };
+static bool   g_detached = false;
+static ImVec2 g_win_pos  = {180.f, 100.f};
+static ImVec2 g_win_size = {560.f, 380.f};
 
 // ── Load / Save ───────────────────────────────────────────
 
@@ -99,6 +102,30 @@ inline void ScanFonts() {
 inline void Draw(const char* config_path,
                  char* status_msg, float* status_timer)
 {
+    if (g_detached) {
+        ImGui::SetNextWindowPos(g_win_pos,   ImGuiCond_Appearing);
+        ImGui::SetNextWindowSize(g_win_size, ImGuiCond_Appearing);
+        bool open = true;
+        if (!ImGui::Begin("Settings##float", &open)) {
+            ImGui::End();
+            if (!open) g_detached = false;
+            return;
+        }
+        g_win_pos  = ImGui::GetWindowPos();
+        g_win_size = ImGui::GetWindowSize();
+    }
+
+    // Detach / Dock button (right-aligned)
+    {
+        const char* lbl = g_detached ? "Dock##set" : "Detach##set";
+        float btn_w = ImGui::CalcTextSize(lbl).x + ImGui::GetStyle().FramePadding.x * 2.f;
+        ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - btn_w);
+        ImGui::PushStyleColor(ImGuiCol_Button,
+            g_detached ? ImVec4(0.25f,0.45f,0.65f,1.f) : ImVec4(0.18f,0.18f,0.28f,1.f));
+        if (ImGui::Button(lbl)) g_detached = !g_detached;
+        ImGui::PopStyleColor();
+    }
+
     ScanFonts();
     const float MARGIN = 12.0f;
 
@@ -187,6 +214,8 @@ inline void Draw(const char* config_path,
 
     ImGui::SameLine();
     ImGui::TextDisabled("(перезапустити редактор для застосування шрифтів)");
+
+    if (g_detached) ImGui::End();
 }
 
 } // namespace SettingsEditor

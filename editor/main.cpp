@@ -16,6 +16,7 @@
 #include "character_editor.h"
 #include "npc_archetype_editor.h"
 #include "editor_map_view.h"
+#include "editor_layout.h"
 #include <cstdio>
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -23,7 +24,8 @@
 // Tabs: Items | Factions | NPCs | World | 3D World | Characters | Settings
 // ──────────────────────────────────────────────────────────────────────────────
 
-static constexpr const char* CFG_PATH = "data/editor_config.json";
+static constexpr const char* CFG_PATH    = "data/editor_config.json";
+static constexpr const char* LAYOUT_PATH = "data/editor_layout.json";
 
 int main(void) {
     // ── Window ────────────────────────────────────────────────────────────────
@@ -87,6 +89,23 @@ int main(void) {
     CharacterEditor::LoadJSON("game/data/chars/player.chardef");
     CharacterEditor::LoadMorphNames("game/data/chars/morph_names.txt");
     MapViewPanel::Get().Init();
+
+    // Restore panel detach/position state from previous session
+    {
+        using P = EditorLayout::Panel;
+        P pi = {ItemEditor::g_detached,      ItemEditor::g_win_pos,      ItemEditor::g_win_size};
+        P pf = {FactionEditor::g_detached,   FactionEditor::g_win_pos,   FactionEditor::g_win_size};
+        P pn = {NpcArchetypeEditor::g_detached, NpcArchetypeEditor::g_win_pos, NpcArchetypeEditor::g_win_size};
+        P pc = {CharacterEditor::g_detached, CharacterEditor::g_win_pos, CharacterEditor::g_win_size};
+        P ps = {SettingsEditor::g_detached,  SettingsEditor::g_win_pos,  SettingsEditor::g_win_size};
+        if (EditorLayout::Load(LAYOUT_PATH, pi, pf, pn, pc, ps)) {
+            ItemEditor::g_detached         = pi.detached; ItemEditor::g_win_pos         = pi.pos; ItemEditor::g_win_size         = pi.size;
+            FactionEditor::g_detached      = pf.detached; FactionEditor::g_win_pos      = pf.pos; FactionEditor::g_win_size      = pf.size;
+            NpcArchetypeEditor::g_detached = pn.detached; NpcArchetypeEditor::g_win_pos = pn.pos; NpcArchetypeEditor::g_win_size = pn.size;
+            CharacterEditor::g_detached    = pc.detached; CharacterEditor::g_win_pos    = pc.pos; CharacterEditor::g_win_size    = pc.size;
+            SettingsEditor::g_detached     = ps.detached; SettingsEditor::g_win_pos     = ps.pos; SettingsEditor::g_win_size     = ps.size;
+        }
+    }
 
     SDL_FlushEvent(SDL_EVENT_QUIT);
 
@@ -266,6 +285,14 @@ int main(void) {
         }
         window_end_frame();
     }
+
+    // Save panel layout before shutdown
+    EditorLayout::Save(LAYOUT_PATH,
+        {ItemEditor::g_detached,         ItemEditor::g_win_pos,         ItemEditor::g_win_size},
+        {FactionEditor::g_detached,      FactionEditor::g_win_pos,      FactionEditor::g_win_size},
+        {NpcArchetypeEditor::g_detached, NpcArchetypeEditor::g_win_pos, NpcArchetypeEditor::g_win_size},
+        {CharacterEditor::g_detached,    CharacterEditor::g_win_pos,    CharacterEditor::g_win_size},
+        {SettingsEditor::g_detached,     SettingsEditor::g_win_pos,     SettingsEditor::g_win_size});
 
     ImGui_ImplSDLGPU3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
