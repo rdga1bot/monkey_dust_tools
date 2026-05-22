@@ -35,7 +35,8 @@ static constexpr int MAX_ARCHETYPES = 64;
 static NpcArchetypeDef g_archs[MAX_ARCHETYPES];
 static int             g_count = 0;
 static int             g_sel   = -1;
-static bool            g_dirty = false;
+static bool            g_dirty    = false;
+static bool            g_detached = false;   // true = floating window
 static char            g_path[256] = "game/data/defs/npc_archetypes.json";
 
 // ── strstr helpers ──────────────────────────────────────────────────────────
@@ -142,12 +143,39 @@ inline bool Save(const char* path) {
 }
 
 
-// ── Draw — inline in tab, no own window (matches Items/Factions layout) ───
+// ── Draw — inline or floating depending on g_detached ─────────────────────
 inline void Draw() {
     static const char* weapon_names[] = { "Blunt", "Cut", "Pierce" };
     static const char* armor_names[]  = { "None", "Leather", "Chain", "Plate" };
 
+    if (g_detached) {
+        ImGui::SetNextWindowSize(ImVec2(660, 540), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowPos(ImVec2(80, 60),    ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowBgAlpha(0.96f);
+        bool open = true;
+        if (!ImGui::Begin("NPC Archetypes##float", &open)) {
+            ImGui::End();
+            if (!open) g_detached = false;
+            return;
+        }
+    }
+
     // ── Toolbar ──────────────────────────────────────────────────────────
+    // Detach / Dock button (right-aligned)
+    {
+        const char* lbl = g_detached ? "[ Dock ]" : "[ Detach ]";
+        float btn_w = ImGui::CalcTextSize(lbl).x + 16.f;
+        float avail = ImGui::GetContentRegionAvail().x;
+        ImGui::SameLine(avail - btn_w + 8.f);
+        ImGui::PushStyleColor(ImGuiCol_Button,
+            g_detached ? ImVec4(0.25f,0.45f,0.65f,1.f)
+                       : ImVec4(0.18f,0.18f,0.25f,1.f));
+        if (ImGui::Button(lbl)) g_detached = !g_detached;
+        ImGui::PopStyleColor();
+        ImGui::SameLine(8.f);  // reset cursor to left for remaining buttons
+        ImGui::NewLine();
+        ImGui::SameLine(8.f);
+    }
     if (ImGui::Button("+ New")) {
         if (g_count < MAX_ARCHETYPES) {
             auto& d = g_archs[g_count];
@@ -250,6 +278,8 @@ inline void Draw() {
     }
 
     ImGui::Columns(1);
+
+    if (g_detached) ImGui::End();
 }
 
 } // namespace NpcArchetypeEditor
