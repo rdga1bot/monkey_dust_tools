@@ -1,5 +1,4 @@
 #pragma once
-#ifdef MONKEY_DUST_EDITOR
 #include "imgui.h"
 #include "editor_core.h"
 #include <monkey_dust/ecs/registry.h>
@@ -306,4 +305,3 @@ inline void Draw() {
 }
 
 } // namespace NpcArchetypeEditor
-#endif // MONKEY_DUST_EDITOR
