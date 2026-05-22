@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
+#include <dirent.h>
 
 // ─────────────────────────────────────────────────────────
 // SettingsEditor — вкладка налаштувань (ImGui).
@@ -76,57 +77,100 @@ inline bool Save(const char* path) {
     return true;
 }
 
+// ── Font file scanner (data/fonts/*.ttf, lazy, one-shot) ──
+static char s_fnames[32][64] = {};
+static int  s_fcount = 0;
+
+inline void ScanFonts() {
+    if (s_fcount > 0) return;
+    DIR* d = opendir("data/fonts");
+    if (!d) return;
+    struct dirent* e;
+    while ((e = readdir(d)) && s_fcount < 32) {
+        const char* n = e->d_name;
+        int len = (int)strlen(n);
+        if (len > 4 && strcmp(n + len - 4, ".ttf") == 0)
+            strncpy(s_fnames[s_fcount++], n, 63);
+    }
+    closedir(d);
+}
+
 // ── Draw ──────────────────────────────────────────────────
 inline void Draw(const char* config_path,
                  char* status_msg, float* status_timer)
 {
-    ImGui::Spacing();
-
-    // ── Label font ────────────────────────────────────────
-    if (EditorUI::font_bold) ImGui::PushFont(EditorUI::font_bold);
-    ImGui::SeparatorText("Label font  (мітки, кнопки)");
-    if (EditorUI::font_bold) ImGui::PopFont();
-
-    ImGui::SetNextItemWidth(-120);
-    ImGui::InputText("##label_path", g_cfg.label.path, 255);
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(60);
-    ImGui::InputInt("px##ls", &g_cfg.label.size, 0);
-    if (g_cfg.label.size < 6) g_cfg.label.size = 6;
+    ScanFonts();
+    const float MARGIN = 12.0f;
 
     ImGui::Spacing();
-
-    // ── Header font ───────────────────────────────────────
-    if (EditorUI::font_bold) ImGui::PushFont(EditorUI::font_bold);
-    ImGui::SeparatorText("Header font  (заголовки — Bold)");
-    if (EditorUI::font_bold) ImGui::PopFont();
-
-    ImGui::SetNextItemWidth(-120);
-    ImGui::InputText("##header_path", g_cfg.header.path, 255);
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(60);
-    ImGui::InputInt("px##hs", &g_cfg.header.size, 0);
-    if (g_cfg.header.size < 6) g_cfg.header.size = 6;
-
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + MARGIN);
+    ImGui::SeparatorText("Fonts");
     ImGui::Spacing();
 
-    // ── Mono font ─────────────────────────────────────────
-    if (EditorUI::font_bold) ImGui::PushFont(EditorUI::font_bold);
-    ImGui::SeparatorText("Mono font  (InputText, числа)");
-    if (EditorUI::font_bold) ImGui::PopFont();
+    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, {8.0f, 2.0f});
 
-    ImGui::SetNextItemWidth(-120);
-    ImGui::InputText("##mono_path", g_cfg.mono.path, 255);
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(60);
-    ImGui::InputInt("px##ms", &g_cfg.mono.size, 0);
-    if (g_cfg.mono.size < 6) g_cfg.mono.size = 6;
+    constexpr ImGuiTableFlags tflags =
+        ImGuiTableFlags_BordersInnerV |
+        ImGuiTableFlags_SizingFixedFit;
+
+    // indent both sides
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + MARGIN);
+    float tbl_width = ImGui::GetContentRegionAvail().x - MARGIN * 2.0f;
+
+    if (ImGui::BeginTable("##font_tbl", 3, tflags, {tbl_width, 0})) {
+        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed,   90.0f);
+        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed,   58.0f);
+
+        struct Row { const char* label; char* path; int* size; const char* id_path; const char* id_size; };
+        Row rows[3] = {
+            { "Label",  g_cfg.label.path,  &g_cfg.label.size,  "##lp", "##ls" },
+            { "Header", g_cfg.header.path, &g_cfg.header.size, "##hp", "##hs" },
+            { "Mono",   g_cfg.mono.path,   &g_cfg.mono.size,   "##mp", "##ms" },
+        };
+
+        for (auto& r : rows) {
+            ImGui::TableNextRow();
+
+            ImGui::TableSetColumnIndex(0);
+            ImGui::AlignTextToFramePadding();
+            float lw = ImGui::CalcTextSize(r.label).x;
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() +
+                                 ImGui::GetContentRegionAvail().x - lw);
+            ImGui::TextUnformatted(r.label);
+
+            ImGui::TableSetColumnIndex(1);
+            ImGui::SetNextItemWidth(-1.0f);
+            {
+                const char* preview = strrchr(r.path, '/');
+                preview = preview ? preview + 1 : r.path;
+                if (ImGui::BeginCombo(r.id_path, preview)) {
+                    for (int fi = 0; fi < s_fcount; fi++) {
+                        bool sel = strcmp(s_fnames[fi], preview) == 0;
+                        if (ImGui::Selectable(s_fnames[fi], sel))
+                            snprintf(r.path, 256, "data/fonts/%s", s_fnames[fi]);
+                        if (sel) ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
+            }
+
+            ImGui::TableSetColumnIndex(2);
+            ImGui::SetNextItemWidth(-1.0f);
+            ImGui::InputInt(r.id_size, r.size, 0);
+            if (*r.size < 6) *r.size = 6;
+        }
+
+        ImGui::EndTable();
+    }
+
+    ImGui::PopStyleVar(); // CellPadding
 
     ImGui::Spacing();
-    ImGui::Separator();
     ImGui::Spacing();
 
     // ── Save ──────────────────────────────────────────────
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + MARGIN);
     ImGui::PushStyleColor(ImGuiCol_Button,        {0.14f, 0.43f, 0.22f, 1.0f});
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {0.20f, 0.58f, 0.30f, 1.0f});
     ImGui::PushStyleColor(ImGuiCol_ButtonActive,  {0.10f, 0.32f, 0.16f, 1.0f});
@@ -143,17 +187,6 @@ inline void Draw(const char* config_path,
 
     ImGui::SameLine();
     ImGui::TextDisabled("(перезапустити редактор для застосування шрифтів)");
-
-    // ── Current fonts info ────────────────────────────────
-    ImGui::Spacing();
-    ImGui::Spacing();
-    if (EditorUI::font_bold) ImGui::PushFont(EditorUI::font_bold);
-    ImGui::SeparatorText("Активні шрифти");
-    if (EditorUI::font_bold) ImGui::PopFont();
-
-    ImGui::TextDisabled("Label:  %s  %dpx", g_cfg.label.path,  g_cfg.label.size);
-    ImGui::TextDisabled("Header: %s  %dpx", g_cfg.header.path, g_cfg.header.size);
-    ImGui::TextDisabled("Mono:   %s  %dpx", g_cfg.mono.path,   g_cfg.mono.size);
 }
 
 } // namespace SettingsEditor

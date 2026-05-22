@@ -7,11 +7,17 @@
 #  define MD_KENSHI_TMP "/home/rdga1/rdga1prj/monkeydust/tmp_/kenshi"
 #endif
 
-#ifndef GLAD_H_INCLUDED
-#include "../../engine/src/vendor/glad.h"
+#ifndef MD_SDL_GPU
+#  ifndef GLAD_H_INCLUDED
+#    include "../../engine/src/vendor/glad.h"
+#  endif
+#else
+#  include <monkey_dust/render/gpu_device.h>
+#  include <monkey_dust/render/gpu_hal.h>
 #endif
 #include "editor_ui.h"
 #include <stb_image.h>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
@@ -54,7 +60,12 @@ static char  g_search[64]   = {};
 static char  g_status[80]   = {};
 static float g_status_t     = 0.f;
 
-static GLuint g_maptex      = 0;
+#ifndef MD_SDL_GPU
+static unsigned int    g_maptex = 0;
+#else
+static GpuTexture      g_maptex_gpu;
+static SDL_GPUTexture* g_maptex = nullptr;
+#endif
 static int    g_mapw = 0, g_maph = 0;
 static bool   g_map_tried   = false;
 
@@ -232,6 +243,7 @@ inline bool SaveTowns(const char* path = "game/data/towns.cfg") {
 
 inline void LoadMapTex() {
     if (g_map_tried) return; g_map_tried = true;
+#ifndef MD_SDL_GPU
     int ch; unsigned char* px = stbi_load("game/data/textures/world_map.png", &g_mapw, &g_maph, &ch, 4);
     if (!px) return;
     glGenTextures(1, &g_maptex);
@@ -240,6 +252,19 @@ inline void LoadMapTex() {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, g_mapw, g_maph, 0, GL_RGBA, GL_UNSIGNED_BYTE, px);
     stbi_image_free(px);
+#else
+    int ch;
+    unsigned char* px = stbi_load("game/data/textures/world_map.png", &g_mapw, &g_maph, &ch, 4);
+    if (!px) return;
+    GpuSamplerDesc sd;
+    sd.min_filter = GpuSamplerDesc::Filter::LINEAR;
+    sd.mag_filter = GpuSamplerDesc::Filter::LINEAR;
+    sd.wrap_s = GpuSamplerDesc::Wrap::CLAMP_TO_EDGE;
+    sd.wrap_t = GpuSamplerDesc::Wrap::CLAMP_TO_EDGE;
+    if (g_maptex_gpu.InitFromMemory(px, g_mapw, g_maph, sd))
+        g_maptex = g_maptex_gpu.SDLTexture();
+    stbi_image_free(px);
+#endif
 }
 
 // ─── Helper: zone grid pos → [0,1] on map (same formula as PinScreenRect) ────
@@ -539,7 +564,9 @@ inline void Draw(float dt) {
     ImGui::Separator();
     if (ImGui::Button("Reload All", {-1.f,0.f})) {
         g_map_tried = false;
+#ifndef MD_SDL_GPU
         if (g_maptex) { glDeleteTextures(1, &g_maptex); g_maptex = 0; }
+#endif
         Init(); LoadMapTex();
         snprintf(g_status, sizeof(g_status), "Reloaded.");
         g_status_t = 2.f;

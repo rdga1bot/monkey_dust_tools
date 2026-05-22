@@ -1,5 +1,7 @@
 #include "editor_map_view.h"
-#include "glad.h"
+#ifndef MD_SDL_GPU
+#  include "glad.h"
+#endif
 #include "imgui.h"
 #include <monkey_dust/flare/tile_map.h>
 #include <monkey_dust/render/md_texture.h>
@@ -8,10 +10,11 @@
 #include <cmath>
 #include <initializer_list>
 
-// ── FBO management ────────────────────────────────────────────────────────────
+// ── RTT management ────────────────────────────────────────────────────────────
 
 void MapViewPanel::EnsureRT(int w, int h) {
     if (rt_ok_ && rt_w_ == w && rt_h_ == h) return;
+#ifndef MD_SDL_GPU
     if (rt_fbo_) {
         glDeleteFramebuffers(1, &rt_fbo_);
         glDeleteTextures(1, &rt_tex_);
@@ -37,7 +40,28 @@ void MapViewPanel::EnsureRT(int w, int h) {
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, rt_depth_);
     rt_ok_ = (glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+#else
+    SDL_GPUDevice* dev = md::GpuDevice::Get().SDLDevice();
+    if (rt_color_) { SDL_ReleaseGPUTexture(dev, rt_color_); rt_color_ = nullptr; }
+    if (rt_depth_) { SDL_ReleaseGPUTexture(dev, rt_depth_); rt_depth_ = nullptr; }
 
+    SDL_GPUTextureCreateInfo ci = {};
+    ci.type   = SDL_GPU_TEXTURETYPE_2D;
+    ci.width  = (uint32_t)w;
+    ci.height = (uint32_t)h;
+    ci.layer_count_or_depth = 1;
+    ci.num_levels = 1;
+    ci.sample_count = SDL_GPU_SAMPLECOUNT_1;
+    ci.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+    ci.usage  = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+    rt_color_ = SDL_CreateGPUTexture(dev, &ci);
+
+    ci.format = SDL_GPU_TEXTUREFORMAT_D24_UNORM;
+    ci.usage  = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
+    rt_depth_ = SDL_CreateGPUTexture(dev, &ci);
+
+    rt_ok_ = (rt_color_ != nullptr && rt_depth_ != nullptr);
+#endif
     rt_w_ = w;
     rt_h_ = h;
 }
@@ -53,16 +77,42 @@ void MapViewPanel::Init() {
 
 void MapViewPanel::Shutdown() {
     if (!init_) return;
+#ifndef MD_SDL_GPU
     if (rt_fbo_) {
         glDeleteFramebuffers(1, &rt_fbo_);
         glDeleteTextures(1, &rt_tex_);
         glDeleteRenderbuffers(1, &rt_depth_);
         rt_fbo_ = rt_tex_ = rt_depth_ = 0;
-        rt_ok_ = false;
     }
+#else
+    SDL_GPUDevice* dev = md::GpuDevice::Get().SDLDevice();
+    if (rt_color_) { SDL_ReleaseGPUTexture(dev, rt_color_); rt_color_ = nullptr; }
+    if (rt_depth_) { SDL_ReleaseGPUTexture(dev, rt_depth_); rt_depth_ = nullptr; }
+#endif
+    rt_ok_ = false;
     md::flare::TileMap2DRenderer::Get().Shutdown();
     init_ = false;
 }
+
+// ── SDL_GPU: render tile map to RTT (called from main.cpp before ImGui) ───────
+
+#ifdef MD_SDL_GPU
+void MapViewPanel::RenderFrame(SDL_GPUCommandBuffer* cmd) {
+    if (!init_ || !loaded_ || !rt_ok_ || !rt_color_) return;
+    SDL_GPUColorTargetInfo ct = {};
+    ct.texture   = rt_color_;
+    ct.load_op   = SDL_GPU_LOADOP_CLEAR;
+    ct.store_op  = SDL_GPU_STOREOP_STORE;
+    ct.clear_color = { 20/255.f, 20/255.f, 30/255.f, 1.f };
+    SDL_GPURenderPass* rp = SDL_BeginGPURenderPass(cmd, &ct, 1, nullptr);
+    if (rp) SDL_EndGPURenderPass(rp);
+    md::flare::TileMap2DRenderer::Get().RenderToTarget(
+        map_, now_s_,
+        origin_x_, origin_y_, scale_,
+        rt_w_, rt_h_, LayerMask(),
+        cmd, rt_color_);
+}
+#endif
 
 // ── Map loading ───────────────────────────────────────────────────────────────
 
@@ -689,13 +739,19 @@ void MapViewPanel::DrawPalette() {
     for (int i = 0; i < meta.count; i++) {
         const auto& m = meta.entries[i];
         MdTexture atlas = r2d.GetAtlas(m.atlas_idx);
+#ifndef MD_SDL_GPU
         if (!atlas.id || atlas.w <= 0 || atlas.h <= 0) continue;
+        ImTextureID atlas_imgui = (ImTextureID)(intptr_t)atlas.id;
+#else
+        if (!atlas.sdl_tex || atlas.w <= 0 || atlas.h <= 0) continue;
+        ImTextureID atlas_imgui = (ImTextureID)atlas.sdl_tex;
+#endif
 
         float scale = fminf(THUMB_W / (float)m.w, THUMB_H / (float)m.h);
         float tw    = (float)m.w * scale;
         float th    = (float)m.h * scale;
 
-        // UV: stbi flip active → v_gl = 1 - y_file/H
+        // UV: stbi flip active (both GL and SDL_GPU path) → v = 1 - y_file/H
         float u0 = (float)m.src_x / (float)atlas.w;
         float v0 = 1.0f - (float)m.src_y / (float)atlas.h;
         float u1 = (float)(m.src_x + m.w) / (float)atlas.w;
@@ -706,7 +762,7 @@ void MapViewPanel::DrawPalette() {
 
         ImGui::PushID(i);
         if (ImGui::ImageButton("##t",
-                               (ImTextureID)(intptr_t)atlas.id,
+                               atlas_imgui,
                                ImVec2(tw, th),
                                ImVec2(u0, v0), ImVec2(u1, v1))) {
             sel_tile_id_ = m.tile_id;
@@ -821,10 +877,10 @@ void MapViewPanel::Draw(float dt) {
     if (need_reset_) { ResetView(vp_w, vp_h); need_reset_ = false; }
 
     now_s_ += dt;
+#ifndef MD_SDL_GPU
     if (loaded_ && rt_ok_) {
         int vp_save[4];
         glGetIntegerv(GL_VIEWPORT, vp_save);
-
         glBindFramebuffer(GL_FRAMEBUFFER, rt_fbo_);
         glViewport(0, 0, rt_w_, rt_h_);
         glClearColor(20/255.f, 20/255.f, 30/255.f, 1.0f);
@@ -834,14 +890,23 @@ void MapViewPanel::Draw(float dt) {
             origin_x_, origin_y_, scale_,
             vp_w, vp_h, LayerMask());
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
         glViewport(vp_save[0], vp_save[1], vp_save[2], vp_save[3]);
     }
-
     ImGui::Image(
         (ImTextureID)(intptr_t)(rt_ok_ ? rt_tex_ : 0u),
         ImVec2((float)vp_w, (float)vp_h),
         ImVec2(0, 1), ImVec2(1, 0));
+#else
+    // SDL_GPU: tile map was already rendered to rt_color_ in RenderFrame().
+    // Display the RTT; tile animation time is accumulated here.
+    if (rt_ok_ && rt_color_)
+        ImGui::GetWindowDrawList()->AddImage(
+            (ImTextureID)rt_color_, img_pos, {img_pos.x + vp_w, img_pos.y + vp_h});
+    else
+        ImGui::GetWindowDrawList()->AddRectFilled(
+            img_pos, {img_pos.x + vp_w, img_pos.y + vp_h}, IM_COL32(20,20,30,255));
+    ImGui::Dummy(ImVec2((float)vp_w, (float)vp_h));
+#endif
 
     bool hovered = ImGui::IsItemHovered();
     ImVec2 mouse_abs = ImGui::GetIO().MousePos;

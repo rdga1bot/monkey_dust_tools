@@ -4,47 +4,71 @@ project(monkey_dust_tools CXX)
 find_package(SDL3 REQUIRED CONFIG)
 
 # ── monkey_dust_editor ────────────────────────────────────
-# Standalone JSON + map editor. UI: Dear ImGui via imgui_impl_sdl3/opengl3.
+# Standalone 3D editor. UI: Dear ImGui via imgui_impl_sdl3/sdlgpu3 (SDL_GPU=Vulkan).
+# Same backend as the game — enables full TerrainRenderer/PropRenderer reuse.
+
+# editor_map_view.cpp is the first ported panel (SDL_GPU RTT tile map).
+set(EDITOR_PANEL_SOURCES
+    editor/editor_map_view.cpp
+)
+
 set(EDITOR_IMGUI_SRC
     ${CMAKE_SOURCE_DIR}/third_party/imgui/imgui.cpp
     ${CMAKE_SOURCE_DIR}/third_party/imgui/imgui_draw.cpp
     ${CMAKE_SOURCE_DIR}/third_party/imgui/imgui_tables.cpp
     ${CMAKE_SOURCE_DIR}/third_party/imgui/imgui_widgets.cpp
     ${CMAKE_SOURCE_DIR}/third_party/imgui/backends/imgui_impl_sdl3.cpp
-    ${CMAKE_SOURCE_DIR}/third_party/imgui/backends/imgui_impl_opengl3.cpp
+    ${CMAKE_SOURCE_DIR}/third_party/imgui/backends/imgui_impl_sdlgpu3.cpp
 )
 
 add_executable(monkey_dust_editor
     editor/main.cpp
-    editor/editor_map_view.cpp
+    ${EDITOR_PANEL_SOURCES}
     ${EDITOR_IMGUI_SRC}
-    ${CMAKE_SOURCE_DIR}/engine/src/vendor/glad_impl.cpp
+    ${CMAKE_SOURCE_DIR}/engine/src/vendor/glad_impl.cpp    # satisfies engine lib GL refs (never called in SDL_GPU mode)
     ${CMAKE_SOURCE_DIR}/engine/src/vendor/stb_image_impl.cpp
+    ${CMAKE_SOURCE_DIR}/engine/src/render/cgltf_impl.cpp
+    ${CMAKE_SOURCE_DIR}/game/src/world/character_def.cpp
+    # Third-party panels
+    ${CMAKE_SOURCE_DIR}/third_party/imnodes/imnodes.cpp
+    ${CMAKE_SOURCE_DIR}/third_party/ImGuiColorTextEdit/TextEditor.cpp
+    ${CMAKE_SOURCE_DIR}/third_party/imgui-flame-graph/imgui_widget_flamegraph.cpp
+    ${CMAKE_SOURCE_DIR}/third_party/imguizmo/src/ImSequencer.cpp
+    ${CMAKE_SOURCE_DIR}/third_party/imguizmo/src/ImGradient.cpp
+    ${CMAKE_SOURCE_DIR}/third_party/imgui-node-editor/imgui_node_editor.cpp
+    ${CMAKE_SOURCE_DIR}/third_party/imgui-node-editor/imgui_node_editor_api.cpp
+    ${CMAKE_SOURCE_DIR}/third_party/imgui-node-editor/imgui_canvas.cpp
+    ${CMAKE_SOURCE_DIR}/third_party/imgui-node-editor/crude_json.cpp
 )
 target_compile_definitions(monkey_dust_editor PRIVATE
     MONKEY_DUST_STANDALONE_EDITOR
+    MONKEY_DUST_EDITOR
+    MD_SDL_GPU
     USE_SDL3
-    IMGUI_IMPL_OPENGL_LOADER_CUSTOM)
-# The engine lib propagates MD_SDL_GPU=PUBLIC (Vulkan-only path).
-# The standalone editor uses OpenGL, not SDL_GPU — undefine it so window.h creates a GL context.
-# Force-include glad.h so GL function pointers are available in imgui_impl_opengl3.cpp
-# (IMGUI_IMPL_OPENGL_LOADER_CUSTOM disables ImGui's internal loader; we use glad2 instead)
-target_compile_options(monkey_dust_editor PRIVATE
-    -UMD_SDL_GPU
-    "-include${CMAKE_SOURCE_DIR}/engine/src/vendor/glad.h")
+    IMGUI_DEFINE_MATH_OPERATORS
+)
 target_link_libraries(monkey_dust_editor PRIVATE
     monkey_dust::engine
-    Recast Detour
+    Recast Detour DetourCrowd
     SDL3::SDL3
 )
 target_include_directories(monkey_dust_editor PRIVATE
     editor/
     ${CMAKE_SOURCE_DIR}/third_party/imgui
     ${CMAKE_SOURCE_DIR}/third_party/imgui/backends
+    ${CMAKE_SOURCE_DIR}/third_party/imgui-node-editor
+    ${CMAKE_SOURCE_DIR}/third_party/ImGuiColorTextEdit
+    ${CMAKE_SOURCE_DIR}/third_party/imnodes
+    ${CMAKE_SOURCE_DIR}/third_party/imguizmo/src
+    ${CMAKE_SOURCE_DIR}/third_party/imgui-flame-graph
     ${CMAKE_SOURCE_DIR}/third_party/recastnavigation/Recast/Include
     ${CMAKE_SOURCE_DIR}/third_party/recastnavigation/Detour/Include
+    ${CMAKE_SOURCE_DIR}/third_party/recastnavigation/DetourCrowd/Include
     ${CMAKE_SOURCE_DIR}/engine/src/vendor
+    ${CMAKE_SOURCE_DIR}/engine/src/render
+    ${CMAKE_SOURCE_DIR}/game/src
 )
+# (third-party sources already added above)
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     target_compile_options(monkey_dust_editor PRIVATE -O2 -march=native)
 endif()

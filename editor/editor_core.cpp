@@ -16,6 +16,7 @@
 #include "editor_node_graph.h"
 #include "editor_sequencer_panel.h"
 #include "editor_terrain_panel.h"
+#include "character_editor.h"
 #include <monkey_dust/world/world_transform.h>
 #include <monkey_dust/platform/input.h>
 #include <cmath>
@@ -26,6 +27,8 @@ static constexpr float DEG2R = 3.14159265f / 180.f;
 void EditorCore::Init() {
     EditorConsole::Get().Init();
     EditorNodeGraphPanel::Get().Init();
+    CharacterEditor::LoadJSON("game/data/chars/player.chardef");
+    CharacterEditor::LoadMorphNames("game/data/chars/morph_names.txt");
     for (int i = 0; i < MAX_SELECTED; ++i)
         selected[i] = entt::null;
 
@@ -52,6 +55,7 @@ void EditorCore::Update(float dt) {
     EditorNodeGraphPanel::Get().Draw();
     EditorSequencerPanel::Get().Draw();
     EditorTerrainPanel::Get().Draw(dt);
+    CharacterEditor::Draw();
 }
 
 void EditorCore::Shutdown() {
