@@ -1,19 +1,13 @@
 #pragma once
+// NpcArchetypeEditor — standalone data editor (Load/Save/Draw only).
+// Spawning requires EditorCore: use SpawnFromArchetype() in npc_archetype_spawn.h
+// (in-game editor only, not compiled into monkey_dust_editor standalone tool).
 #include "imgui.h"
-#include "editor_core.h"
-#include <monkey_dust/ecs/registry.h>
-#include <monkey_dust/world/world_transform.h>
-#include <monkey_dust/world/transform_soa.h>
-#include <monkey_dust/components/health.h>
-#include <monkey_dust/components/ai_agent.h>
-#include <monkey_dust/components/combat.h>
-#include <monkey_dust/components/renderable.h>
-#include <monkey_dust/components/stat_sheet.h>
-#include <monkey_dust/components/nav_agent.h>
 #include <monkey_dust/platform/md_log.h>
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
+#include <cstdint>
 
 // ── NpcArchetypeDef ────────────────────────────────────────────────────────────
 struct NpcArchetypeDef {
@@ -147,43 +141,6 @@ inline bool Save(const char* path) {
     return true;
 }
 
-// ── Spawn entity from archetype ─────────────────────────────────────────────
-inline void SpawnFromArch(int idx) {
-    if (idx < 0 || idx >= g_count) return;
-    const auto& d = g_archs[idx];
-    auto& reg = Registry::Get();
-    auto& ec  = EditorCore::Get();
-    auto  e   = reg.create();
-
-    auto& tr  = reg.emplace<WorldTransform>(e);
-    tr.x = ec.cam_target.x; tr.y = 0.f; tr.z = ec.cam_target.z; tr.rot_y = 0.f;
-    tr.slot = TransformSoA::Get().Alloc(e, tr.x, tr.z, (uint8_t)d.faction_id);
-
-    auto& ai = reg.emplace<AIAgent>(e);
-    ai.faction_id = d.faction_id;
-    ai.lod_level  = d.lod_level;
-
-    reg.emplace<Health>(e) = LimbHealth::Make(d.health);
-
-    auto& nav = reg.emplace<NavAgent>(e);
-    nav.walk_speed = d.walk_speed;
-    nav.run_speed  = d.run_speed;
-
-    auto& ss = reg.emplace<StatSheet>(e);
-    ss[Skill::Toughness]  = d.toughness;
-    ss[Skill::Strength]   = d.strength;
-    ss[Skill::Dexterity]  = d.dexterity;
-
-    auto& cmb = reg.emplace<Combat>(e);
-    cmb.weapon.type         = (DamageType)d.weapon_type;
-    cmb.weapon.damage       = d.weapon_damage;
-    cmb.weapon.attack_range = d.weapon_range;
-    cmb.weapon.attack_ms    = 900;
-
-    reg.emplace<Renderable>(e);
-    ec.Select(e);
-    MD_LOG(MD_LOG_INFO, "[NpcArchEditor] Spawned '%s' at (%.1f,%.1f)", d.name, tr.x, tr.z);
-}
 
 // ── Draw ───────────────────────────────────────────────────────────────────
 inline void Draw() {
@@ -222,8 +179,6 @@ inline void Draw() {
         g_dirty = true;
     }
     ImGui::SameLine();
-    if (ImGui::Button("Spawn at Camera") && g_sel >= 0)
-        SpawnFromArch(g_sel);
     ImGui::SameLine();
     ImGui::PushStyleColor(ImGuiCol_Button, g_dirty ? ImVec4(0.7f,0.3f,0.1f,1.f)
                                                    : ImVec4(0.15f,0.45f,0.2f,1.f));
@@ -293,8 +248,7 @@ inline void Draw() {
 
         ImGui::Spacing();
         ImGui::Separator();
-        if (ImGui::Button("Spawn This NPC##arc"))
-            SpawnFromArch(g_sel);
+        ImGui::TextDisabled("Use in-game editor (F3) to spawn");
         ImGui::EndChild();
     } else {
         ImGui::TextDisabled("Select an archetype");
