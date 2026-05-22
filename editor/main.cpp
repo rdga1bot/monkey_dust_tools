@@ -14,12 +14,13 @@
 #include "editor_world_3d_sdlgpu.h"
 #include "editor_char_preview_sdlgpu.h"
 #include "character_editor.h"
+#include "npc_archetype_editor.h"
 #include "editor_map_view.h"
 #include <cstdio>
 
 // ──────────────────────────────────────────────────────────────────────────────
 // monkey_dust EDITOR v1.0 — SDL_GPU (Vulkan) backend.
-// Tabs: Items | Factions | World | 3D World | Characters | Settings
+// Tabs: Items | Factions | NPCs | World | 3D World | Characters | Settings
 // ──────────────────────────────────────────────────────────────────────────────
 
 static constexpr const char* CFG_PATH = "data/editor_config.json";
@@ -77,6 +78,7 @@ int main(void) {
     // ── Data ──────────────────────────────────────────────────────────────────
     ItemEditor::Load("data/items/items.json");
     FactionEditor::Load("data/factions/factions.json");
+    NpcArchetypeEditor::Load("game/data/defs/npc_archetypes.json");
     WorldPanel::Init();
     WorldEditor3D_SDLGPU::Init(
         "game/data/terrain/world_hmap.r32",
@@ -209,6 +211,10 @@ int main(void) {
             if (ImGui::BeginTabItem("3D World")) {
                 ImVec2 avail = ImGui::GetContentRegionAvail();
                 WorldEditor3D_SDLGPU::DrawImGui(avail.x, avail.y-2, dt);
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("NPCs")) {
+                NpcArchetypeEditor::Draw();
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Characters")) {
