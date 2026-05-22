@@ -21,6 +21,7 @@ private:
     void DrawBuilding(entt::entity e);
     void DrawPlayerController(entt::entity e);
     void DrawAIScript(entt::entity e);
+    void DrawCharacterDef(entt::entity e);
     void DrawAddComponent(entt::entity e);
 
     bool CollapsingSection(const char* label, ImVec4 color);

@@ -11,8 +11,10 @@
 #include <monkey_dust/components/building.h>
 #include <monkey_dust/components/player_controller.h>
 #include <monkey_dust/components/ai_script.h>
+#include <monkey_dust/components/renderable.h>
 #include <monkey_dust/combat/hit_zones.h>
 #include <monkey_dust/building/build_system.h>
+#include "world/character_def.h"
 #include <cstdio>
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -46,12 +48,15 @@ void EditorInspector::DrawHealth(entt::entity e) {
     if (!CollapsingSection("Health##insp", {0.9f, 0.2f, 0.2f, 1.f})) return;
 
     auto& hp = reg.get<Health>(e);
-    float frac = (hp.max > 0.f) ? (hp.current / hp.max) : 0.f;
+    float frac = hp.HpFraction();
+    float cur  = hp.TotalHp(), mx = hp.TotalMax();
     char overlay[32];
-    snprintf(overlay, sizeof(overlay), "%.0f / %.0f", hp.current, hp.max);
+    snprintf(overlay, sizeof(overlay), "%.0f / %.0f", cur, mx);
     ImGui::ProgressBar(frac, ImVec2(-1, 0), overlay);
-    ImGui::SliderFloat("Max##hp", &hp.max, 1.f, 500.f);
-    if (hp.current > hp.max) hp.current = hp.max;
+    for (int i = 0; i < LIMB_COUNT; ++i) {
+        char lbl[16]; snprintf(lbl, sizeof(lbl), "Limb %d##hp", i);
+        ImGui::SliderFloat(lbl, &hp.hp[i], 0.f, hp.max[i]);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -227,6 +232,60 @@ void EditorInspector::DrawAddComponent(entt::entity e) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// GH-5: Character editor — morph sliders for per-entity CharacterDef.
+// CharacterDef is not an ECS component; we store one per-entity using the entity
+// integral id as a map key (static fixed array up to MAX_CHAR_SLOTS).
+static constexpr int MAX_CHAR_SLOTS = 256;
+static CharacterDef s_char_defs[MAX_CHAR_SLOTS];
+static uint32_t     s_char_slot_ids[MAX_CHAR_SLOTS] = {};
+static int          s_char_slot_count = 0;
+
+static CharacterDef* GetOrCreateCharDef(entt::entity e) {
+    uint32_t eid = (uint32_t)entt::to_integral(e);
+    for (int i = 0; i < s_char_slot_count; ++i)
+        if (s_char_slot_ids[i] == eid) return &s_char_defs[i];
+    if (s_char_slot_count >= MAX_CHAR_SLOTS) return nullptr;
+    int idx = s_char_slot_count++;
+    s_char_slot_ids[idx] = eid;
+    s_char_defs[idx] = CharacterDef{};
+    return &s_char_defs[idx];
+}
+
+void EditorInspector::DrawCharacterDef(entt::entity e) {
+    if (!Registry::Get().all_of<Renderable>(e)) return;
+    if (!CollapsingSection("Character##insp", {0.3f, 0.7f, 0.9f, 1.f})) return;
+
+    CharacterDef* def = GetOrCreateCharDef(e);
+    if (!def) { ImGui::TextDisabled("slot limit reached"); return; }
+
+    ImGui::Text("Body");
+    ImGui::DragFloat("Height##cd", &def->height,  0.01f, 0.80f, 1.20f);
+    ImGui::DragFloat("Bulk##cd",   &def->bulk,    0.01f, 0.70f, 1.40f);
+
+    ImGui::Separator();
+    ImGui::Text("Skin");
+    ImGui::ColorEdit3("Skin##cd",  &def->skin_r);
+    ImGui::ColorEdit3("Hair##cd",  &def->hair_r);
+    ImGui::DragFloat("Tint##cd",   &def->color_strength, 0.01f, 0.f, 1.f);
+    ImGui::DragFloat("Saturation##cd",  &def->skintone_sat, 0.01f, 0.f, 2.f);
+    ImGui::DragFloat("Brightness##cd",  &def->skintone_bri, 0.005f, -0.3f, 0.3f);
+
+    ImGui::Separator();
+    int mc = def->morph_count < CHARDEF_MAX_MORPHS ? def->morph_count : CHARDEF_MAX_MORPHS;
+    ImGui::Text("Morphs (%d / %d)", mc, CHARDEF_MAX_MORPHS);
+    if (ImGui::SmallButton("+##morph") && mc < CHARDEF_MAX_MORPHS)
+        def->morph_count = (uint8_t)(mc + 1);
+    ImGui::SameLine();
+    if (ImGui::SmallButton("-##morph") && mc > 0)
+        def->morph_count = (uint8_t)(mc - 1);
+
+    for (int i = 0; i < mc; ++i) {
+        char lbl[24]; snprintf(lbl, sizeof(lbl), "Morph %d##cm%d", i, i);
+        ImGui::SliderFloat(lbl, &def->morph_weights[i], 0.f, 1.f);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 void EditorInspector::Draw() {
     if (!EditorCore::Get().panels_visible[1]) return;
 
@@ -261,6 +320,7 @@ void EditorInspector::Draw() {
     DrawBuilding(e);
     DrawPlayerController(e);
     DrawAIScript(e);
+    DrawCharacterDef(e);
     DrawAddComponent(e);
 
     ImGui::End();
