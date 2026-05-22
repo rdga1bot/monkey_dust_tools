@@ -193,13 +193,17 @@ inline void Draw() {
     if (ImGui::Button(g_dirty ? "Save*##arc" : "Save##arc"))
         Save(g_path);
     ImGui::PopStyleColor();
-    ImGui::SameLine();
-    ImGui::PushStyleColor(ImGuiCol_Button,
-        g_detached ? ImVec4(0.25f,0.45f,0.65f,1.f)
-                   : ImVec4(0.18f,0.18f,0.28f,1.f));
-    if (ImGui::Button(g_detached ? "Dock##arc" : "Detach##arc"))
-        g_detached = !g_detached;
-    ImGui::PopStyleColor();
+    // Detach/Dock — right-aligned on same toolbar row
+    {
+        const char* lbl = g_detached ? "Dock##arc" : "Detach##arc";
+        float btn_w = ImGui::CalcTextSize(lbl).x + ImGui::GetStyle().FramePadding.x * 2.f;
+        ImGui::SameLine(ImGui::GetContentRegionMax().x - btn_w);
+        ImGui::PushStyleColor(ImGuiCol_Button,
+            g_detached ? ImVec4(0.25f,0.45f,0.65f,1.f)
+                       : ImVec4(0.18f,0.18f,0.28f,1.f));
+        if (ImGui::Button(lbl)) g_detached = !g_detached;
+        ImGui::PopStyleColor();
+    }
 
     ImGui::Separator();
 
