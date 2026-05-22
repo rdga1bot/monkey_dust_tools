@@ -214,6 +214,7 @@ int main(void) {
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("NPCs")) {
+                ImGui::SetCursorPos({8, ImGui::GetCursorPosY() + 4});
                 NpcArchetypeEditor::Draw();
                 ImGui::EndTabItem();
             }

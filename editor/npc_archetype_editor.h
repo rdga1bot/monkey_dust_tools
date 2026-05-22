@@ -142,14 +142,10 @@ inline bool Save(const char* path) {
 }
 
 
-// ── Draw ───────────────────────────────────────────────────────────────────
+// ── Draw — inline in tab, no own window (matches Items/Factions layout) ───
 inline void Draw() {
     static const char* weapon_names[] = { "Blunt", "Cut", "Pierce" };
     static const char* armor_names[]  = { "None", "Leather", "Chain", "Plate" };
-
-    ImGui::SetNextWindowSize(ImVec2(640, 520), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowPos(ImVec2(80, 80),    ImGuiCond_FirstUseEver);
-    ImGui::Begin("NPC Archetypes (FCS)##npcarch");
 
     // ── Toolbar ──────────────────────────────────────────────────────────
     if (ImGui::Button("+ New")) {
@@ -178,7 +174,6 @@ inline void Draw() {
         g_sel = (g_sel >= g_count) ? g_count - 1 : g_sel;
         g_dirty = true;
     }
-    ImGui::SameLine();
     ImGui::SameLine();
     ImGui::PushStyleColor(ImGuiCol_Button, g_dirty ? ImVec4(0.7f,0.3f,0.1f,1.f)
                                                    : ImVec4(0.15f,0.45f,0.2f,1.f));
@@ -255,7 +250,6 @@ inline void Draw() {
     }
 
     ImGui::Columns(1);
-    ImGui::End();
 }
 
 } // namespace NpcArchetypeEditor
