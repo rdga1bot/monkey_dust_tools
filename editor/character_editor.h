@@ -117,6 +117,21 @@ static bool LoadJSON(const char* path) {
     return true;
 }
 
+static bool SaveMorphsJSON(const char* path) {
+    FILE* f = fopen(path, "w");
+    if (!f) return false;
+    const char* fallback[6] = {"tall","fat","muscular","longlegs","bighead","broadshdr"};
+    int n = s_def.morph_count < 6 ? s_def.morph_count : 6;
+    fprintf(f, "{\n");
+    for (int i = 0; i < n; ++i) {
+        const char* nm = (s_morphs_loaded && s_morph_names[i][0]) ? s_morph_names[i] : fallback[i];
+        fprintf(f, "  \"%s\": %.4f%s\n", nm, s_def.morph_w[i], i < n-1 ? "," : "");
+    }
+    fprintf(f, "}\n");
+    fclose(f);
+    return true;
+}
+
 static bool SaveJSON(const char* path) {
     FILE* f = fopen(path, "w");
     if (!f) return false;
@@ -315,6 +330,19 @@ static void Draw() {
                 PropSlider("Bulk",   &s_def.bulk,   0.70f, 1.40f);
                 EndPropTable();
             }
+            // Named body morphs (tall/fat/muscular/longlegs/bighead/broadshdr)
+            if (s_morphs_loaded && s_def.morph_count >= 6) {
+                ImGui::Spacing();
+                ImGui::SeparatorText("Shape");
+                if (BeginPropTable()) {
+                    for (int i = 0; i < 6; ++i)
+                        PropSlider(s_morph_names[i], &s_def.morph_w[i], -1.f, 1.f, "%.2f");
+                    EndPropTable();
+                }
+                ImGui::Spacing();
+                if (ImGui::Button("Export Morphs##cc"))
+                    SaveMorphsJSON("game/data/chars/player_morphs.json");
+            }
             ImGui::EndTabItem();
         }
 
@@ -377,16 +405,25 @@ static void Draw() {
 
     ImVec2 avail = ImGui::GetContentRegionAvail();
     const float skin_rgb[3] = { s_def.skin[0], s_def.skin[1], s_def.skin[2] };
+
+    // Map body morphs → effective height/bulk for the preview
+    // tall[0] + longlegs[3] boost height; fat[1] + muscular[2] + broadshdr[5] boost bulk
+    auto mw = [&](int i) { return (s_def.morph_count > i) ? s_def.morph_w[i] : 0.f; };
+    float eff_h = s_def.height * (1.f + mw(0)*0.20f + mw(3)*0.12f);
+    float eff_b = s_def.bulk   * (1.f + mw(1)*0.25f + mw(2)*0.15f + mw(5)*0.10f);
+    if (eff_h < 0.5f) eff_h = 0.5f; if (eff_h > 1.8f) eff_h = 1.8f;
+    if (eff_b < 0.4f) eff_b = 0.4f; if (eff_b > 2.0f) eff_b = 2.0f;
+
 #ifdef MD_SDL_GPU
     CharPreviewSDLGPU::DrawInImGui(
         avail.x, avail.y,
-        s_def.height, s_def.bulk,
+        eff_h, eff_b,
         skin_rgb, s_def.color_strength,
         s_def.skintone_sat, s_def.skintone_bri);
 #else
     CharPreviewGL::DrawInImGui(
         avail.x, avail.y,
-        s_def.height, s_def.bulk,
+        eff_h, eff_b,
         skin_rgb, s_def.color_strength,
         s_def.skintone_sat, s_def.skintone_bri);
 #endif
