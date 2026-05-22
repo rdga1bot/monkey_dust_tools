@@ -5,14 +5,12 @@
 #include <monkey_dust/world/terrain_gen.h>
 #include <SDL3/SDL.h>
 #include <cstdio>
-
-// Globals owned by main.cpp
-extern bool  g_terrain_edit;
-extern float g_brush_r;
-extern float g_brush_str;
+#include "../../game/src/render/scene_render.h"
 
 void EditorTerrainPanel::Draw(float dt) {
     if (!EditorCore::Get().panels_visible[14]) return;
+
+    auto& sr = SceneRender::Get();
 
     ImGui::SetNextWindowSize(ImVec2(300, 360), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowPos(ImVec2(570, 60),   ImGuiCond_FirstUseEver);
@@ -23,13 +21,13 @@ void EditorTerrainPanel::Draw(float dt) {
     }
 
     // ── Activate / Deactivate ─────────────────────────────────────────────
-    if (g_terrain_edit) {
+    if (sr.terrain_edit) {
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.2f, 1.f, 0.4f, 1.f));
         ImGui::TextUnformatted("● SCULPT ACTIVE");
         ImGui::PopStyleColor();
         ImGui::SameLine();
         if (ImGui::SmallButton("Deactivate")) {
-            g_terrain_edit = false;
+            sr.terrain_edit = false;
             SDL_ShowCursor();
         }
     } else {
@@ -39,7 +37,7 @@ void EditorTerrainPanel::Draw(float dt) {
             ImGui::PopStyleColor();
         } else {
             if (ImGui::Button("Activate Sculpt", ImVec2(-1, 0))) {
-                g_terrain_edit = true;
+                sr.terrain_edit = true;
                 SDL_HideCursor();
             }
         }
@@ -49,17 +47,17 @@ void EditorTerrainPanel::Draw(float dt) {
 
     // ── Brush Settings ────────────────────────────────────────────────────
     if (ImGui::CollapsingHeader("Brush", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::SliderFloat("Radius (m)##btr",  &g_brush_r,   5.f, 200.f, "%.0f m");
-        ImGui::SliderFloat("Strength##bts",    &g_brush_str, 0.1f, 15.f,  "%.1f");
+        ImGui::SliderFloat("Radius (m)##btr",  &sr.brush_r,   5.f, 200.f, "%.0f m");
+        ImGui::SliderFloat("Strength##bts",    &sr.brush_str, 0.1f, 15.f,  "%.1f");
 
-        if (ImGui::Button(" - ##rbr"))  g_brush_r   = fmaxf(5.f,   g_brush_r   - 5.f);
+        if (ImGui::Button(" - ##rbr"))  sr.brush_r   = fmaxf(5.f,   sr.brush_r   - 5.f);
         ImGui::SameLine();
-        if (ImGui::Button(" + ##rbr"))  g_brush_r   = fminf(200.f, g_brush_r   + 5.f);
+        if (ImGui::Button(" + ##rbr"))  sr.brush_r   = fminf(200.f, sr.brush_r   + 5.f);
         ImGui::SameLine(); ImGui::TextDisabled("radius");
 
-        if (ImGui::Button(" - ##sbs"))  g_brush_str = fmaxf(0.1f,  g_brush_str - 0.5f);
+        if (ImGui::Button(" - ##sbs"))  sr.brush_str = fmaxf(0.1f,  sr.brush_str - 0.5f);
         ImGui::SameLine();
-        if (ImGui::Button(" + ##sbs"))  g_brush_str = fminf(15.f,  g_brush_str + 0.5f);
+        if (ImGui::Button(" + ##sbs"))  sr.brush_str = fminf(15.f,  sr.brush_str + 0.5f);
         ImGui::SameLine(); ImGui::TextDisabled("strength");
     }
 
