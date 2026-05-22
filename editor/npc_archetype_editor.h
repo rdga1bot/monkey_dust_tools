@@ -161,21 +161,6 @@ inline void Draw() {
     }
 
     // ── Toolbar ──────────────────────────────────────────────────────────
-    // Detach / Dock button (right-aligned)
-    {
-        const char* lbl = g_detached ? "[ Dock ]" : "[ Detach ]";
-        float btn_w = ImGui::CalcTextSize(lbl).x + 16.f;
-        float avail = ImGui::GetContentRegionAvail().x;
-        ImGui::SameLine(avail - btn_w + 8.f);
-        ImGui::PushStyleColor(ImGuiCol_Button,
-            g_detached ? ImVec4(0.25f,0.45f,0.65f,1.f)
-                       : ImVec4(0.18f,0.18f,0.25f,1.f));
-        if (ImGui::Button(lbl)) g_detached = !g_detached;
-        ImGui::PopStyleColor();
-        ImGui::SameLine(8.f);  // reset cursor to left for remaining buttons
-        ImGui::NewLine();
-        ImGui::SameLine(8.f);
-    }
     if (ImGui::Button("+ New")) {
         if (g_count < MAX_ARCHETYPES) {
             auto& d = g_archs[g_count];
@@ -207,6 +192,13 @@ inline void Draw() {
                                                    : ImVec4(0.15f,0.45f,0.2f,1.f));
     if (ImGui::Button(g_dirty ? "Save*##arc" : "Save##arc"))
         Save(g_path);
+    ImGui::PopStyleColor();
+    ImGui::SameLine();
+    ImGui::PushStyleColor(ImGuiCol_Button,
+        g_detached ? ImVec4(0.25f,0.45f,0.65f,1.f)
+                   : ImVec4(0.18f,0.18f,0.28f,1.f));
+    if (ImGui::Button(g_detached ? "Dock##arc" : "Detach##arc"))
+        g_detached = !g_detached;
     ImGui::PopStyleColor();
 
     ImGui::Separator();
