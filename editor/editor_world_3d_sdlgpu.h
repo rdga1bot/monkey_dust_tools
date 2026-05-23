@@ -68,6 +68,7 @@ static GpuStaticBuffer     s_ov_ibo;
 static GpuPipeline         s_ov_pipeline;
 static std::atomic<bool>   s_ov_data_ready{false};
 static bool                s_ov_gpu_ready  = false;
+static bool                s_ov_rebuild_needed = false;
 
 // Staging in BSS (~9.3 MB + 768 B; OS lazy-maps pages)
 static OvVtx    s_ov_stage[OV_TOTAL_V];
@@ -363,6 +364,7 @@ static void s_apply_brush(float dt) {
         }
     }
     if (any_touched) {
+        s_ov_rebuild_needed = true;
         // Mark all near chunks dirty — master hmap change affects the whole area
         for (int dz = 0; dz < EDITOR_TNKN; ++dz)
             for (int dx = 0; dx < EDITOR_TNKN; ++dx) {
@@ -404,9 +406,9 @@ static void ensure_rtt(int w, int h) {
 static bool Init(const char* overlay_path, int zone_ox = 28, int zone_oz = 28) {
     s_zone_ox_saved = zone_ox;
     s_zone_oz_saved = zone_oz;
-    s_cx = (zone_ox + EDITOR_TNKN * 0.5f) * CHUNK_SIZE;
-    s_cy = 1200.f;   // detail view — scroll up (E/PageUp) to reach overview
-    s_cz = (zone_oz + EDITOR_TNKN * 0.5f) * CHUNK_SIZE;
+    s_cx = 32.f * CHUNK_SIZE;  // center of world
+    s_cy = 5000.f;             // overview altitude
+    s_cz = 32.f * CHUNK_SIZE;
 
     s_load_zone_amplitudes("game/data/terrain_config.txt");
 
@@ -504,7 +506,7 @@ static void handle_input(float dt) {
         if (io.MouseDown[1]) {
             float dx, dy;
             SDL_GetRelativeMouseState(&dx, &dy);
-            s_yaw   -= dx * 0.0018f;
+            s_yaw   += dx * 0.0018f;
             s_pitch += dy * 0.0014f;
             if (s_pitch < -0.3f) s_pitch = -0.3f;
             if (s_pitch >  1.3f) s_pitch =  1.3f;
@@ -548,9 +550,15 @@ static void handle_input(float dt) {
 // ensure_rtt() is called from DrawImGui (during ImGui build) so s_color is stable.
 static void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt) {
     tick_chunk_build(); tick_chunk_build();
-    bool overview_mode = (s_cy >= 2000.f);
-    bool ready = overview_mode ? s_ov_gpu_ready : s_loaded;
+    bool ready = s_ov_gpu_ready;
     if (!ready || !s_color) return;
+    // Rebuild overview VBO on main thread after brush stroke
+    if (s_ov_rebuild_needed) {
+        s_build_overview_cpu();
+        s_ov_vbo.Shutdown();
+        s_ov_vbo.Init(0x8892u, s_ov_stage, sizeof(s_ov_stage));
+        s_ov_rebuild_needed = false;
+    }
     int w = s_rtt_w, h = s_rtt_h;  // use already-created RTT dimensions
     if (w < 8 || h < 8) return;
 
@@ -593,24 +601,7 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt) {
 
     SDL_GPURenderPass* rp = SDL_BeginGPURenderPass(cmd, &ct, 1, &di);
     if (rp) {
-        if (overview_mode) {
-            // High altitude: full 64×64 overview, no near-terrain skip
-            s_draw_overview(rp, cmd, vp.m, false);
-        } else if (s_loaded) {
-            // Detail mode: ONLY near hi-res terrain — no ugly overview ring
-            auto sun = TerrainRenderer::SunParams::Default();
-            for (int cz = 0; cz < EDITOR_TNKN; ++cz)
-                for (int cx = 0; cx < EDITOR_TNKN; ++cx)
-                    s_terrain.DrawRawPOM(rp, cmd, s_chunks[cz][cx],
-                                         vp.m, sun,
-                                         s_cx, s_cy, s_cz,
-                                         16000.f, 16000.f, 1.f / 32000.f);
-            // GitHub #4: draw scattered rock props over terrain
-            if (s_props.IsReady() && s_props_built && s_prop_count > 0) {
-                const float* sun32 = &sun.dir[0];
-                s_props.DrawRaw(rp, cmd, s_prop_pos, s_prop_count, vp.m, sun32);
-            }
-        }
+        s_draw_overview(rp, cmd, vp.m, false);
         SDL_EndGPURenderPass(rp);
     }
 
@@ -624,31 +615,19 @@ static void DrawImGui(float W, float H, float dt) {
 
     // (chunk building handled in RenderFrame, called every frame)
 
-    bool overview_mode_ui = (s_cy >= 2000.f);
-    bool ui_ready = overview_mode_ui ? s_ov_gpu_ready : s_loaded;
-    if (!ui_ready) {
-        // Progress display
+    if (!s_ov_gpu_ready) {
         ImVec2 p = ImGui::GetCursorScreenPos();
         ImGui::Dummy({W, H});
         ImGui::GetWindowDrawList()->AddRectFilled(p, {p.x+W, p.y+H}, IM_COL32(15,15,20,255));
-        int built = s_chunks_built.load();
-        int total = EDITOR_TNKN * EDITOR_TNKN;
-        float pct  = !s_master_ready ? 0.f
-                   : overview_mode_ui ? (s_ov_data_ready.load() ? 0.95f : 0.5f)
-                   : (float)built / total;
-        const char* msg = !s_master_ready ? "Initialising terrain renderer..."
-                        : overview_mode_ui ? "Building world overview..."
-                        : "Building terrain chunks...";
+        float pct  = !s_master_ready ? 0.f : s_ov_data_ready.load() ? 0.9f : 0.5f;
+        const char* msg = !s_master_ready ? "Initialising terrain renderer..." : "Building world overview...";
         ImVec2 tc = ImGui::CalcTextSize(msg);
         ImGui::GetWindowDrawList()->AddText(
             {p.x + W*0.5f - tc.x*0.5f, p.y + H*0.5f - 20},
             IM_COL32(200,200,200,255), msg);
-        // Progress bar
         float bw = W * 0.5f, bx = p.x + W*0.25f, by = p.y + H*0.5f;
         ImGui::GetWindowDrawList()->AddRectFilled({bx,by}, {bx+bw,by+16}, IM_COL32(40,40,60,255), 4.f);
         ImGui::GetWindowDrawList()->AddRectFilled({bx,by}, {bx+bw*pct,by+16}, IM_COL32(80,140,220,255), 4.f);
-        char pbuf[32]; snprintf(pbuf,sizeof(pbuf),"%d / %d",built,total);
-        ImGui::GetWindowDrawList()->AddText({bx+bw*0.5f-20,by+1}, IM_COL32(255,255,255,180), pbuf);
         return;
     }
 
@@ -670,7 +649,7 @@ static void DrawImGui(float W, float H, float dt) {
     if (hov || s_rmb || s_focused) handle_input(dt);
 
     // ── Mouse → terrain ray cast (brush targeting) ───────────────────────────
-    bool edit_mode = (s_cy < 2000.f) && s_loaded;
+    bool edit_mode = s_ov_gpu_ready;
     if (hov && edit_mode && !s_rmb) {
         ImVec2 mouse = ImGui::GetMousePos();
         float ndc_x = ((mouse.x - origin.x) / W) * 2.f - 1.f;
@@ -679,7 +658,7 @@ static void DrawImGui(float W, float H, float dt) {
         float sy = sinf(s_yaw), cy_c = cosf(s_yaw);
         float sp = sinf(s_pitch), cp = cosf(s_pitch);
         float fx = sy*cp, fy = -sp, fz = cy_c*cp;
-        float rx = cy_c, rz = -sy;
+        float rx = -cy_c, rz = sy;   // matches m4_view right vector
         float ux = sp*sy, uy = cp, uz = sp*cy_c;
         float rdx = fx + ndc_x*thf*asp*rx + ndc_y*thf*ux;
         float rdy = fy +                    ndc_y*thf*uy;
@@ -772,12 +751,8 @@ static void DrawImGui(float W, float H, float dt) {
     ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255,255,200,220));
     int cur_zx = (int)(s_cx / CHUNK_SIZE);
     int cur_zy = (int)(s_cz / CHUNK_SIZE);
-    bool hud_overview = (s_cy >= 2000.f);
-    ImGui::Text("Zone: %d,%d  Alt: %.0fm  Speed: %.0fm/s  |  %s",
-                cur_zx, cur_zy, s_cy, s_speed,
-                hud_overview ? "OVERVIEW (scroll down for detail)"
-                             : "DETAIL — near 7x7 zones hi-res");
-    ImGui::Text("RMB=look  WASD=move  Q/E=alt  Scroll=zoom  R=rebuild  T=fly  F5=save");
+    ImGui::Text("Zone: %d,%d  Alt: %.0fm  Speed: %.0fm/s", cur_zx, cur_zy, s_cy, s_speed);
+    ImGui::Text("RMB=look  WASD=move  Q/E=alt  Scroll=zoom  F5=save");
     ImGui::PopStyleColor();
 
 }
