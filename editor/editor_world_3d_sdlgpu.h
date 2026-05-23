@@ -45,7 +45,7 @@ static int            s_prop_count = 0;
 static bool           s_props_built = false;
 
 // Async loading state
-static std::atomic<bool>  s_atlas_ready{false};   // atlas + terrain renderer ready
+static std::atomic<bool>  s_master_ready{false};  // terrain renderer ready (master hmap loaded sync)
 static std::atomic<int>   s_chunks_built{0};       // near chunks built so far (main thread)
 static std::thread        s_loader_thread;
 static int                s_zone_ox_saved = 28, s_zone_oz_saved = 28;
@@ -92,10 +92,7 @@ static void s_build_prop_positions() {
                 float lz = (float)((rng >> 8) & 0xFFFF) / 65535.f * CHUNK_SIZE;
                 float wx = zx * CHUNK_SIZE + lx;
                 float wz = zz * CHUNK_SIZE + lz;
-                // Atlas grid coords (0-63 per zone, atlas col/row in [0,64))
-                int col = (int)(lx / CHUNK_SIZE * 63.f);
-                int row = (int)(lz / CHUNK_SIZE * 63.f);
-                float wy = TerrainAtlas_GetHeight(zx, zz, col, row);
+                float wy = TerrainMaster_SampleWorld(wx, wz);
                 float* p3 = &s_prop_pos[s_prop_count * 3];
                 p3[0] = wx; p3[1] = wy; p3[2] = wz;
                 ++s_prop_count;
@@ -145,16 +142,11 @@ static void s_build_overview_cpu() {
             }
     }
 
-    const float step     = CHUNK_SIZE / (float)OV_GRID;  // 62.5 m/quad
-    const float H_RANGE  = 300.f;   // actual Kenshi world max (confirmed by cross-ref)
+    const float step    = CHUNK_SIZE / (float)OV_GRID;  // 62.5 m/quad
+    const float H_RANGE = TerrainMaster_HMax() > 1.f ? TerrainMaster_HMax() : 100.f;
 
-    // Atlas stores raw world-space Y metres — no amplitude multiply needed.
-    auto get_h = [](int zx, int zz, int col, int row) -> float {
-        zx  = zx < 0 ? 0 : (zx > 63 ? 63 : zx);
-        zz  = zz < 0 ? 0 : (zz > 63 ? 63 : zz);
-        col = col < 0 ? 0 : (col > OV_GRID ? OV_GRID : col);
-        row = row < 0 ? 0 : (row > OV_GRID ? OV_GRID : row);
-        return TerrainAtlas_GetHeight(zx, zz, col*8, row*8);
+    auto get_h = [](float wx, float wz) -> float {
+        return TerrainMaster_SampleWorld(wx, wz);
     };
 
     for (int zz = 0; zz < OV_ZONES; ++zz) {
@@ -164,11 +156,11 @@ static void s_build_overview_cpu() {
             float oz   = (float)zz * CHUNK_SIZE;
             for (int r = 0; r <= OV_GRID; ++r) {
                 for (int c = 0; c <= OV_GRID; ++c) {
-                    float wy   = get_h(zx, zz, c, r);
                     float wx   = ox + c*step;
                     float wz   = oz + r*step;
-                    float dhdx = (get_h(zx,zz,c+1,r) - get_h(zx,zz,c-1,r)) / (2.f*step);
-                    float dhdz = (get_h(zx,zz,c,r+1) - get_h(zx,zz,c,r-1)) / (2.f*step);
+                    float wy   = get_h(wx, wz);
+                    float dhdx = (get_h(wx+step, wz) - get_h(wx-step, wz)) / (2.f*step);
+                    float dhdz = (get_h(wx, wz+step) - get_h(wx, wz-step)) / (2.f*step);
                     float len  = sqrtf(dhdx*dhdx + 1.f + dhdz*dhdz);
                     OvVtx& v   = s_ov_stage[base + r*(OV_GRID+1)+c];
                     v.x=wx; v.y=wy; v.z=wz;
@@ -249,7 +241,7 @@ static bool      s_brush_hit      = false;
 static float     s_brush_wx = 0.f, s_brush_wy = 0.f, s_brush_wz = 0.f;
 static float     s_last_vp[16]    = {};        // VP matrix from last RenderFrame
 static bool      s_chunk_dirty[EDITOR_TNKN][EDITOR_TNKN] = {};
-static constexpr const char* EDITS_PATH = "game/data/terrain/world_hmap.r32";
+static constexpr const char* MASTER_PATH = "game/data/terrain/md_master_hmap.r32";
 
 // ── Mat4 helpers (column-major) ────────────────────────────────────────────────
 struct M4 { float m[16] = {1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1}; };
@@ -293,11 +285,7 @@ static bool s_ray_terrain(float ox, float oy, float oz,
     if (rdy >= 0.f) return false;  // ray goes upward — never hits ground
 
     auto sample_h = [](float wx, float wz) -> float {
-        int zx = (int)(wx / CHUNK_SIZE), zy = (int)(wz / CHUNK_SIZE);
-        if (zx < 0||zx > 63||zy < 0||zy > 63) return 0.f;
-        float col_f = (wx - zx * CHUNK_SIZE) / CHUNK_SIZE * 64.f;
-        float row_f = (wz - zy * CHUNK_SIZE) / CHUNK_SIZE * 64.f;
-        return TerrainAtlas_GetHeight(zx, zy, (int)col_f, (int)row_f);
+        return TerrainMaster_SampleWorld(wx, wz);
     };
 
     float prev_t = 0.f, t = 0.f;
@@ -325,60 +313,67 @@ static bool s_ray_terrain(float ox, float oy, float oz,
     return false;
 }
 
-// ── Apply brush to terrain heights ─────────────────────────────────────────────
+// ── Apply brush to master heightmap pixels ─────────────────────────────────────
 static void s_apply_brush(float dt) {
-    if (!TerrainAtlas_Loaded()) return;
-    float R2 = s_brush_radius * s_brush_radius;
+    if (!TerrainMaster_Loaded()) return;
+    int   mw  = TerrainMaster_Width();
+    int   mhh = TerrainMaster_Height();
+    float R2  = s_brush_radius * s_brush_radius;
     float str = s_brush_strength * dt;
+    // world extent covered by master hmap = 64 zones × CHUNK_SIZE
+    const float WEXT = (float)(64 * CHUNK_SIZE);
+    float px_sz = WEXT / (float)mw;  // metres per pixel (≈125m at 256×256)
 
-    int zx0 = (int)((s_brush_wx - s_brush_radius) / CHUNK_SIZE);
-    int zx1 = (int)((s_brush_wx + s_brush_radius) / CHUNK_SIZE);
-    int zy0 = (int)((s_brush_wz - s_brush_radius) / CHUNK_SIZE);
-    int zy1 = (int)((s_brush_wz + s_brush_radius) / CHUNK_SIZE);
-    if (zx0 < 0) zx0 = 0;  if (zx1 > 63) zx1 = 63;
-    if (zy0 < 0) zy0 = 0;  if (zy1 > 63) zy1 = 63;
+    int c0 = (int)((s_brush_wx - s_brush_radius) / WEXT * mw) - 1;
+    int c1 = (int)((s_brush_wx + s_brush_radius) / WEXT * mw) + 1;
+    int r0 = (int)((s_brush_wz - s_brush_radius) / WEXT * mhh) - 1;
+    int r1 = (int)((s_brush_wz + s_brush_radius) / WEXT * mhh) + 1;
+    if (c0 < 0) c0 = 0;  if (c1 >= mw)  c1 = mw  - 1;
+    if (r0 < 0) r0 = 0;  if (r1 >= mhh) r1 = mhh - 1;
 
-    float cell = CHUNK_SIZE / 64.f;
-    for (int zy = zy0; zy <= zy1; ++zy) {
-        for (int zx = zx0; zx <= zx1; ++zx) {
-            bool touched = false;
-            for (int row = 0; row <= 64; ++row) {
-                for (int col = 0; col <= 64; ++col) {
-                    float wx = zx * CHUNK_SIZE + col * cell;
-                    float wz = zy * CHUNK_SIZE + row * cell;
-                    float dx = wx - s_brush_wx, dz = wz - s_brush_wz;
-                    float d2 = dx*dx + dz*dz;
-                    if (d2 > R2) continue;
-                    float t = 1.f - sqrtf(d2) / s_brush_radius;
-                    float falloff = t * t;  // smooth at edges
-                    float h = TerrainAtlas_GetHeight(zx, zy, col, row);
-                    float nh = h;
-                    switch (s_brush_mode) {
-                        case BrushMode::Raise:   nh = h + str * falloff; break;
-                        case BrushMode::Lower:   nh = h - str * falloff; break;
-                        case BrushMode::Flatten: nh = h + (s_brush_wy - h) * falloff * fminf(str * 0.2f, 1.f); break;
-                        case BrushMode::Smooth: {
-                            float avg = 0.f;
-                            for (int dc = -2; dc <= 2; ++dc)
-                                for (int dr = -2; dr <= 2; ++dr)
-                                    avg += TerrainAtlas_GetHeight(zx, zy, col+dc, row+dr);
-                            avg /= 25.f;
-                            nh = h + (avg - h) * falloff * fminf(str * 0.05f, 1.f);
-                            break;
-                        }
-                    }
-                    TerrainAtlas_SetHeight(zx, zy, col, row, nh);
-                    touched = true;
+    bool any_touched = false;
+    for (int row = r0; row <= r1; ++row) {
+        for (int col = c0; col <= c1; ++col) {
+            float wx = (col + 0.5f) * px_sz;
+            float wz = (row + 0.5f) * px_sz;
+            float dx = wx - s_brush_wx, dz = wz - s_brush_wz;
+            float d2 = dx*dx + dz*dz;
+            if (d2 > R2) continue;
+            float t       = 1.f - sqrtf(d2) / s_brush_radius;
+            float falloff = t * t;
+            float h  = TerrainMaster_GetPixel(col, row);
+            float nh = h;
+            switch (s_brush_mode) {
+                case BrushMode::Raise:   nh = h + str * falloff; break;
+                case BrushMode::Lower:   nh = h - str * falloff; break;
+                case BrushMode::Flatten: nh = h + (s_brush_wy - h) * falloff * fminf(str * 0.2f, 1.f); break;
+                case BrushMode::Smooth: {
+                    float avg = 0.f;
+                    for (int dc = -2; dc <= 2; ++dc)
+                        for (int dr = -2; dr <= 2; ++dr)
+                            avg += TerrainMaster_GetPixel(col+dc, row+dr);
+                    avg /= 25.f;
+                    nh = h + (avg - h) * falloff * fminf(str * 0.05f, 1.f);
+                    break;
                 }
             }
-            if (touched) {
-                // Mark matching near-terrain chunk as dirty for rebuild next frame
-                for (int dz = 0; dz < EDITOR_TNKN; ++dz)
-                    for (int dx = 0; dx < EDITOR_TNKN; ++dx)
-                        if (s_zone_ox_saved + dx == zx && s_zone_oz_saved + dz == zy)
-                            s_chunk_dirty[dz][dx] = true;
-            }
+            if (nh < 0.f) nh = 0.f;
+            TerrainMaster_SetPixel(col, row, nh);
+            any_touched = true;
         }
+    }
+    if (any_touched) {
+        // Mark all near chunks dirty — master hmap change affects the whole area
+        for (int dz = 0; dz < EDITOR_TNKN; ++dz)
+            for (int dx = 0; dx < EDITOR_TNKN; ++dx) {
+                float chunk_wx0 = (s_zone_ox_saved + dx) * CHUNK_SIZE;
+                float chunk_wz0 = (s_zone_oz_saved + dz) * CHUNK_SIZE;
+                if (s_brush_wx >= chunk_wx0 - s_brush_radius &&
+                    s_brush_wx <= chunk_wx0 + CHUNK_SIZE + s_brush_radius &&
+                    s_brush_wz >= chunk_wz0 - s_brush_radius &&
+                    s_brush_wz <= chunk_wz0 + CHUNK_SIZE + s_brush_radius)
+                    s_chunk_dirty[dz][dx] = true;
+            }
     }
 }
 
@@ -405,36 +400,31 @@ static void ensure_rtt(int w, int h) {
     fprintf(stdout, "[W3D-SDLGPU] RTT %dx%d\n", w, h);
 }
 
-// ── Init — launches async background loader, returns immediately ───────────────
-static bool Init(const char* hmap_path, const char* overlay_path,
-                 int zone_ox = 28, int zone_oz = 28) {
+// ── Init — loads master hmap synchronously (257 KiB), background: renderer + overview ──
+static bool Init(const char* overlay_path, int zone_ox = 28, int zone_oz = 28) {
     s_zone_ox_saved = zone_ox;
     s_zone_oz_saved = zone_oz;
-    // Camera above the 7×7 zone grid centre in Kenshi atlas coords
     s_cx = (zone_ox + EDITOR_TNKN * 0.5f) * CHUNK_SIZE;
-    s_cy = 1200.f;
+    s_cy = 1200.f;   // detail view — scroll up (E/PageUp) to reach overview
     s_cz = (zone_oz + EDITOR_TNKN * 0.5f) * CHUNK_SIZE;
 
     s_load_zone_amplitudes("game/data/terrain_config.txt");
 
-    // Phase 1 (background): load atlas + init TerrainRenderer (slow I/O)
-    // Phase 2 (main thread, per-frame): TerrainGen_Build + Upload (needs GPU)
-    const char* hp = hmap_path;
+    // Master hmap is 257 KiB — load synchronously before spinning the thread
+    if (!TerrainMaster_Load(MASTER_PATH, 64.f * CHUNK_SIZE, 64.f * CHUNK_SIZE))
+        fprintf(stderr, "[W3D-SDLGPU] master hmap load failed: %s\n", MASTER_PATH);
+
+    // Background: init TerrainRenderer (GPU shader compilation) + build overview mesh
     const char* op = overlay_path;
-    s_loader_thread = std::thread([hp, op]() {
-        if (!TerrainAtlas_Load(hp)) {
-            fprintf(stderr, "[W3D-SDLGPU] atlas load failed\n"); return;
-        }
-        TerrainAtlas_LoadEdits(EDITS_PATH);  // optional — silently ignored if absent
-        TerrainAtlas_SmoothBoundaries();     // same fix as game: eliminate zone-seam NdotL artifacts
+    s_loader_thread = std::thread([op]() {
         if (!s_terrain.Init()) {
             fprintf(stderr, "[W3D-SDLGPU] TerrainRenderer init failed\n"); return;
         }
         s_props.Init("game/data/props/rocks/rock_01.glb"); // no-op if missing
         s_terrain.InitKenshiOverlay(op);
         s_terrain.InitPOM("game/data/terrain/pom_detail.png");
-        s_atlas_ready = true;
-        s_build_prop_positions();  // scatter rocks across 7×7 viewport (GitHub #4)
+        s_master_ready = true;
+        s_build_prop_positions();
         s_build_overview_cpu();
         s_ov_data_ready = true;
     });
@@ -474,18 +464,20 @@ static void travel_to_camera() {
 // ── Tick: build one chunk per call; auto-reload when camera leaves grid ────────
 static void tick_chunk_build() {
     if (s_ov_data_ready.load() && !s_ov_gpu_ready) s_init_overview_gpu();
-    if (s_atlas_ready && s_loaded) return;
-    if (!s_atlas_ready || s_loaded) return;
+    if (s_master_ready && s_loaded) return;
+    if (!s_master_ready || s_loaded) return;
     int idx = s_chunks_built.load();
     if (idx >= EDITOR_TNKN * EDITOR_TNKN) { s_loaded = true; return; }
 
     int cz = idx / EDITOR_TNKN, cx = idx % EDITOR_TNKN;
     ChunkCoord coord = { s_zone_ox_saved + cx, s_zone_oz_saved + cz };
     TerrainGenParams p;
-    p.zone_origin_x = 0;  // coord already has absolute atlas coords; 0+coord.x = zx
+    p.zone_origin_x = 0;
     p.zone_origin_z = 0;
-    int zx = coord.x, zz = coord.z;
-    p.amplitude = (zx >= 0 && zx < 64 && zz >= 0 && zz < 64) ? s_zone_amp[zz][zx] : 40.f;
+    // amplitude=0 when master loaded: h = master_h + noise*0 → clean master hmap, no noise
+    p.amplitude = TerrainMaster_Loaded() ? 0.f :
+        ((coord.x >= 0 && coord.x < 64 && coord.z >= 0 && coord.z < 64)
+            ? s_zone_amp[coord.z][coord.x] : 40.f);
     TerrainGen_Build(s_chunks[cz][cx], coord, p);
     TerrainGen_Upload(s_chunks[cz][cx]);
     s_chunks[cz][cx].center_x = (float)(s_zone_ox_saved + cx) * CHUNK_SIZE + CHUNK_SIZE * 0.5f;
@@ -575,8 +567,9 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt) {
             int chunk_zx = s_zone_ox_saved + cx, chunk_zz = s_zone_oz_saved + cz;
             ChunkCoord coord = { chunk_zx, chunk_zz };
             TerrainGenParams p; p.zone_origin_x = 0; p.zone_origin_z = 0;
-            p.amplitude = (chunk_zx>=0&&chunk_zx<64&&chunk_zz>=0&&chunk_zz<64)
-                ? s_zone_amp[chunk_zz][chunk_zx] : 40.f;
+            p.amplitude = TerrainMaster_Loaded() ? 0.f :
+                ((chunk_zx>=0&&chunk_zx<64&&chunk_zz>=0&&chunk_zz<64)
+                    ? s_zone_amp[chunk_zz][chunk_zx] : 40.f);
             TerrainGen_Build(s_chunks[cz][cx], coord, p);
             TerrainGen_Upload(s_chunks[cz][cx]);
             s_chunk_dirty[cz][cx] = false;
@@ -611,7 +604,7 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt) {
                     s_terrain.DrawRawPOM(rp, cmd, s_chunks[cz][cx],
                                          vp.m, sun,
                                          s_cx, s_cy, s_cz,
-                                         6000.f, 2000.f, 1.f / 8000.f);
+                                         16000.f, 16000.f, 1.f / 32000.f);
             // GitHub #4: draw scattered rock props over terrain
             if (s_props.IsReady() && s_props_built && s_prop_count > 0) {
                 const float* sun32 = &sun.dir[0];
@@ -640,10 +633,10 @@ static void DrawImGui(float W, float H, float dt) {
         ImGui::GetWindowDrawList()->AddRectFilled(p, {p.x+W, p.y+H}, IM_COL32(15,15,20,255));
         int built = s_chunks_built.load();
         int total = EDITOR_TNKN * EDITOR_TNKN;
-        float pct  = !s_atlas_ready ? 0.f
+        float pct  = !s_master_ready ? 0.f
                    : overview_mode_ui ? (s_ov_data_ready.load() ? 0.95f : 0.5f)
                    : (float)built / total;
-        const char* msg = !s_atlas_ready ? "Loading heightmap (67 MB)..."
+        const char* msg = !s_master_ready ? "Initialising terrain renderer..."
                         : overview_mode_ui ? "Building world overview..."
                         : "Building terrain chunks...";
         ImVec2 tc = ImGui::CalcTextSize(msg);
@@ -763,15 +756,15 @@ static void DrawImGui(float W, float H, float dt) {
             ImGui::SetNextItemWidth(-1);
             ImGui::SliderFloat("##bstr", &s_brush_strength, 0.5f, 60.f, "S=%.1fm/s");
             ImGui::Separator();
-            if (ImGui::Button("Save edits (F5)", {-1, 0}))
-                TerrainAtlas_SaveEdits(EDITS_PATH);
+            if (ImGui::Button("Save master hmap (F5)", {-1, 0}))
+                TerrainMaster_Save(MASTER_PATH);
             ImGui::TextDisabled("LMB=paint  RMB=look");
         }
         ImGui::End();
 
         // F5 shortcut
         if (ImGui::IsKeyPressed(ImGuiKey_F5))
-            TerrainAtlas_SaveEdits(EDITS_PATH);
+            TerrainMaster_Save(MASTER_PATH);
     }
 
     // HUD — top-left
