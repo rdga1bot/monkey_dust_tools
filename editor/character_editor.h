@@ -419,7 +419,9 @@ static void Draw() {
         avail.x, avail.y,
         eff_h, eff_b,
         skin_rgb, s_def.color_strength,
-        s_def.skintone_sat, s_def.skintone_bri);
+        s_def.skintone_sat, s_def.skintone_bri,
+        mw(2),          // muscular morph weight → muscleBlend
+        s_def.hair);    // hair tint RGB
 #else
     CharPreviewGL::DrawInImGui(
         avail.x, avail.y,
