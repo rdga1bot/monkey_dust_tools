@@ -515,8 +515,8 @@ static void handle_input(float dt) {
             SDL_SetWindowRelativeMouseMode(SDL_GetMouseFocus(), false);
         }
     }
-    // WASD
-    float sp = s_speed * dt;
+    // WASD — speed scales with altitude so pan feel is consistent at any zoom
+    float sp = s_cy * dt;
     float sy = sinf(s_yaw), cy = cosf(s_yaw);
     if (ImGui::IsKeyDown(ImGuiKey_W)||ImGui::IsKeyDown(ImGuiKey_UpArrow))   { s_cx+=sp*sy; s_cz+=sp*cy; }
     if (ImGui::IsKeyDown(ImGuiKey_S)||ImGui::IsKeyDown(ImGuiKey_DownArrow)) { s_cx-=sp*sy; s_cz-=sp*cy; }
