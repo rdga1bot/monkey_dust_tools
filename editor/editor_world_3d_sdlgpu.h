@@ -693,7 +693,7 @@ static void DrawImGui(float W, float H, float dt) {
         s_focused = true;
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !hov)
         s_focused = false;
-    if (hov || s_rmb || s_focused) handle_input(dt);
+    if (hov || s_rmb || s_focused || ImGui::GetIO().MouseWheel != 0.f) handle_input(dt);
 
     // ── Mouse → terrain ray cast (brush targeting) ───────────────────────────
     bool edit_mode = s_ov_gpu_ready;
