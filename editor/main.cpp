@@ -160,6 +160,25 @@ int main(void) {
 
         window_begin_frame();
 
+        // ── SDL event pump — required for io.MouseWheel and quit detection ───
+        // SDL_GetMouseState() covers position+buttons (realtime), but
+        // SDL_EVENT_MOUSE_WHEEL is queue-only: without PollEvent, io.MouseWheel
+        // is always 0 and scroll never reaches the terrain viewport.
+        {
+            SDL_Event ev;
+            while (SDL_PollEvent(&ev)) {
+                ImGui_ImplSDL3_ProcessEvent(&ev);
+                if (ev.type == SDL_EVENT_QUIT)
+                    _sdl3_input::s_quit = true;
+                if (ev.type == SDL_EVENT_KEY_DOWN && !ev.key.repeat) {
+                    int sc = (int)ev.key.scancode;
+                    if (sc >= 0 && sc < SDL_SCANCODE_COUNT)
+                        _sdl3_input::s_next[sc] = true;
+                }
+            }
+            input_begin_frame();
+        }
+
         // ── ImGui frame ───────────────────────────────────────────────────────
         ImGui_ImplSDLGPU3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
