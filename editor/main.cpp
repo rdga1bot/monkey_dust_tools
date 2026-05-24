@@ -6,6 +6,7 @@
 #include "backends/imgui_impl_sdl3.h"
 #include "backends/imgui_impl_sdlgpu3.h"
 #include "imgui.h"
+#include "editor_core.h"
 #include "editor_ui.h"
 #include "item_editor.h"
 #include "faction_editor.h"
@@ -97,6 +98,10 @@ int main(void) {
     CharacterEditor::LoadJSON("game/data/chars/player.chardef");
     CharacterEditor::LoadMorphNames("game/data/chars/morph_names.txt");
     MapViewPanel::Get().Init();
+    EditorCore::Get().Init();
+    // Enable terrain panels by default
+    EditorCore::Get().panels_visible[12] = true;  // Terrain Nodes
+    EditorCore::Get().panels_visible[14] = true;  // Terrain Sculpt
 
     // Restore panel detach/position state from previous session
     {
@@ -161,52 +166,10 @@ int main(void) {
         ImGui::NewFrame();
 
         ImGuiIO& fio = ImGui::GetIO();
-        float menu_h = 0.f;
-        if (ImGui::BeginMainMenuBar()) {
-            menu_h = ImGui::GetWindowSize().y;
-            if (ImGui::BeginMenu("File")) {
-                if (ImGui::BeginMenu("Map")) {
-                    static char s_open_buf[256]="third_party/flare-game/mods/empyrean_campaign/maps/goblin_camp.txt";
-                    static char s_save_buf[256]="";
-                    ImGui::SetNextItemWidth(320); ImGui::InputText("##mopen", s_open_buf, sizeof(s_open_buf));
-                    ImGui::SameLine();
-                    if (ImGui::Button("Open")) {
-                        if (MapViewPanel::Get().LoadMap(s_open_buf)) {
-                            snprintf(status_msg, sizeof(status_msg), "Map loaded");
-                            status_timer = 3.f;
-                        }
-                    }
-                    ImGui::Separator();
-                    ImGui::SetNextItemWidth(320); ImGui::InputText("##msave", s_save_buf, sizeof(s_save_buf));
-                    ImGui::SameLine();
-                    if (ImGui::Button("Save As")) {
-                        if (MapViewPanel::Get().SaveTo(s_save_buf)) {
-                            snprintf(status_msg, sizeof(status_msg), "Map saved");
-                            status_timer = 3.f;
-                        }
-                    }
-                    if (ImGui::MenuItem("Save", "Ctrl+S", false, MapViewPanel::Get().IsLoaded())) {
-                        if (MapViewPanel::Get().SaveCurrent()) {
-                            snprintf(status_msg, sizeof(status_msg), "Map saved");
-                            status_timer = 3.f;
-                        }
-                    }
-                    ImGui::EndMenu();
-                }
-                ImGui::Separator();
-                if (ImGui::MenuItem("Quit","Alt+F4")) {
-                    SDL_Event qe{}; qe.type=SDL_EVENT_QUIT; SDL_PushEvent(&qe);
-                }
-                ImGui::EndMenu();
-            }
-            if (status_timer > 0.f && status_msg[0]) {
-                float alpha=(status_timer>1.f)?1.f:status_timer;
-                float mw=ImGui::CalcTextSize(status_msg).x+16.f;
-                ImGui::SetCursorPosX(ImGui::GetWindowWidth()-mw);
-                ImGui::TextColored({0.4f,0.9f,0.5f,alpha},"%s",status_msg);
-            }
-            ImGui::EndMainMenuBar();
-        }
+
+        // Toolbar draws the full main menu bar (File/Edit/View + all floating panels)
+        EditorCore::Get().Update(dt);
+        float menu_h = ImGui::GetFrameHeight();  // standard menu bar height
 
         ImGui::SetNextWindowPos({0,menu_h});
         ImGui::SetNextWindowSize({fio.DisplaySize.x, fio.DisplaySize.y-menu_h});
@@ -324,6 +287,7 @@ int main(void) {
         {CharacterEditor::g_detached,    CharacterEditor::g_win_pos,    CharacterEditor::g_win_size},
         {SettingsEditor::g_detached,     SettingsEditor::g_win_pos,     SettingsEditor::g_win_size});
 
+    EditorCore::Get().Shutdown();
     ImGui_ImplSDLGPU3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();
