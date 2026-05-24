@@ -34,14 +34,18 @@ void EditorFlowGraphPanel::Shutdown() {
 void EditorFlowGraphPanel::Draw() {
     if (!EditorCore::Get().panels_visible[9]) return;
 
-    if (!imnodes_ctx_) imnodes_ctx_ = ImNodes::CreateContext();
-    ImNodes::SetCurrentContext(imnodes_ctx_);
-
     ImGui::SetNextWindowSize(ImVec2(620, 560), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowPos(ImVec2(200, 120), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("FlowGraph##fg", &EditorCore::Get().panels_visible[9])) {
         ImGui::End(); return;
     }
+    DrawContent();
+    ImGui::End();
+}
+
+void EditorFlowGraphPanel::DrawContent() {
+    if (!imnodes_ctx_) imnodes_ctx_ = ImNodes::CreateContext();
+    ImNodes::SetCurrentContext(imnodes_ctx_);
 
     auto& reg = Registry::Get();
 
@@ -56,7 +60,7 @@ void EditorFlowGraphPanel::Draw() {
 
     if (target == entt::null) {
         ImGui::TextDisabled("No FlowGraph entity in scene.");
-        ImGui::End(); return;
+        return;
     }
 
     auto& fg = reg.get<FlowGraph>(target);
@@ -150,6 +154,5 @@ void EditorFlowGraphPanel::Draw() {
         }
     }
 
-    ImGui::End();
 }
 #endif
