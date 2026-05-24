@@ -379,6 +379,53 @@ static void s_apply_brush(float dt) {
     }
 }
 
+// ── UploadTerrainHeightmap — write PCG tile into master + mark chunks dirty ─────
+// hmap: W×H float array (metres), chunk_x/z: zone-grid coords (same as TileData).
+static void UploadTerrainHeightmap(const float* hmap, int W, int H,
+                                    float world_size_m, int chunk_x, int chunk_z) {
+    if (!hmap || W <= 0 || H <= 0) return;
+    if (TerrainMaster_Loaded()) {
+        int mw = TerrainMaster_Width();
+        int mhh = TerrainMaster_Height();
+        const float WEXT = (float)(64 * CHUNK_SIZE);
+        float m_px = WEXT / (float)mw; // metres per master pixel
+        float pcg_cell = world_size_m / (float)W;
+
+        float wx0 = (float)chunk_x * world_size_m;
+        float wz0 = (float)chunk_z * world_size_m;
+
+        int c0 = (int)(wx0 / m_px);
+        int c1 = (int)((wx0 + world_size_m) / m_px) + 1;
+        int r0 = (int)(wz0 / m_px);
+        int r1 = (int)((wz0 + world_size_m) / m_px) + 1;
+        if (c0 < 0) c0 = 0; if (c1 > mw)  c1 = mw;
+        if (r0 < 0) r0 = 0; if (r1 > mhh) r1 = mhh;
+
+        for (int row = r0; row < r1; ++row) {
+            for (int col = c0; col < c1; ++col) {
+                float lx = col * m_px - wx0;
+                float lz = row * m_px - wz0;
+                float fx = lx / pcg_cell, fz = lz / pcg_cell;
+                int ix = (int)fx, iz = (int)fz;
+                if (ix < 0) ix = 0; if (ix >= W-1) ix = W-2;
+                if (iz < 0) iz = 0; if (iz >= H-1) iz = H-2;
+                float tx = fx - (float)ix, tz = fz - (float)iz;
+                float h = hmap[iz*W+ix]*(1-tx)*(1-tz)
+                        + hmap[iz*W+(ix+1)]*tx*(1-tz)
+                        + hmap[(iz+1)*W+ix]*(1-tx)*tz
+                        + hmap[(iz+1)*W+(ix+1)]*tx*tz;
+                TerrainMaster_SetPixel(col, row, h);
+            }
+        }
+    }
+    // Mark near chunks that overlap this zone dirty
+    for (int dz = 0; dz < EDITOR_TNKN; ++dz)
+        for (int dx = 0; dx < EDITOR_TNKN; ++dx)
+            if (s_zone_ox_saved + dx == chunk_x && s_zone_oz_saved + dz == chunk_z)
+                s_chunk_dirty[dz][dx] = true;
+    s_ov_rebuild_needed = true;
+}
+
 // ── RTT management ─────────────────────────────────────────────────────────────
 static void ensure_rtt(int w, int h) {
     if (w == s_rtt_w && h == s_rtt_h) return;
@@ -506,7 +553,7 @@ static void handle_input(float dt) {
         if (io.MouseDown[1]) {
             float dx, dy;
             SDL_GetRelativeMouseState(&dx, &dy);
-            s_yaw   += dx * 0.0018f;
+            s_yaw   -= dx * 0.0018f;
             s_pitch += dy * 0.0014f;
             if (s_pitch < -0.3f) s_pitch = -0.3f;
             if (s_pitch >  1.3f) s_pitch =  1.3f;

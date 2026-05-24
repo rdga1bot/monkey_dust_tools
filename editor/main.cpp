@@ -12,12 +12,21 @@
 #include "settings_editor.h"
 #include "editor_world_panel.h"
 #include "editor_world_3d_sdlgpu.h"
+#include "editor_3d_bridge.h"
+#include "editor_hmap_2d.h"
 #include "editor_char_preview_sdlgpu.h"
 #include "character_editor.h"
 #include "npc_archetype_editor.h"
 #include "editor_map_view.h"
 #include "editor_layout.h"
+#include "bug_capture.h"
 #include <cstdio>
+
+// ── Bridge: PCG terrain upload (defined here — only TU that includes W3D header) ─
+void EditorW3D_UploadTerrainHeightmap(const float* hmap, int W, int H,
+                                       float world_size_m, int chunk_x, int chunk_z) {
+    WorldEditor3D_SDLGPU::UploadTerrainHeightmap(hmap, W, H, world_size_m, chunk_x, chunk_z);
+}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // monkey_dust EDITOR v1.0 — SDL_GPU (Vulkan) backend.
@@ -83,9 +92,8 @@ int main(void) {
     NpcArchetypeEditor::Load("game/data/defs/npc_archetypes.json");
     WorldPanel::Init();
     WorldEditor3D_SDLGPU::Init(
-        "game/data/terrain/world_hmap.r32",
         "game/data/textures/md_terrain.png",
-        29, 25);  // zone offset: 7×7 view centred on The Hub (32,28)
+        29, 25);  // 7×7 view centred near The Hub area
     CharacterEditor::LoadJSON("game/data/chars/player.chardef");
     CharacterEditor::LoadMorphNames("game/data/chars/morph_names.txt");
     MapViewPanel::Get().Init();
@@ -128,6 +136,23 @@ int main(void) {
         float dt = (float)(now-last_ticks)/1000.f;
         last_ticks = now;
         if (status_timer > 0.f) status_timer -= dt;
+
+        // F9: dump editor state → tmp_md/bug_editor_TIMESTAMP.txt
+        if (input_key_pressed(SDL_SCANCODE_F9)) {
+            char path[256];
+            FILE* f = BugCapture::Open("editor", path, sizeof(path));
+            if (f) {
+                fprintf(f, "[Editor]\n");
+                fprintf(f, "  chars_detached=%d\n\n", CharacterEditor::g_detached ? 1 : 0);
+#ifdef MD_SDL_GPU
+                CharPreviewSDLGPU::DumpState(f);
+#endif
+                BugCapture::Close(f);
+                snprintf(status_msg, sizeof(status_msg), "[F9] %s", path + 7);
+                status_timer = 4.f;
+            }
+        }
+
         window_begin_frame();
 
         // ── ImGui frame ───────────────────────────────────────────────────────
@@ -227,6 +252,10 @@ int main(void) {
                 WorldPanel::Draw(dt);
                 ImGui::EndTabItem();
             }
+            if (ImGui::BeginTabItem("Heightmap")) {
+                HmapEditor2D::DrawPanel();
+                ImGui::EndTabItem();
+            }
             if (ImGui::BeginTabItem("3D World")) {
                 ImVec2 avail = ImGui::GetContentRegionAvail();
                 WorldEditor3D_SDLGPU::DrawImGui(avail.x, avail.y-2, dt);
@@ -256,6 +285,7 @@ int main(void) {
         SDL_GPUCommandBuffer* cmd = md::GpuDevice::Get().AcquireCommandBuffer();
         if (cmd) {
             // 1. Render 3D terrain + character preview + tile map to off-screen RTTs
+            HmapEditor2D::UploadTexture(cmd);    // upload dirty hmap texture (copy pass)
             WorldEditor3D_SDLGPU::RenderFrame(cmd, dt);
             CharPreviewSDLGPU::RenderFrame(cmd);
             MapViewPanel::Get().RenderFrame(cmd);
