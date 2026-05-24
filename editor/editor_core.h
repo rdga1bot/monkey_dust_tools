@@ -1,5 +1,5 @@
 #pragma once
-#ifdef DEBUG
+#ifdef MONKEY_DUST_EDITOR
 #ifdef USE_SDL3
 #  include "backends/imgui_impl_sdl3.h"
 #  include "backends/imgui_impl_opengl3.h"

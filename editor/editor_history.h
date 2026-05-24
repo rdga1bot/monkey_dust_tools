@@ -1,5 +1,5 @@
 #pragma once
-#ifdef DEBUG
+#ifdef MONKEY_DUST_EDITOR
 #include <entt/entt.hpp>
 #include <cstdint>
 #include <cstring>

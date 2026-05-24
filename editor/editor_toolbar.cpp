@@ -1,6 +1,7 @@
 #ifdef MONKEY_DUST_EDITOR
 #include "editor_toolbar.h"
 #include "editor_command_palette.h"
+#include "editor_map_view.h"
 #include <monkey_dust/ecs/registry.h>
 #include <monkey_dust/world/world_transform.h>
 #include <monkey_dust/components/health.h>
@@ -53,6 +54,22 @@ void EditorToolbar::DrawMenuBar() {
 
     // ── File ─────────────────────────────────────────────────
     if (ImGui::BeginMenu("File")) {
+        // Map open/save (standalone editor)
+        if (ImGui::BeginMenu("Map")) {
+            static char s_open_buf[256] = "third_party/flare-game/mods/empyrean_campaign/maps/goblin_camp.txt";
+            static char s_save_buf[256] = "";
+            ImGui::SetNextItemWidth(320); ImGui::InputText("##mopen", s_open_buf, sizeof(s_open_buf));
+            ImGui::SameLine();
+            if (ImGui::Button("Open##mop")) MapViewPanel::Get().LoadMap(s_open_buf);
+            ImGui::Separator();
+            ImGui::SetNextItemWidth(320); ImGui::InputText("##msave", s_save_buf, sizeof(s_save_buf));
+            ImGui::SameLine();
+            if (ImGui::Button("Save As##msa")) MapViewPanel::Get().SaveTo(s_save_buf);
+            if (ImGui::MenuItem("Save##msc", "Ctrl+S", false, MapViewPanel::Get().IsLoaded()))
+                MapViewPanel::Get().SaveCurrent();
+            ImGui::EndMenu();
+        }
+        ImGui::Separator();
         if (ImGui::MenuItem("New Scene")) {
             EditorCore::Get().DeselectAll();
             Registry::Get().clear();
@@ -309,8 +326,7 @@ void EditorToolbar::SpawnEntity(const char* type) {
     auto& ai = reg.emplace<AIAgent>(e);
     ai.faction_id = faction;
     ai.lod_level  = 0;
-    auto& hp = reg.emplace<Health>(e);
-    hp.current = hp.max = 100.f;
+    reg.emplace<Health>(e) = LimbHealth::Make(100.f);
     reg.emplace<Combat>(e);
     reg.emplace<Renderable>(e);
 
