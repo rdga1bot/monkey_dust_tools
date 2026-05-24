@@ -19,6 +19,8 @@
 #include "character_editor.h"
 #include "npc_archetype_editor.h"
 #include "editor_map_view.h"
+#include "editor_node_graph.h"
+#include "editor_terrain_panel.h"
 #include "editor_layout.h"
 #include "bug_capture.h"
 #include <cstdio>
@@ -99,9 +101,7 @@ int main(void) {
     CharacterEditor::LoadMorphNames("game/data/chars/morph_names.txt");
     MapViewPanel::Get().Init();
     EditorCore::Get().Init();
-    // Enable terrain panels by default
-    EditorCore::Get().panels_visible[12] = true;  // Terrain Nodes
-    EditorCore::Get().panels_visible[14] = true;  // Terrain Sculpt
+    // Terrain panels are embedded in the Terrain tab — keep them non-floating
 
     // Restore panel detach/position state from previous session
     {
@@ -167,16 +167,17 @@ int main(void) {
 
         ImGuiIO& fio = ImGui::GetIO();
 
-        // Toolbar draws the full main menu bar (File/Edit/View + all floating panels)
+        // Toolbar draws the menu bar (~20px) + button bar (30px fixed)
         EditorCore::Get().Update(dt);
-        float menu_h = ImGui::GetFrameHeight();  // standard menu bar height
+        float toolbar_h = ImGui::GetFrameHeight() + 30.f;
 
-        ImGui::SetNextWindowPos({0,menu_h});
-        ImGui::SetNextWindowSize({fio.DisplaySize.x, fio.DisplaySize.y-menu_h});
+        ImGui::SetNextWindowPos({0, toolbar_h});
+        ImGui::SetNextWindowSize({fio.DisplaySize.x, fio.DisplaySize.y - toolbar_h});
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,{0,0});
         ImGui::Begin("##editor",nullptr,
             ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoResize|
             ImGuiWindowFlags_NoMove|ImGuiWindowFlags_NoScrollbar|
+            ImGuiWindowFlags_NoScrollWithMouse|
             ImGuiWindowFlags_NoBringToFrontOnFocus);
         ImGui::PopStyleVar();
         ImGui::SetCursorPos({0,0});
@@ -217,6 +218,19 @@ int main(void) {
             }
             if (ImGui::BeginTabItem("Heightmap")) {
                 HmapEditor2D::DrawPanel();
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Terrain")) {
+                ImVec2 avail = ImGui::GetContentRegionAvail();
+                float graph_w = avail.x * 0.70f;
+                ImGui::BeginChild("##terrain_ng", {graph_w, avail.y}, false,
+                    ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+                EditorNodeGraphPanel::Get().DrawContent();
+                ImGui::EndChild();
+                ImGui::SameLine(0, 4);
+                ImGui::BeginChild("##terrain_sculpt", {0, avail.y}, false);
+                EditorTerrainPanel::Get().DrawContent(dt);
+                ImGui::EndChild();
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("3D World")) {

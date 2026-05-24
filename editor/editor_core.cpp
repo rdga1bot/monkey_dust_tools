@@ -3,19 +3,16 @@
 #include "editor_toolbar.h"
 #include "editor_hierarchy.h"
 #include "editor_inspector.h"
-#include "editor_asset_browser.h"
-#include "editor_graphics_panel.h"
 #include "editor_camera_panel.h"
 #include "editor_console.h"
 #include "editor_animation_panel.h"
 #include "editor_flare_browser.h"
 #include "editor_viewcone_panel.h"
 #include "editor_flowgraph_panel.h"
+#include "editor_sequencer_panel.h"
 #include "editor_director_panel.h"
 #include "editor_gpu_profiler_panel.h"
 #include "editor_node_graph.h"
-#include "editor_sequencer_panel.h"
-#include "editor_terrain_panel.h"
 #include "character_editor.h"
 #include <monkey_dust/world/world_transform.h>
 #include <monkey_dust/platform/input.h>
@@ -27,10 +24,19 @@ static constexpr float DEG2R = 3.14159265f / 180.f;
 void EditorCore::Init() {
     EditorConsole::Get().Init();
     EditorNodeGraphPanel::Get().Init();
+#ifndef MONKEY_DUST_STANDALONE_EDITOR
     CharacterEditor::LoadJSON("game/data/chars/player.chardef");
     CharacterEditor::LoadMorphNames("game/data/chars/morph_names.txt");
+#endif
     for (int i = 0; i < MAX_SELECTED; ++i)
         selected[i] = entt::null;
+
+#ifdef MONKEY_DUST_STANDALONE_EDITOR
+    // Standalone editor has its own tab-based layout.
+    // Wicked-style in-game panels (Hierarchy, Inspector, Assets, etc.) start hidden;
+    // main.cpp enables only the panels relevant to the standalone tool.
+    for (int i = 0; i < 15; ++i) panels_visible[i] = false;
+#endif
 
     editor_cam.pos    = { 0.f, 35.f, 35.f };
     editor_cam.target = cam_target;
@@ -40,22 +46,88 @@ void EditorCore::Init() {
 
 void EditorCore::Update(float dt) {
     EditorToolbar::Get().Draw(dt);
-    EditorHierarchy::Get().Draw();
-    EditorInspector::Get().Draw();
-    EditorAssetBrowser::Get().Draw();
-    EditorGraphicsPanel::Get().Draw();
-    EditorCameraPanel::Get().Draw();
-    EditorConsole::Get().Draw();
-    EditorAnimationPanel::Get().Draw();
-    EditorFlareBrowser::Get().Draw();
-    EditorViewConePanel::Get().Draw();
-    EditorFlowGraphPanel::Get().Draw();
-    EditorDirectorPanel::Get().Draw();
-    EditorGpuProfilerPanel::Get().Draw();
-    EditorNodeGraphPanel::Get().Draw();
-    EditorSequencerPanel::Get().Draw();
-    EditorTerrainPanel::Get().Draw(dt);
-    CharacterEditor::Draw();
+#ifndef MONKEY_DUST_STANDALONE_EDITOR
+    ImGuiIO& io = ImGui::GetIO();
+    float toolbar_h = ImGui::GetFrameHeight() + 30.f;
+
+    ImGui::SetNextWindowPos({0.f, toolbar_h});
+    ImGui::SetNextWindowSize({io.DisplaySize.x, io.DisplaySize.y - toolbar_h});
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.f, 0.f});
+    ImGui::Begin("##f3editor", nullptr,
+        ImGuiWindowFlags_NoTitleBar  | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove      | ImGuiWindowFlags_NoScrollbar |
+        ImGuiWindowFlags_NoScrollWithMouse |
+        ImGuiWindowFlags_NoBringToFrontOnFocus);
+    ImGui::PopStyleVar();
+
+    if (ImGui::BeginTabBar("##f3tabs")) {
+        // ── Scene: Hierarchy 30% + Inspector 70% ──────────────────────
+        if (ImGui::BeginTabItem("Scene")) {
+            ImVec2 av = ImGui::GetContentRegionAvail();
+            ImGui::BeginChild("##f3h", {av.x * 0.30f, av.y}, false);
+            EditorHierarchy::Get().DrawContent();
+            ImGui::EndChild();
+            ImGui::SameLine(0, 4);
+            ImGui::BeginChild("##f3i", {0.f, av.y}, false);
+            EditorInspector::Get().DrawContent();
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+        // ── AI: Director 50% + ViewCone 50% ───────────────────────────
+        if (ImGui::BeginTabItem("AI")) {
+            ImVec2 av = ImGui::GetContentRegionAvail();
+            ImGui::BeginChild("##f3dir", {av.x * 0.50f, av.y}, false);
+            EditorDirectorPanel::Get().DrawContent();
+            ImGui::EndChild();
+            ImGui::SameLine(0, 4);
+            ImGui::BeginChild("##f3vc", {0.f, av.y}, false);
+            EditorViewConePanel::Get().DrawContent();
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+        // ── Animation: Animation top + Sequencer rest ─────────────────
+        if (ImGui::BeginTabItem("Animation")) {
+            ImVec2 av = ImGui::GetContentRegionAvail();
+            ImGui::BeginChild("##f3an", {av.x, 180.f}, false);
+            EditorAnimationPanel::Get().DrawContent();
+            ImGui::EndChild();
+            ImGui::BeginChild("##f3sq", {av.x, 0.f}, false);
+            EditorSequencerPanel::Get().DrawContent();
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+        // ── FlowGraph: full tab ────────────────────────────────────────
+        if (ImGui::BeginTabItem("FlowGraph")) {
+            EditorFlowGraphPanel::Get().DrawContent();
+            ImGui::EndTabItem();
+        }
+        // ── Debug: Console 60% + GPU Profiler 40% ─────────────────────
+        if (ImGui::BeginTabItem("Debug")) {
+            ImVec2 av = ImGui::GetContentRegionAvail();
+            ImGui::BeginChild("##f3con", {av.x * 0.60f, av.y}, false);
+            EditorConsole::Get().DrawContent();
+            ImGui::EndChild();
+            ImGui::SameLine(0, 4);
+            ImGui::BeginChild("##f3gpu", {0.f, av.y}, false);
+            EditorGpuProfilerPanel::Get().DrawContent();
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+        // ── Camera ────────────────────────────────────────────────────
+        if (ImGui::BeginTabItem("Camera")) {
+            EditorCameraPanel::Get().DrawContent();
+            ImGui::EndTabItem();
+        }
+        // ── Characters ────────────────────────────────────────────────
+        if (ImGui::BeginTabItem("Characters")) {
+            ImGui::SetCursorPos({8.f, ImGui::GetCursorPosY() + 4.f});
+            CharacterEditor::Draw();
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
+    ImGui::End();
+#endif
 }
 
 void EditorCore::Shutdown() {
