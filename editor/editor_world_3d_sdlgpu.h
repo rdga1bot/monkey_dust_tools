@@ -579,8 +579,8 @@ static void handle_input(float dt) {
     if (io.MouseWheel != 0.f) {
         float step = s_cy * 0.05f * io.MouseWheel;
         s_cx += step * sy; s_cz += step * cy;
-        if (io.MouseWheel > 0) s_cy = fmaxf(s_cy * 0.96f, 10.f);
-        else                   s_cy = fminf(s_cy * 1.04f, 50000.f);
+        if (io.MouseWheel > 0) s_cy = fmaxf(s_cy * 0.92f, 10.f);
+        else                   s_cy = fminf(s_cy * 1.08f, 150000.f);
     }
     if (io.KeyCtrl && io.MouseWheel != 0.f) {
         s_speed *= powf(1.3f, io.MouseWheel);
@@ -590,7 +590,7 @@ static void handle_input(float dt) {
     static constexpr float ATLAS_MAX = 63.f * CHUNK_SIZE;
     if (s_cx < 0.f) s_cx = 0.f; if (s_cx > ATLAS_MAX) s_cx = ATLAS_MAX;
     if (s_cz < 0.f) s_cz = 0.f; if (s_cz > ATLAS_MAX) s_cz = ATLAS_MAX;
-    if (s_cy < 5.f) s_cy = 5.f;
+    if (s_cy < 5.f) s_cy = 5.f; if (s_cy > 150000.f) s_cy = 150000.f;
 }
 
 // ── Render terrain to RTT (call AFTER ImGui build, BEFORE ImGui present) ────────
@@ -610,7 +610,7 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt) {
     if (w < 8 || h < 8) return;
 
     float asp = (float)w / (float)h;
-    M4 proj = m4_persp(0.80f, asp, 5.f, 80000.f);
+    M4 proj = m4_persp(0.80f, asp, 5.f, 350000.f);
     M4 view = m4_view(s_cx, s_cy, s_cz, s_yaw, s_pitch);
     M4 vp   = m4_mul(proj, view);
     memcpy(s_last_vp, vp.m, 64);  // expose for brush cursor projection
