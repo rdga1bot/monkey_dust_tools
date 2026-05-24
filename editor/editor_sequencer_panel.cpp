@@ -73,6 +73,17 @@ void EditorSequencerPanel::InitDefaults() {
 void EditorSequencerPanel::Draw() {
     if (!EditorCore::Get().panels_visible[13]) return;
 
+    ImGui::SetNextWindowSize(ImVec2(820, 230), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(200, 590), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Sequencer##seq", &EditorCore::Get().panels_visible[13])) {
+        ImGui::End(); return;
+    }
+    DrawContent();
+    ImGui::End();
+}
+
+void EditorSequencerPanel::DrawContent() {
+
     if (!initialized_) {
         seq_.entries   = entries_;
         seq_.count     = &entry_count_;
@@ -80,12 +91,6 @@ void EditorSequencerPanel::Draw() {
         seq_.frame_max = 240;
         InitDefaults();
         initialized_ = true;
-    }
-
-    ImGui::SetNextWindowSize(ImVec2(820, 230), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowPos(ImVec2(200, 590), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("Sequencer##seq", &EditorCore::Get().panels_visible[13])) {
-        ImGui::End(); return;
     }
 
     ImGui::Text("Frame: %d  |  Clips: %d", current_frame_, entry_count_);
@@ -117,7 +122,6 @@ void EditorSequencerPanel::Draw() {
             sel.frame_end - sel.frame_start + 1);
     }
 
-    ImGui::End();
 }
 
 #endif // MONKEY_DUST_EDITOR
