@@ -14,10 +14,10 @@ struct FlameEntry {
 static void FlameGetter(float* s, float* e, ImU8* lvl,
                         const char** cap, const void* data, int idx) {
     const FlameEntry* arr = static_cast<const FlameEntry*>(data);
-    *s   = arr[idx].start_ms;
-    *e   = arr[idx].end_ms;
-    *lvl = 0;
-    *cap = arr[idx].name;
+    if (s)   *s   = arr[idx].start_ms;
+    if (e)   *e   = arr[idx].end_ms;
+    if (lvl) *lvl = 0;
+    if (cap) *cap = arr[idx].name;
 }
 
 void EditorGpuProfilerPanel::Draw() {
@@ -28,6 +28,11 @@ void EditorGpuProfilerPanel::Draw() {
     if (!ImGui::Begin("GPU Profiler##gp", &EditorCore::Get().panels_visible[11])) {
         ImGui::End(); return;
     }
+    DrawContent();
+    ImGui::End();
+}
+
+void EditorGpuProfilerPanel::DrawContent() {
 
     auto& prof = md::GpuProfiler::Get();
     int   n    = prof.ResultCount();
@@ -42,7 +47,7 @@ void EditorGpuProfilerPanel::Draw() {
         ImGui::TextDisabled("No passes recorded.");
         ImGui::TextDisabled("Call GpuProfiler::Get().BeginPass/EndPass");
         ImGui::TextDisabled("from render systems to populate.");
-        ImGui::End(); return;
+        return;
     }
 
     // Budget reference: 16.67 ms = 60 FPS
@@ -94,6 +99,5 @@ void EditorGpuProfilerPanel::Draw() {
         tot > 0.001f ? tot : 1.f,
         ImVec2(avail_w, 60.f));
 
-    ImGui::End();
 }
 #endif
