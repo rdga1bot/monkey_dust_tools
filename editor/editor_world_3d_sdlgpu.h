@@ -454,7 +454,7 @@ static bool Init(const char* overlay_path, int zone_ox = 28, int zone_oz = 28) {
     s_zone_ox_saved = zone_ox;
     s_zone_oz_saved = zone_oz;
     s_cx = 32.f * CHUNK_SIZE;  // center of world
-    s_cy = 5000.f;             // overview altitude
+    s_cy = 28000.f;            // altitude to see full 32 km world (FOV 0.80 rad)
     s_cz = 32.f * CHUNK_SIZE;
 
     s_load_zone_amplitudes("game/data/terrain_config.txt");
@@ -580,7 +580,7 @@ static void handle_input(float dt) {
         float step = s_cy * 0.05f * io.MouseWheel;
         s_cx += step * sy; s_cz += step * cy;
         if (io.MouseWheel > 0) s_cy = fmaxf(s_cy * 0.96f, 10.f);
-        else                   s_cy = fminf(s_cy * 1.04f, 20000.f);
+        else                   s_cy = fminf(s_cy * 1.04f, 50000.f);
     }
     if (io.KeyCtrl && io.MouseWheel != 0.f) {
         s_speed *= powf(1.3f, io.MouseWheel);
@@ -610,7 +610,7 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt) {
     if (w < 8 || h < 8) return;
 
     float asp = (float)w / (float)h;
-    M4 proj = m4_persp(0.80f, asp, 5.f, 25000.f);
+    M4 proj = m4_persp(0.80f, asp, 5.f, 80000.f);
     M4 view = m4_view(s_cx, s_cy, s_cz, s_yaw, s_pitch);
     M4 vp   = m4_mul(proj, view);
     memcpy(s_last_vp, vp.m, 64);  // expose for brush cursor projection
