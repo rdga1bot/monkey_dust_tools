@@ -182,9 +182,11 @@ void EditorCore::Update(float dt) {
     ImGui::End();
 
     // ── floating panels (rendered outside ##f3editor) ─────────────────────
+    // Floating panels — ImGuiCond_Appearing so each panel snaps to its designated
+    // position every time it is detached, regardless of imgui.ini history.
     if (g_det_scene) {
-        ImGui::SetNextWindowPos({50.f, 60.f}, ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowSize({700, 500}, ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowPos({4.f, 50.f}, ImGuiCond_Appearing);
+        ImGui::SetNextWindowSize({420, 640}, ImGuiCond_Appearing);
         if (ImGui::Begin("Scene##float", &g_det_scene)) {
             if (ImGui::Button("Dock##scene")) g_det_scene = false;
             ImGui::Separator();
@@ -200,8 +202,8 @@ void EditorCore::Update(float dt) {
         ImGui::End();
     }
     if (g_det_ai) {
-        ImGui::SetNextWindowPos({80.f, 90.f}, ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowSize({700, 500}, ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowPos({4.f, 50.f}, ImGuiCond_Appearing);
+        ImGui::SetNextWindowSize({520, 520}, ImGuiCond_Appearing);
         if (ImGui::Begin("AI##float", &g_det_ai)) {
             if (ImGui::Button("Dock##ai")) g_det_ai = false;
             ImGui::Separator();
@@ -217,8 +219,8 @@ void EditorCore::Update(float dt) {
         ImGui::End();
     }
     if (g_det_anim) {
-        ImGui::SetNextWindowPos({110.f, 120.f}, ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowSize({700, 500}, ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowPos({4.f, 430.f}, ImGuiCond_Appearing);
+        ImGui::SetNextWindowSize({900, 280}, ImGuiCond_Appearing);
         if (ImGui::Begin("Animation##float", &g_det_anim)) {
             if (ImGui::Button("Dock##anim")) g_det_anim = false;
             ImGui::Separator();
@@ -233,8 +235,8 @@ void EditorCore::Update(float dt) {
         ImGui::End();
     }
     if (g_det_flow) {
-        ImGui::SetNextWindowPos({140.f, 150.f}, ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowSize({700, 500}, ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowPos({430.f, 50.f}, ImGuiCond_Appearing);
+        ImGui::SetNextWindowSize({840, 630}, ImGuiCond_Appearing);
         if (ImGui::Begin("FlowGraph##float", &g_det_flow)) {
             if (ImGui::Button("Dock##flow")) g_det_flow = false;
             ImGui::Separator();
@@ -243,8 +245,8 @@ void EditorCore::Update(float dt) {
         ImGui::End();
     }
     if (g_det_debug) {
-        ImGui::SetNextWindowPos({170.f, 180.f}, ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowSize({700, 500}, ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowPos({4.f, 430.f}, ImGuiCond_Appearing);
+        ImGui::SetNextWindowSize({780, 280}, ImGuiCond_Appearing);
         if (ImGui::Begin("Debug##float", &g_det_debug)) {
             if (ImGui::Button("Dock##debug")) g_det_debug = false;
             ImGui::Separator();
@@ -261,8 +263,8 @@ void EditorCore::Update(float dt) {
     }
     if (g_det_cam) {
         ImVec2 ds = ImGui::GetIO().DisplaySize;
-        ImGui::SetNextWindowPos({ds.x - 420.f, 30.f}, ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowSize({400, 300}, ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowPos({ds.x - 310.f, 50.f}, ImGuiCond_Appearing);
+        ImGui::SetNextWindowSize({300, 250}, ImGuiCond_Appearing);
         if (ImGui::Begin("Camera##float", &g_det_cam)) {
             if (ImGui::Button("Dock##cam")) g_det_cam = false;
             ImGui::Separator();
