@@ -95,16 +95,16 @@ void EditorCore::Update(float dt) {
     ImGuiIO& io = ImGui::GetIO();
     float toolbar_h = ImGui::GetFrameHeight() + 30.f;
 
+    // Fixed left sidebar — content always at the same screen position; never fullscreen.
+    static constexpr float SIDEBAR_W = 380.f;
     ImGui::SetNextWindowPos({0.f, toolbar_h});
-    ImGui::SetNextWindowSize({io.DisplaySize.x, io.DisplaySize.y - toolbar_h});
-    const bool any_det = g_det_scene || g_det_ai || g_det_anim || g_det_flow || g_det_debug || g_det_cam;
+    ImGui::SetNextWindowSize({SIDEBAR_W, io.DisplaySize.y - toolbar_h});
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.f, 0.f});
     ImGui::Begin("##f3editor", nullptr,
         ImGuiWindowFlags_NoTitleBar  | ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoMove      | ImGuiWindowFlags_NoScrollbar |
         ImGuiWindowFlags_NoScrollWithMouse |
-        ImGuiWindowFlags_NoBringToFrontOnFocus |
-        (any_det ? ImGuiWindowFlags_NoBackground : 0));
+        ImGuiWindowFlags_NoBringToFrontOnFocus);
     ImGui::PopStyleVar();
 
     if (ImGui::BeginTabBar("##f3tabs")) {
@@ -112,11 +112,10 @@ void EditorCore::Update(float dt) {
             if (!g_det_scene) {
                 if (f3_detach_btn("Detach##scene")) g_det_scene = true;
                 ImVec2 av = ImGui::GetContentRegionAvail();
-                ImGui::BeginChild("##f3h", {av.x * 0.30f, av.y}, false);
+                ImGui::BeginChild("##f3h", {av.x, av.y * 0.38f}, false);
                 EditorHierarchy::Get().DrawContent();
                 ImGui::EndChild();
-                ImGui::SameLine(0, 4);
-                ImGui::BeginChild("##f3i", {0.f, av.y}, false);
+                ImGui::BeginChild("##f3i", {av.x, 0.f}, false);
                 EditorInspector::Get().DrawContent();
                 ImGui::EndChild();
             } else { ImGui::TextDisabled("(detached)"); }
@@ -126,11 +125,10 @@ void EditorCore::Update(float dt) {
             if (!g_det_ai) {
                 if (f3_detach_btn("Detach##ai")) g_det_ai = true;
                 ImVec2 av = ImGui::GetContentRegionAvail();
-                ImGui::BeginChild("##f3dir", {av.x * 0.50f, av.y}, false);
+                ImGui::BeginChild("##f3dir", {av.x, av.y * 0.50f}, false);
                 EditorDirectorPanel::Get().DrawContent();
                 ImGui::EndChild();
-                ImGui::SameLine(0, 4);
-                ImGui::BeginChild("##f3vc", {0.f, av.y}, false);
+                ImGui::BeginChild("##f3vc", {av.x, 0.f}, false);
                 EditorViewConePanel::Get().DrawContent();
                 ImGui::EndChild();
             } else { ImGui::TextDisabled("(detached)"); }
@@ -160,11 +158,10 @@ void EditorCore::Update(float dt) {
             if (!g_det_debug) {
                 if (f3_detach_btn("Detach##debug")) g_det_debug = true;
                 ImVec2 av = ImGui::GetContentRegionAvail();
-                ImGui::BeginChild("##f3con", {av.x * 0.60f, av.y}, false);
+                ImGui::BeginChild("##f3con", {av.x, av.y * 0.65f}, false);
                 EditorConsole::Get().DrawContent();
                 ImGui::EndChild();
-                ImGui::SameLine(0, 4);
-                ImGui::BeginChild("##f3gpu", {0.f, av.y}, false);
+                ImGui::BeginChild("##f3gpu", {av.x, 0.f}, false);
                 EditorGpuProfilerPanel::Get().DrawContent();
                 ImGui::EndChild();
             } else { ImGui::TextDisabled("(detached)"); }
@@ -185,8 +182,8 @@ void EditorCore::Update(float dt) {
     // Floating panels — ImGuiCond_Appearing so each panel snaps to its designated
     // position every time it is detached, regardless of imgui.ini history.
     if (g_det_scene) {
-        ImGui::SetNextWindowPos({4.f, 50.f}, ImGuiCond_Appearing);
-        ImGui::SetNextWindowSize({420, 640}, ImGuiCond_Appearing);
+        ImGui::SetNextWindowPos({390.f, 50.f}, ImGuiCond_Appearing);
+        ImGui::SetNextWindowSize({520, 640}, ImGuiCond_Appearing);
         if (ImGui::Begin("Scene##float", &g_det_scene)) {
             if (ImGui::Button("Dock##scene")) g_det_scene = false;
             ImGui::Separator();
@@ -202,7 +199,7 @@ void EditorCore::Update(float dt) {
         ImGui::End();
     }
     if (g_det_ai) {
-        ImGui::SetNextWindowPos({4.f, 50.f}, ImGuiCond_Appearing);
+        ImGui::SetNextWindowPos({390.f, 50.f}, ImGuiCond_Appearing);
         ImGui::SetNextWindowSize({520, 520}, ImGuiCond_Appearing);
         if (ImGui::Begin("AI##float", &g_det_ai)) {
             if (ImGui::Button("Dock##ai")) g_det_ai = false;
@@ -245,8 +242,8 @@ void EditorCore::Update(float dt) {
         ImGui::End();
     }
     if (g_det_debug) {
-        ImGui::SetNextWindowPos({4.f, 430.f}, ImGuiCond_Appearing);
-        ImGui::SetNextWindowSize({780, 280}, ImGuiCond_Appearing);
+        ImGui::SetNextWindowPos({390.f, 430.f}, ImGuiCond_Appearing);
+        ImGui::SetNextWindowSize({880, 280}, ImGuiCond_Appearing);
         if (ImGui::Begin("Debug##float", &g_det_debug)) {
             if (ImGui::Button("Dock##debug")) g_det_debug = false;
             ImGui::Separator();
