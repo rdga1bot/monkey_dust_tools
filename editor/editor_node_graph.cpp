@@ -440,12 +440,17 @@ void EditorNodeGraphPanel::HandleContextMenu() {
 void EditorNodeGraphPanel::Draw() {
     if (!EditorCore::Get().panels_visible[12]) return;
     if (!ctx_) Init();
-
     ImGui::SetNextWindowSize(ImVec2(860, 540), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowPos(ImVec2(300, 80),   ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Terrain Nodes##ng", &EditorCore::Get().panels_visible[12])) {
         ImGui::End(); return;
     }
+    DrawContent();
+    ImGui::End();
+}
+
+void EditorNodeGraphPanel::DrawContent() {
+    if (!ctx_) Init();
 
     // Status bar (above canvas)
     int alive_nodes = 0, dirty_count = 0;
@@ -475,7 +480,6 @@ void EditorNodeGraphPanel::Draw() {
 
     for (int i = 0; i < link_cnt_; ++i) {
         if (!links_[i].alive) continue;
-        // Link color from source pin type
         md::PinColor c = {0.4f,0.9f,0.5f,1.f};
         int fp_idx = -1;
         for (int p = 0; p < pin_cnt_; ++p)
@@ -493,8 +497,6 @@ void EditorNodeGraphPanel::Draw() {
 
     ed::End();
     ed::SetCurrentEditor(nullptr);
-
-    ImGui::End();
 }
 
 #endif // MONKEY_DUST_EDITOR

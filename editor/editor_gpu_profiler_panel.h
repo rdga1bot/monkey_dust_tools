@@ -5,6 +5,7 @@ class EditorGpuProfilerPanel {
 public:
     static EditorGpuProfilerPanel& Get() { static EditorGpuProfilerPanel i; return i; }
     void Draw();
+    void DrawContent();
 private:
     EditorGpuProfilerPanel() = default;
 };

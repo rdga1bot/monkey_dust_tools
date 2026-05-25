@@ -23,6 +23,7 @@ public:
     void Init();
     void Shutdown();
     void Draw();
+    void DrawContent();
 
     // ── Node types ─────────────────────────────────────────────────────────
     enum class NK : uint8_t {

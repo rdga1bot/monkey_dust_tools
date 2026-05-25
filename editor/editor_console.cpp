@@ -92,7 +92,7 @@ void EditorConsole::ExecCommand(const char* raw) {
         for (auto e : reg.storage<entt::entity>()) {
             if ((uint32_t)entt::to_integral(e) == eid) {
                 if (reg.all_of<Combat>(e))  reg.get<Combat>(e).is_dead = true;
-                if (reg.all_of<Health>(e))  reg.get<Health>(e).current = 0.f;
+                if (reg.all_of<Health>(e)) { auto& h = reg.get<Health>(e); for (int _i=0;_i<LIMB_COUNT;++_i) h.hp[_i]=0.f; }
                 char msg[48];
                 snprintf(msg, sizeof(msg), "[Console] Killed entity %u", eid);
                 Log(MD_LOG_INFO, msg);
@@ -154,6 +154,11 @@ void EditorConsole::Draw() {
         ImGui::End();
         return;
     }
+    DrawContent();
+    ImGui::End();
+}
+
+void EditorConsole::DrawContent() {
 
     // Toolbar
     if (ImGui::SmallButton("Clear##con"))  { log_count_ = 0; log_head_ = 0; }
@@ -284,6 +289,5 @@ void EditorConsole::Draw() {
     }
     if (reclaim) ImGui::SetKeyboardFocusHere(-1);
 
-    ImGui::End();
 }
 #endif

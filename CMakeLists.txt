@@ -7,10 +7,9 @@ find_package(SDL3 REQUIRED CONFIG)
 # Standalone 3D editor. UI: Dear ImGui via imgui_impl_sdl3/sdlgpu3 (SDL_GPU=Vulkan).
 # Same backend as the game — enables full TerrainRenderer/PropRenderer reuse.
 
-# editor_map_view.cpp is the first ported panel (SDL_GPU RTT tile map).
-set(EDITOR_PANEL_SOURCES
-    editor/editor_map_view.cpp
-)
+# All editor panel .cpp files (map_view + all wicked-style panels).
+file(GLOB EDITOR_PANEL_SOURCES "editor/*.cpp")
+list(REMOVE_ITEM EDITOR_PANEL_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/editor/main.cpp")
 
 set(EDITOR_IMGUI_SRC
     ${CMAKE_SOURCE_DIR}/third_party/imgui/imgui.cpp

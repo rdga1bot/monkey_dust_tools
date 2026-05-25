@@ -11,6 +11,7 @@ public:
         static EditorSequencerPanel i; return i;
     }
     void Draw();
+    void DrawContent();
 
 private:
     EditorSequencerPanel() = default;

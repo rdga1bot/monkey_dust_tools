@@ -5,6 +5,7 @@ class EditorTerrainPanel {
 public:
     static EditorTerrainPanel& Get() { static EditorTerrainPanel inst; return inst; }
     void Draw(float dt);
+    void DrawContent(float dt);
 
 private:
     EditorTerrainPanel() = default;

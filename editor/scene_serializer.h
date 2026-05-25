@@ -62,7 +62,7 @@ inline bool Export(const char* path) {
         if (reg.all_of<Health>(e)) {
             const auto& hp = reg.get<Health>(e);
             fprintf(f, ",\n        \"health\": {\"current\":%.2f,\"max\":%.2f}",
-                    hp.current, hp.max);
+                    hp.TotalHp(), hp.TotalMax());
         }
 
         if (reg.all_of<AIAgent>(e)) {
@@ -218,8 +218,10 @@ inline bool Import(const char* path) {
         const char* hp_pos = strstr(comp_pos, "\"health\"");
         if (hp_pos) {
             auto& hp = reg.emplace<Health>(e);
-            SsParsFloat(hp_pos, "\"current\"", hp.current);
-            SsParsFloat(hp_pos, "\"max\"",     hp.max);
+            float hp_cur = 0.f, hp_max = 0.f;
+            SsParsFloat(hp_pos, "\"current\"", hp_cur);
+            SsParsFloat(hp_pos, "\"max\"",     hp_max);
+            hp = LimbHealth::Make(hp_cur, hp_max);
         }
 
         // AIAgent

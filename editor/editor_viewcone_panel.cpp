@@ -16,13 +16,18 @@ void EditorViewConePanel::Draw() {
     if (!ImGui::Begin("ViewCone Inspector##vc", &EditorCore::Get().panels_visible[8])) {
         ImGui::End(); return;
     }
+    DrawContent();
+    ImGui::End();
+}
+
+void EditorViewConePanel::DrawContent() {
 
     auto& reg = Registry::Get();
     entt::entity e = EditorCore::Get().GetPrimary();
 
     if (e == entt::null || !reg.valid(e) || !reg.all_of<SenseComponent>(e)) {
         ImGui::TextDisabled("Select an entity with SenseComponent.");
-        ImGui::End(); return;
+        return;
     }
 
     auto& sc = reg.get<SenseComponent>(e);
@@ -63,7 +68,7 @@ void EditorViewConePanel::Draw() {
     const ViewConeSet* vcs = SenseRegistry::Get().At(sc.cone_set_idx);
     if (!vcs) {
         ImGui::TextDisabled("cone_set_idx=%u — not loaded", sc.cone_set_idx);
-        ImGui::End(); return;
+        return;
     }
 
     if (ImGui::CollapsingHeader("ViewConeSet", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -92,6 +97,5 @@ void EditorViewConePanel::Draw() {
         }
     }
 
-    ImGui::End();
 }
 #endif

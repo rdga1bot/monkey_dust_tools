@@ -13,10 +13,13 @@ void EditorAnimationPanel::Draw() {
         ImGui::End();
         return;
     }
+    DrawContent();
+    ImGui::End();
+}
+
+void EditorAnimationPanel::DrawContent() {
 
     ImGui::TextDisabled("Animation requires Phase 31 (MD_OPENGL43_ENABLED).");
     ImGui::TextDisabled("Rebuild with -DMD_OPENGL43=ON to enable GPU skinning.");
-    ImGui::End();
-    return;
 }
 #endif // MONKEY_DUST_EDITOR

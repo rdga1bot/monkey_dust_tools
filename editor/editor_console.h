@@ -9,6 +9,7 @@ public:
     static EditorConsole& Get() { static EditorConsole inst; return inst; }
 
     void Draw();
+    void DrawContent();
     void Log(int level, const char* text);   // called from MdLogHook
     void Init();                              // install MdLogSetHook
     void SetFrameStats(float fps, float dt_ms) { frame_fps_ = fps; frame_dt_ms_ = dt_ms; }
