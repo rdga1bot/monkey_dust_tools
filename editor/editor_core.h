@@ -35,7 +35,7 @@ public:
     ImVec2 f3_pos_scene = { 10.f,  85.f},  f3_size_scene = {420.f, 545.f};
     ImVec2 f3_pos_ai    = {440.f,  85.f},  f3_size_ai    = {410.f, 430.f};
     ImVec2 f3_pos_anim  = { 10.f, 435.f},  f3_size_anim  = {870.f, 255.f};
-    ImVec2 f3_pos_flow  = { 10.f,  85.f},  f3_size_flow  = {820.f, 570.f};
+    ImVec2 f3_pos_flow  = {230.f,  85.f},  f3_size_flow  = {820.f, 570.f};
     ImVec2 f3_pos_debug = {870.f, 255.f},  f3_size_debug = {390.f, 410.f};
     ImVec2 f3_pos_cam   = {960.f,  85.f},  f3_size_cam   = {300.f, 225.f};
     EditorGizmoOp    gizmo_op    = EditorGizmoOp::TRANSLATE;
