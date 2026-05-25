@@ -65,13 +65,14 @@ void EditorCore::Update(float dt) {
 
     ImGui::SetNextWindowPos({0.f, toolbar_h});
     ImGui::SetNextWindowSize({io.DisplaySize.x, io.DisplaySize.y - toolbar_h});
+    const bool any_det = g_det_scene || g_det_ai || g_det_anim || g_det_flow || g_det_debug || g_det_cam;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.f, 0.f});
     ImGui::Begin("##f3editor", nullptr,
         ImGuiWindowFlags_NoTitleBar  | ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoMove      | ImGuiWindowFlags_NoScrollbar |
         ImGuiWindowFlags_NoScrollWithMouse |
         ImGuiWindowFlags_NoBringToFrontOnFocus |
-        ImGuiWindowFlags_NoBackground);
+        (any_det ? ImGuiWindowFlags_NoBackground : 0));
     ImGui::PopStyleVar();
 
     if (ImGui::BeginTabBar("##f3tabs")) {
