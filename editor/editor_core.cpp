@@ -123,13 +123,11 @@ void EditorCore::Update(float dt) {
     ImGuiIO& io = ImGui::GetIO();
     float toolbar_h = ImGui::GetFrameHeight() + 30.f;
 
-    // Thin tab-strip — no content area, no fullscreen overlay.
-    // Each tab is a show/focus button for its floating panel.
-    // Clicking a closed tab opens it; clicking an open tab brings it to front.
-    const float strip_h = ImGui::GetFrameHeight() + 8.f;
+    // Fullscreen editor — same layout as monkey_dust_editor standalone.
+    // Solid background, tab bar with embedded content, Detach/Dock per panel.
     ImGui::SetNextWindowPos({0.f, toolbar_h});
-    ImGui::SetNextWindowSize({io.DisplaySize.x, strip_h});
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.f, 2.f});
+    ImGui::SetNextWindowSize({io.DisplaySize.x, io.DisplaySize.y - toolbar_h});
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.f, 0.f});
     ImGui::Begin("##f3editor", nullptr,
         ImGuiWindowFlags_NoTitleBar  | ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoMove      | ImGuiWindowFlags_NoScrollbar |
@@ -138,22 +136,80 @@ void EditorCore::Update(float dt) {
     ImGui::PopStyleVar();
 
     if (ImGui::BeginTabBar("##f3tabs")) {
-        struct { const char* label; bool* det; const char* win; } tabs[] = {
-            {"Scene",     &g_det_scene, "Scene##float"},
-            {"AI",        &g_det_ai,    "AI##float"},
-            {"Animation", &g_det_anim,  "Animation##float"},
-            {"FlowGraph", &g_det_flow,  "FlowGraph##float"},
-            {"Debug",     &g_det_debug, "Debug##float"},
-            {"Camera",    &g_det_cam,   "Camera##float"},
-        };
-        for (auto& t : tabs) {
-            // UnsavedDocument dot = panel currently visible
-            ImGuiTabItemFlags f = *t.det ? ImGuiTabItemFlags_UnsavedDocument : 0;
-            if (ImGui::BeginTabItem(t.label, nullptr, f)) {
-                if (!*t.det) *t.det = true;                   // closed → open
-                else         ImGui::SetWindowFocus(t.win);    // open → bring to front
-                ImGui::EndTabItem();
-            }
+        if (ImGui::BeginTabItem("Scene")) {
+            if (!g_det_scene) {
+                if (ImGui::SmallButton("Detach##scene")) g_det_scene = true;
+                ImGui::Separator();
+                ImVec2 av = ImGui::GetContentRegionAvail();
+                ImGui::BeginChild("##f3h", {300.f, av.y}, false);
+                EditorHierarchy::Get().DrawContent();
+                ImGui::EndChild();
+                ImGui::SameLine(0, 4);
+                ImGui::BeginChild("##f3i", {0.f, av.y}, false);
+                EditorInspector::Get().DrawContent();
+                ImGui::EndChild();
+            } else { ImGui::TextDisabled("(detached)"); }
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("AI")) {
+            if (!g_det_ai) {
+                if (ImGui::SmallButton("Detach##ai")) g_det_ai = true;
+                ImGui::Separator();
+                ImVec2 av = ImGui::GetContentRegionAvail();
+                ImGui::BeginChild("##f3dir", {av.x * 0.50f, av.y}, false);
+                EditorDirectorPanel::Get().DrawContent();
+                ImGui::EndChild();
+                ImGui::SameLine(0, 4);
+                ImGui::BeginChild("##f3vc", {0.f, av.y}, false);
+                EditorViewConePanel::Get().DrawContent();
+                ImGui::EndChild();
+            } else { ImGui::TextDisabled("(detached)"); }
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Animation")) {
+            if (!g_det_anim) {
+                if (ImGui::SmallButton("Detach##anim")) g_det_anim = true;
+                ImGui::Separator();
+                ImVec2 av = ImGui::GetContentRegionAvail();
+                ImGui::BeginChild("##f3an", {av.x, 180.f}, false);
+                EditorAnimationPanel::Get().DrawContent();
+                ImGui::EndChild();
+                ImGui::BeginChild("##f3sq", {av.x, 0.f}, false);
+                EditorSequencerPanel::Get().DrawContent();
+                ImGui::EndChild();
+            } else { ImGui::TextDisabled("(detached)"); }
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("FlowGraph")) {
+            if (!g_det_flow) {
+                if (ImGui::SmallButton("Detach##flow")) g_det_flow = true;
+                ImGui::Separator();
+                EditorFlowGraphPanel::Get().DrawContent();
+            } else { ImGui::TextDisabled("(detached)"); }
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Debug")) {
+            if (!g_det_debug) {
+                if (ImGui::SmallButton("Detach##debug")) g_det_debug = true;
+                ImGui::Separator();
+                ImVec2 av = ImGui::GetContentRegionAvail();
+                ImGui::BeginChild("##f3con", {av.x * 0.60f, av.y}, false);
+                EditorConsole::Get().DrawContent();
+                ImGui::EndChild();
+                ImGui::SameLine(0, 4);
+                ImGui::BeginChild("##f3gpu", {0.f, av.y}, false);
+                EditorGpuProfilerPanel::Get().DrawContent();
+                ImGui::EndChild();
+            } else { ImGui::TextDisabled("(detached)"); }
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Camera")) {
+            if (!g_det_cam) {
+                if (ImGui::SmallButton("Detach##cam")) g_det_cam = true;
+                ImGui::Separator();
+                EditorCameraPanel::Get().DrawContent();
+            } else { ImGui::TextDisabled("(detached)"); }
+            ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
     }
@@ -163,7 +219,7 @@ void EditorCore::Update(float dt) {
     // min_y: panel title bars must never overlap the toolbar + tab bar strip.
     // Without this clamp the title bar sits on top of the tab bar and the user
     // accidentally drags the panel when trying to click a tab.
-    const float min_y = toolbar_h + strip_h + 4.f;
+    const float min_y = toolbar_h + ImGui::GetFrameHeight() + 4.f;
     static constexpr ImGuiWindowFlags FLOAT_FLAGS =
         ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings;
 
