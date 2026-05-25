@@ -16,15 +16,42 @@
 #include <monkey_dust/world/world_transform.h>
 #include <monkey_dust/platform/input.h>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 
 static constexpr float DEG2R = 3.14159265f / 180.f;
+
+static constexpr const char* F3_LAYOUT_PATH = "data/editor_f3_layout.json";
+
+static void f3_load(bool det[6]) {
+    FILE* f = fopen(F3_LAYOUT_PATH, "rb");
+    if (!f) return;
+    char buf[256]; size_t n = fread(buf, 1, 255, f); buf[n] = '\0'; fclose(f);
+    const char* keys[6] = {"\"scene\"","\"ai\"","\"anim\"","\"flow\"","\"debug\"","\"cam\""};
+    for (int i = 0; i < 6; ++i) {
+        const char* p = strstr(buf, keys[i]); if (!p) continue;
+        p += strlen(keys[i]); while (*p == ':' || *p == ' ') ++p;
+        det[i] = (*p == '1');
+    }
+}
+
+static void f3_save(const bool det[6]) {
+    FILE* f = fopen(F3_LAYOUT_PATH, "w"); if (!f) return;
+    fprintf(f, "{\"scene\":%d,\"ai\":%d,\"anim\":%d,\"flow\":%d,\"debug\":%d,\"cam\":%d}\n",
+            det[0],det[1],det[2],det[3],det[4],det[5]);
+    fclose(f);
+}
 
 void EditorCore::Init() {
     EditorConsole::Get().Init();
     EditorNodeGraphPanel::Get().Init();
     for (int i = 0; i < MAX_SELECTED; ++i)
         selected[i] = entt::null;
+
+    bool det6[6] = {};
+    f3_load(det6);
+    f3_det_scene = det6[0]; f3_det_ai    = det6[1]; f3_det_anim  = det6[2];
+    f3_det_flow  = det6[3]; f3_det_debug = det6[4]; f3_det_cam   = det6[5];
 
 #ifdef MONKEY_DUST_STANDALONE_EDITOR
     // Standalone editor has its own tab-based layout.
@@ -57,8 +84,8 @@ static bool f3_detach_btn(const char* id) {
 void EditorCore::Update(float dt) {
     EditorToolbar::Get().Draw(dt);
 #ifndef MONKEY_DUST_STANDALONE_EDITOR
-    static bool g_det_scene = false, g_det_ai    = false, g_det_anim  = false;
-    static bool g_det_flow  = false, g_det_debug = false, g_det_cam   = false;
+    bool& g_det_scene = f3_det_scene, &g_det_ai    = f3_det_ai,    &g_det_anim  = f3_det_anim;
+    bool& g_det_flow  = f3_det_flow,  &g_det_debug = f3_det_debug, &g_det_cam   = f3_det_cam;
 
     ImGuiIO& io = ImGui::GetIO();
     float toolbar_h = ImGui::GetFrameHeight() + 30.f;
@@ -242,6 +269,8 @@ void EditorCore::Update(float dt) {
 }
 
 void EditorCore::Shutdown() {
+    bool det6[6] = { f3_det_scene, f3_det_ai, f3_det_anim, f3_det_flow, f3_det_debug, f3_det_cam };
+    f3_save(det6);
     EditorNodeGraphPanel::Get().Shutdown();
     EditorFlowGraphPanel::Get().Shutdown();
     DeselectAll();

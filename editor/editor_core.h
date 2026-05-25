@@ -27,6 +27,10 @@ public:
     // ── State ─────────────────────────────────────────────
     bool editor_open    = false;
     bool physics_paused = true;
+
+    // F3 panel detach states (persisted to data/editor_f3_layout.json)
+    bool f3_det_scene = false, f3_det_ai    = false, f3_det_anim  = false;
+    bool f3_det_flow  = false, f3_det_debug = false, f3_det_cam   = false;
     EditorGizmoOp    gizmo_op    = EditorGizmoOp::TRANSLATE;
     EditorGizmoSpace gizmo_space = EditorGizmoSpace::WORLD;
 
@@ -59,12 +63,12 @@ public:
     void Redo();
 
     // ── Panel visibility ──────────────────────────────────
-    // [0]=Hierarchy [1]=Inspector  [2]=Assets    [3]=Console
-    // [4]=Graphics  [5]=Camera     [6]=Animation [7]=Paint
-    // [8]=ViewCone  [9]=FlowGraph  [10]=Director [11]=GPU Profiler
-    // [12]=NodeGraph [13]=Sequencer [14]=Terrain Sculpt
-    bool panels_visible[15] = { true,  true,  true,  true,
-                                true,  true,  false, false,
+    // [0]=Hierarchy [1]=Inspector  [2]=—removed— [3]=Console
+    // [4]=—removed— [5]=Camera     [6]=Animation [7]=Paint
+    // [8]=ViewCone  [9]=—removed— [10]=Director [11]=GPU Profiler
+    // [12]=—removed— [13]=—removed— [14]=—removed—
+    bool panels_visible[15] = { true,  true,  false, true,
+                                false, true,  true,  false,
                                 false, false, false, false,
                                 false, false, false };
 
