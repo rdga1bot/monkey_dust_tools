@@ -23,10 +23,15 @@ static constexpr float DEG2R = 3.14159265f / 180.f;
 
 static constexpr const char* F3_LAYOUT_PATH = "data/editor_f3_layout.json";
 
+// Version tag written by f3_save; file without it is from a different/stale session — ignored.
+static constexpr const char* F3_VERSION_TAG = "\"v\":1";
+
 static void f3_load(bool det[6]) {
     FILE* f = fopen(F3_LAYOUT_PATH, "rb");
     if (!f) return;
     char buf[256]; size_t n = fread(buf, 1, 255, f); buf[n] = '\0'; fclose(f);
+    // Reject files not written by this code (no version tag = stale/foreign file).
+    if (!strstr(buf, F3_VERSION_TAG)) return;
     const char* keys[6] = {"\"scene\"","\"ai\"","\"anim\"","\"flow\"","\"debug\"","\"cam\""};
     for (int i = 0; i < 6; ++i) {
         const char* p = strstr(buf, keys[i]); if (!p) continue;
@@ -37,7 +42,7 @@ static void f3_load(bool det[6]) {
 
 static void f3_save(const bool det[6]) {
     FILE* f = fopen(F3_LAYOUT_PATH, "w"); if (!f) return;
-    fprintf(f, "{\"scene\":%d,\"ai\":%d,\"anim\":%d,\"flow\":%d,\"debug\":%d,\"cam\":%d}\n",
+    fprintf(f, "{\"v\":1,\"scene\":%d,\"ai\":%d,\"anim\":%d,\"flow\":%d,\"debug\":%d,\"cam\":%d}\n",
             det[0],det[1],det[2],det[3],det[4],det[5]);
     fclose(f);
 }
