@@ -28,9 +28,15 @@ public:
     bool editor_open    = false;
     bool physics_paused = true;
 
-    // F3 panel detach states (persisted to data/editor_f3_layout.json)
+    // F3 panel detach states + positions (persisted to data/editor_f3_layout.json)
     bool f3_det_scene = false, f3_det_ai    = false, f3_det_anim  = false;
     bool f3_det_flow  = false, f3_det_debug = false, f3_det_cam   = false;
+    ImVec2 f3_pos_scene = {390.f, 50.f},  f3_size_scene = {520.f, 640.f};
+    ImVec2 f3_pos_ai    = {390.f, 50.f},  f3_size_ai    = {520.f, 520.f};
+    ImVec2 f3_pos_anim  = {  4.f,430.f},  f3_size_anim  = {900.f, 280.f};
+    ImVec2 f3_pos_flow  = {430.f, 50.f},  f3_size_flow  = {840.f, 630.f};
+    ImVec2 f3_pos_debug = {390.f,430.f},  f3_size_debug = {880.f, 280.f};
+    ImVec2 f3_pos_cam   = {970.f, 50.f},  f3_size_cam   = {300.f, 250.f};
     EditorGizmoOp    gizmo_op    = EditorGizmoOp::TRANSLATE;
     EditorGizmoSpace gizmo_space = EditorGizmoSpace::WORLD;
 

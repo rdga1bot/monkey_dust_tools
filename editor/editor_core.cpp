@@ -26,24 +26,60 @@ static constexpr const char* F3_LAYOUT_PATH = "data/editor_f3_layout.json";
 // Version tag written by f3_save; file without it is from a different/stale session — ignored.
 static constexpr const char* F3_VERSION_TAG = "\"v\":1";
 
-static void f3_load(bool det[6]) {
+static float f3_parse_f(const char* buf, const char* key) {
+    const char* p = strstr(buf, key); if (!p) return 0.f;
+    p += strlen(key);
+    while (*p == ':' || *p == ' ') ++p;
+    return (float)atof(p);
+}
+
+static void f3_load(bool det[6], ImVec2 pos[6], ImVec2 siz[6]) {
     FILE* f = fopen(F3_LAYOUT_PATH, "rb");
     if (!f) return;
-    char buf[256]; size_t n = fread(buf, 1, 255, f); buf[n] = '\0'; fclose(f);
+    char buf[512]; size_t n = fread(buf, 1, 511, f); buf[n] = '\0'; fclose(f);
     // Reject files not written by this code (no version tag = stale/foreign file).
     if (!strstr(buf, F3_VERSION_TAG)) return;
-    const char* keys[6] = {"\"scene\"","\"ai\"","\"anim\"","\"flow\"","\"debug\"","\"cam\""};
+    const char* dk[6] = {"\"scene\"","\"ai\"","\"anim\"","\"flow\"","\"debug\"","\"cam\""};
     for (int i = 0; i < 6; ++i) {
-        const char* p = strstr(buf, keys[i]); if (!p) continue;
-        p += strlen(keys[i]); while (*p == ':' || *p == ' ') ++p;
+        const char* p = strstr(buf, dk[i]); if (!p) continue;
+        p += strlen(dk[i]); while (*p == ':' || *p == ' ') ++p;
         det[i] = (*p == '1');
+    }
+    // pos/size keys per panel; only applied when width > 0 (defaults kept on first run)
+    static const char* pk[6][4] = {
+        {"\"scx\"","\"scy\"","\"scw\"","\"sch\""},
+        {"\"aix\"","\"aiy\"","\"aiw\"","\"aih\""},
+        {"\"anx\"","\"any\"","\"anw\"","\"anh\""},
+        {"\"flx\"","\"fly\"","\"flw\"","\"flh\""},
+        {"\"dbx\"","\"dby\"","\"dbw\"","\"dbh\""},
+        {"\"cmx\"","\"cmy\"","\"cmw\"","\"cmh\""},
+    };
+    for (int i = 0; i < 6; ++i) {
+        float w = f3_parse_f(buf, pk[i][2]);
+        if (w > 0.f) {
+            pos[i] = { f3_parse_f(buf, pk[i][0]), f3_parse_f(buf, pk[i][1]) };
+            siz[i] = { w, f3_parse_f(buf, pk[i][3]) };
+        }
     }
 }
 
-static void f3_save(const bool det[6]) {
+static void f3_save(const bool det[6], const ImVec2 pos[6], const ImVec2 siz[6]) {
     FILE* f = fopen(F3_LAYOUT_PATH, "w"); if (!f) return;
-    fprintf(f, "{\"v\":1,\"scene\":%d,\"ai\":%d,\"anim\":%d,\"flow\":%d,\"debug\":%d,\"cam\":%d}\n",
-            det[0],det[1],det[2],det[3],det[4],det[5]);
+    fprintf(f,
+        "{\"v\":1,\"scene\":%d,\"ai\":%d,\"anim\":%d,\"flow\":%d,\"debug\":%d,\"cam\":%d,"
+        "\"scx\":%.0f,\"scy\":%.0f,\"scw\":%.0f,\"sch\":%.0f,"
+        "\"aix\":%.0f,\"aiy\":%.0f,\"aiw\":%.0f,\"aih\":%.0f,"
+        "\"anx\":%.0f,\"any\":%.0f,\"anw\":%.0f,\"anh\":%.0f,"
+        "\"flx\":%.0f,\"fly\":%.0f,\"flw\":%.0f,\"flh\":%.0f,"
+        "\"dbx\":%.0f,\"dby\":%.0f,\"dbw\":%.0f,\"dbh\":%.0f,"
+        "\"cmx\":%.0f,\"cmy\":%.0f,\"cmw\":%.0f,\"cmh\":%.0f}\n",
+        (int)det[0],(int)det[1],(int)det[2],(int)det[3],(int)det[4],(int)det[5],
+        pos[0].x,pos[0].y,siz[0].x,siz[0].y,
+        pos[1].x,pos[1].y,siz[1].x,siz[1].y,
+        pos[2].x,pos[2].y,siz[2].x,siz[2].y,
+        pos[3].x,pos[3].y,siz[3].x,siz[3].y,
+        pos[4].x,pos[4].y,siz[4].x,siz[4].y,
+        pos[5].x,pos[5].y,siz[5].x,siz[5].y);
     fclose(f);
 }
 
@@ -54,9 +90,15 @@ void EditorCore::Init() {
         selected[i] = entt::null;
 
     bool det6[6] = {};
-    f3_load(det6);
-    f3_det_scene = det6[0]; f3_det_ai    = det6[1]; f3_det_anim  = det6[2];
-    f3_det_flow  = det6[3]; f3_det_debug = det6[4]; f3_det_cam   = det6[5];
+    ImVec2 pos6[6] = { f3_pos_scene, f3_pos_ai, f3_pos_anim, f3_pos_flow, f3_pos_debug, f3_pos_cam };
+    ImVec2 siz6[6] = { f3_size_scene, f3_size_ai, f3_size_anim, f3_size_flow, f3_size_debug, f3_size_cam };
+    f3_load(det6, pos6, siz6);
+    f3_det_scene = det6[0];  f3_det_ai    = det6[1]; f3_det_anim  = det6[2];
+    f3_det_flow  = det6[3];  f3_det_debug = det6[4]; f3_det_cam   = det6[5];
+    f3_pos_scene = pos6[0];  f3_pos_ai    = pos6[1]; f3_pos_anim  = pos6[2];
+    f3_pos_flow  = pos6[3];  f3_pos_debug = pos6[4]; f3_pos_cam   = pos6[5];
+    f3_size_scene = siz6[0]; f3_size_ai   = siz6[1]; f3_size_anim = siz6[2];
+    f3_size_flow  = siz6[3]; f3_size_debug = siz6[4]; f3_size_cam = siz6[5];
 
 #ifdef MONKEY_DUST_STANDALONE_EDITOR
     // Standalone editor has its own tab-based layout.
@@ -95,16 +137,17 @@ void EditorCore::Update(float dt) {
     ImGuiIO& io = ImGui::GetIO();
     float toolbar_h = ImGui::GetFrameHeight() + 30.f;
 
-    // Fixed left sidebar — content always at the same screen position; never fullscreen.
-    static constexpr float SIDEBAR_W = 380.f;
+    // Full-screen overlay; background only when all panels are docked (any_det → transparent).
+    const bool any_det = g_det_scene || g_det_ai || g_det_anim || g_det_flow || g_det_debug || g_det_cam;
     ImGui::SetNextWindowPos({0.f, toolbar_h});
-    ImGui::SetNextWindowSize({SIDEBAR_W, io.DisplaySize.y - toolbar_h});
+    ImGui::SetNextWindowSize({io.DisplaySize.x, io.DisplaySize.y - toolbar_h});
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.f, 0.f});
     ImGui::Begin("##f3editor", nullptr,
         ImGuiWindowFlags_NoTitleBar  | ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoMove      | ImGuiWindowFlags_NoScrollbar |
         ImGuiWindowFlags_NoScrollWithMouse |
-        ImGuiWindowFlags_NoBringToFrontOnFocus);
+        ImGuiWindowFlags_NoBringToFrontOnFocus |
+        (any_det ? ImGuiWindowFlags_NoBackground : 0));
     ImGui::PopStyleVar();
 
     if (ImGui::BeginTabBar("##f3tabs")) {
@@ -112,10 +155,11 @@ void EditorCore::Update(float dt) {
             if (!g_det_scene) {
                 if (f3_detach_btn("Detach##scene")) g_det_scene = true;
                 ImVec2 av = ImGui::GetContentRegionAvail();
-                ImGui::BeginChild("##f3h", {av.x, av.y * 0.38f}, false);
+                ImGui::BeginChild("##f3h", {300.f, av.y}, false);
                 EditorHierarchy::Get().DrawContent();
                 ImGui::EndChild();
-                ImGui::BeginChild("##f3i", {av.x, 0.f}, false);
+                ImGui::SameLine(0, 4);
+                ImGui::BeginChild("##f3i", {0.f, av.y}, false);
                 EditorInspector::Get().DrawContent();
                 ImGui::EndChild();
             } else { ImGui::TextDisabled("(detached)"); }
@@ -125,10 +169,11 @@ void EditorCore::Update(float dt) {
             if (!g_det_ai) {
                 if (f3_detach_btn("Detach##ai")) g_det_ai = true;
                 ImVec2 av = ImGui::GetContentRegionAvail();
-                ImGui::BeginChild("##f3dir", {av.x, av.y * 0.50f}, false);
+                ImGui::BeginChild("##f3dir", {av.x * 0.50f, av.y}, false);
                 EditorDirectorPanel::Get().DrawContent();
                 ImGui::EndChild();
-                ImGui::BeginChild("##f3vc", {av.x, 0.f}, false);
+                ImGui::SameLine(0, 4);
+                ImGui::BeginChild("##f3vc", {0.f, av.y}, false);
                 EditorViewConePanel::Get().DrawContent();
                 ImGui::EndChild();
             } else { ImGui::TextDisabled("(detached)"); }
@@ -158,10 +203,11 @@ void EditorCore::Update(float dt) {
             if (!g_det_debug) {
                 if (f3_detach_btn("Detach##debug")) g_det_debug = true;
                 ImVec2 av = ImGui::GetContentRegionAvail();
-                ImGui::BeginChild("##f3con", {av.x, av.y * 0.65f}, false);
+                ImGui::BeginChild("##f3con", {av.x * 0.60f, av.y}, false);
                 EditorConsole::Get().DrawContent();
                 ImGui::EndChild();
-                ImGui::BeginChild("##f3gpu", {av.x, 0.f}, false);
+                ImGui::SameLine(0, 4);
+                ImGui::BeginChild("##f3gpu", {0.f, av.y}, false);
                 EditorGpuProfilerPanel::Get().DrawContent();
                 ImGui::EndChild();
             } else { ImGui::TextDisabled("(detached)"); }
@@ -179,11 +225,10 @@ void EditorCore::Update(float dt) {
     ImGui::End();
 
     // ── floating panels (rendered outside ##f3editor) ─────────────────────
-    // Floating panels — ImGuiCond_Appearing so each panel snaps to its designated
-    // position every time it is detached, regardless of imgui.ini history.
+    // pos/size updated every frame while detached → panel remembers where user left it.
     if (g_det_scene) {
-        ImGui::SetNextWindowPos({390.f, 50.f}, ImGuiCond_Appearing);
-        ImGui::SetNextWindowSize({520, 640}, ImGuiCond_Appearing);
+        ImGui::SetNextWindowPos(f3_pos_scene, ImGuiCond_Appearing);
+        ImGui::SetNextWindowSize(f3_size_scene, ImGuiCond_Appearing);
         if (ImGui::Begin("Scene##float", &g_det_scene)) {
             if (ImGui::Button("Dock##scene")) g_det_scene = false;
             ImGui::Separator();
@@ -196,11 +241,13 @@ void EditorCore::Update(float dt) {
             EditorInspector::Get().DrawContent();
             ImGui::EndChild();
         }
+        f3_pos_scene  = ImGui::GetWindowPos();
+        f3_size_scene = ImGui::GetWindowSize();
         ImGui::End();
     }
     if (g_det_ai) {
-        ImGui::SetNextWindowPos({390.f, 50.f}, ImGuiCond_Appearing);
-        ImGui::SetNextWindowSize({520, 520}, ImGuiCond_Appearing);
+        ImGui::SetNextWindowPos(f3_pos_ai, ImGuiCond_Appearing);
+        ImGui::SetNextWindowSize(f3_size_ai, ImGuiCond_Appearing);
         if (ImGui::Begin("AI##float", &g_det_ai)) {
             if (ImGui::Button("Dock##ai")) g_det_ai = false;
             ImGui::Separator();
@@ -213,11 +260,13 @@ void EditorCore::Update(float dt) {
             EditorViewConePanel::Get().DrawContent();
             ImGui::EndChild();
         }
+        f3_pos_ai  = ImGui::GetWindowPos();
+        f3_size_ai = ImGui::GetWindowSize();
         ImGui::End();
     }
     if (g_det_anim) {
-        ImGui::SetNextWindowPos({4.f, 430.f}, ImGuiCond_Appearing);
-        ImGui::SetNextWindowSize({900, 280}, ImGuiCond_Appearing);
+        ImGui::SetNextWindowPos(f3_pos_anim, ImGuiCond_Appearing);
+        ImGui::SetNextWindowSize(f3_size_anim, ImGuiCond_Appearing);
         if (ImGui::Begin("Animation##float", &g_det_anim)) {
             if (ImGui::Button("Dock##anim")) g_det_anim = false;
             ImGui::Separator();
@@ -229,21 +278,25 @@ void EditorCore::Update(float dt) {
             EditorSequencerPanel::Get().DrawContent();
             ImGui::EndChild();
         }
+        f3_pos_anim  = ImGui::GetWindowPos();
+        f3_size_anim = ImGui::GetWindowSize();
         ImGui::End();
     }
     if (g_det_flow) {
-        ImGui::SetNextWindowPos({430.f, 50.f}, ImGuiCond_Appearing);
-        ImGui::SetNextWindowSize({840, 630}, ImGuiCond_Appearing);
+        ImGui::SetNextWindowPos(f3_pos_flow, ImGuiCond_Appearing);
+        ImGui::SetNextWindowSize(f3_size_flow, ImGuiCond_Appearing);
         if (ImGui::Begin("FlowGraph##float", &g_det_flow)) {
             if (ImGui::Button("Dock##flow")) g_det_flow = false;
             ImGui::Separator();
             EditorFlowGraphPanel::Get().DrawContent();
         }
+        f3_pos_flow  = ImGui::GetWindowPos();
+        f3_size_flow = ImGui::GetWindowSize();
         ImGui::End();
     }
     if (g_det_debug) {
-        ImGui::SetNextWindowPos({390.f, 430.f}, ImGuiCond_Appearing);
-        ImGui::SetNextWindowSize({880, 280}, ImGuiCond_Appearing);
+        ImGui::SetNextWindowPos(f3_pos_debug, ImGuiCond_Appearing);
+        ImGui::SetNextWindowSize(f3_size_debug, ImGuiCond_Appearing);
         if (ImGui::Begin("Debug##float", &g_det_debug)) {
             if (ImGui::Button("Dock##debug")) g_det_debug = false;
             ImGui::Separator();
@@ -256,25 +309,30 @@ void EditorCore::Update(float dt) {
             EditorGpuProfilerPanel::Get().DrawContent();
             ImGui::EndChild();
         }
+        f3_pos_debug  = ImGui::GetWindowPos();
+        f3_size_debug = ImGui::GetWindowSize();
         ImGui::End();
     }
     if (g_det_cam) {
-        ImVec2 ds = ImGui::GetIO().DisplaySize;
-        ImGui::SetNextWindowPos({ds.x - 310.f, 50.f}, ImGuiCond_Appearing);
-        ImGui::SetNextWindowSize({300, 250}, ImGuiCond_Appearing);
+        ImGui::SetNextWindowPos(f3_pos_cam, ImGuiCond_Appearing);
+        ImGui::SetNextWindowSize(f3_size_cam, ImGuiCond_Appearing);
         if (ImGui::Begin("Camera##float", &g_det_cam)) {
             if (ImGui::Button("Dock##cam")) g_det_cam = false;
             ImGui::Separator();
             EditorCameraPanel::Get().DrawContent();
         }
+        f3_pos_cam  = ImGui::GetWindowPos();
+        f3_size_cam = ImGui::GetWindowSize();
         ImGui::End();
     }
 #endif
 }
 
 void EditorCore::Shutdown() {
-    bool det6[6] = { f3_det_scene, f3_det_ai, f3_det_anim, f3_det_flow, f3_det_debug, f3_det_cam };
-    f3_save(det6);
+    bool det6[6]  = { f3_det_scene, f3_det_ai, f3_det_anim, f3_det_flow, f3_det_debug, f3_det_cam };
+    ImVec2 pos6[6] = { f3_pos_scene, f3_pos_ai, f3_pos_anim, f3_pos_flow, f3_pos_debug, f3_pos_cam };
+    ImVec2 siz6[6] = { f3_size_scene, f3_size_ai, f3_size_anim, f3_size_flow, f3_size_debug, f3_size_cam };
+    f3_save(det6, pos6, siz6);
     EditorNodeGraphPanel::Get().Shutdown();
     EditorFlowGraphPanel::Get().Shutdown();
     DeselectAll();
