@@ -13,7 +13,6 @@
 #include "editor_director_panel.h"
 #include "editor_gpu_profiler_panel.h"
 #include "editor_node_graph.h"
-#include "character_editor.h"
 #include <monkey_dust/world/world_transform.h>
 #include <monkey_dust/platform/input.h>
 #include <cmath>
@@ -24,10 +23,6 @@ static constexpr float DEG2R = 3.14159265f / 180.f;
 void EditorCore::Init() {
     EditorConsole::Get().Init();
     EditorNodeGraphPanel::Get().Init();
-#ifndef MONKEY_DUST_STANDALONE_EDITOR
-    CharacterEditor::LoadJSON("game/data/chars/player.chardef");
-    CharacterEditor::LoadMorphNames("game/data/chars/morph_names.txt");
-#endif
     for (int i = 0; i < MAX_SELECTED; ++i)
         selected[i] = entt::null;
 
@@ -44,9 +39,27 @@ void EditorCore::Init() {
     editor_cam.fovy   = 60.0f;
 }
 
+// Right-aligned Detach button pinned to the top-right of the current tab content area.
+// Uses SetCursorScreenPos (absolute screen coords) to avoid BeginTabItem cursor ambiguity.
+// After the button, cursor is restored to (left, one line below the button).
+static bool f3_detach_btn(const char* id) {
+    ImVec2 cs  = ImGui::GetCursorScreenPos();   // top-left of content area (screen)
+    float  ww  = ImGui::GetWindowSize().x;
+    float  wx  = ImGui::GetWindowPos().x;
+    float  bw  = ImGui::CalcTextSize("Detach").x + ImGui::GetStyle().FramePadding.x * 2.f;
+    float  bh  = ImGui::GetFrameHeight();
+    ImGui::SetCursorScreenPos({wx + ww - bw - 4.f, cs.y});
+    bool clicked = ImGui::Button(id);
+    ImGui::SetCursorScreenPos({cs.x, cs.y + bh + ImGui::GetStyle().ItemSpacing.y});
+    return clicked;
+}
+
 void EditorCore::Update(float dt) {
     EditorToolbar::Get().Draw(dt);
 #ifndef MONKEY_DUST_STANDALONE_EDITOR
+    static bool g_det_scene = false, g_det_ai    = false, g_det_anim  = false;
+    static bool g_det_flow  = false, g_det_debug = false, g_det_cam   = false;
+
     ImGuiIO& io = ImGui::GetIO();
     float toolbar_h = ImGui::GetFrameHeight() + 30.f;
 
@@ -57,76 +70,173 @@ void EditorCore::Update(float dt) {
         ImGuiWindowFlags_NoTitleBar  | ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoMove      | ImGuiWindowFlags_NoScrollbar |
         ImGuiWindowFlags_NoScrollWithMouse |
-        ImGuiWindowFlags_NoBringToFrontOnFocus);
+        ImGuiWindowFlags_NoBringToFrontOnFocus |
+        ImGuiWindowFlags_NoBackground);
     ImGui::PopStyleVar();
 
     if (ImGui::BeginTabBar("##f3tabs")) {
-        // ── Scene: Hierarchy 30% + Inspector 70% ──────────────────────
         if (ImGui::BeginTabItem("Scene")) {
-            ImVec2 av = ImGui::GetContentRegionAvail();
-            ImGui::BeginChild("##f3h", {av.x * 0.30f, av.y}, false);
-            EditorHierarchy::Get().DrawContent();
-            ImGui::EndChild();
-            ImGui::SameLine(0, 4);
-            ImGui::BeginChild("##f3i", {0.f, av.y}, false);
-            EditorInspector::Get().DrawContent();
-            ImGui::EndChild();
+            if (!g_det_scene) {
+                if (f3_detach_btn("Detach##scene")) g_det_scene = true;
+                ImVec2 av = ImGui::GetContentRegionAvail();
+                ImGui::BeginChild("##f3h", {av.x * 0.30f, av.y}, false);
+                EditorHierarchy::Get().DrawContent();
+                ImGui::EndChild();
+                ImGui::SameLine(0, 4);
+                ImGui::BeginChild("##f3i", {0.f, av.y}, false);
+                EditorInspector::Get().DrawContent();
+                ImGui::EndChild();
+            } else { ImGui::TextDisabled("(detached)"); }
             ImGui::EndTabItem();
         }
-        // ── AI: Director 50% + ViewCone 50% ───────────────────────────
         if (ImGui::BeginTabItem("AI")) {
-            ImVec2 av = ImGui::GetContentRegionAvail();
-            ImGui::BeginChild("##f3dir", {av.x * 0.50f, av.y}, false);
-            EditorDirectorPanel::Get().DrawContent();
-            ImGui::EndChild();
-            ImGui::SameLine(0, 4);
-            ImGui::BeginChild("##f3vc", {0.f, av.y}, false);
-            EditorViewConePanel::Get().DrawContent();
-            ImGui::EndChild();
+            if (!g_det_ai) {
+                if (f3_detach_btn("Detach##ai")) g_det_ai = true;
+                ImVec2 av = ImGui::GetContentRegionAvail();
+                ImGui::BeginChild("##f3dir", {av.x * 0.50f, av.y}, false);
+                EditorDirectorPanel::Get().DrawContent();
+                ImGui::EndChild();
+                ImGui::SameLine(0, 4);
+                ImGui::BeginChild("##f3vc", {0.f, av.y}, false);
+                EditorViewConePanel::Get().DrawContent();
+                ImGui::EndChild();
+            } else { ImGui::TextDisabled("(detached)"); }
             ImGui::EndTabItem();
         }
-        // ── Animation: Animation top + Sequencer rest ─────────────────
         if (ImGui::BeginTabItem("Animation")) {
-            ImVec2 av = ImGui::GetContentRegionAvail();
-            ImGui::BeginChild("##f3an", {av.x, 180.f}, false);
-            EditorAnimationPanel::Get().DrawContent();
-            ImGui::EndChild();
-            ImGui::BeginChild("##f3sq", {av.x, 0.f}, false);
-            EditorSequencerPanel::Get().DrawContent();
-            ImGui::EndChild();
+            if (!g_det_anim) {
+                if (f3_detach_btn("Detach##anim")) g_det_anim = true;
+                ImVec2 av = ImGui::GetContentRegionAvail();
+                ImGui::BeginChild("##f3an", {av.x, 180.f}, false);
+                EditorAnimationPanel::Get().DrawContent();
+                ImGui::EndChild();
+                ImGui::BeginChild("##f3sq", {av.x, 0.f}, false);
+                EditorSequencerPanel::Get().DrawContent();
+                ImGui::EndChild();
+            } else { ImGui::TextDisabled("(detached)"); }
             ImGui::EndTabItem();
         }
-        // ── FlowGraph: full tab ────────────────────────────────────────
         if (ImGui::BeginTabItem("FlowGraph")) {
-            EditorFlowGraphPanel::Get().DrawContent();
+            if (!g_det_flow) {
+                if (f3_detach_btn("Detach##flow")) g_det_flow = true;
+                EditorFlowGraphPanel::Get().DrawContent();
+            } else { ImGui::TextDisabled("(detached)"); }
             ImGui::EndTabItem();
         }
-        // ── Debug: Console 60% + GPU Profiler 40% ─────────────────────
         if (ImGui::BeginTabItem("Debug")) {
-            ImVec2 av = ImGui::GetContentRegionAvail();
-            ImGui::BeginChild("##f3con", {av.x * 0.60f, av.y}, false);
-            EditorConsole::Get().DrawContent();
-            ImGui::EndChild();
-            ImGui::SameLine(0, 4);
-            ImGui::BeginChild("##f3gpu", {0.f, av.y}, false);
-            EditorGpuProfilerPanel::Get().DrawContent();
-            ImGui::EndChild();
+            if (!g_det_debug) {
+                if (f3_detach_btn("Detach##debug")) g_det_debug = true;
+                ImVec2 av = ImGui::GetContentRegionAvail();
+                ImGui::BeginChild("##f3con", {av.x * 0.60f, av.y}, false);
+                EditorConsole::Get().DrawContent();
+                ImGui::EndChild();
+                ImGui::SameLine(0, 4);
+                ImGui::BeginChild("##f3gpu", {0.f, av.y}, false);
+                EditorGpuProfilerPanel::Get().DrawContent();
+                ImGui::EndChild();
+            } else { ImGui::TextDisabled("(detached)"); }
             ImGui::EndTabItem();
         }
-        // ── Camera ────────────────────────────────────────────────────
         if (ImGui::BeginTabItem("Camera")) {
-            EditorCameraPanel::Get().DrawContent();
-            ImGui::EndTabItem();
-        }
-        // ── Characters ────────────────────────────────────────────────
-        if (ImGui::BeginTabItem("Characters")) {
-            ImGui::SetCursorPos({8.f, ImGui::GetCursorPosY() + 4.f});
-            CharacterEditor::Draw();
+            if (!g_det_cam) {
+                if (f3_detach_btn("Detach##cam")) g_det_cam = true;
+                EditorCameraPanel::Get().DrawContent();
+            } else { ImGui::TextDisabled("(detached)"); }
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
     }
     ImGui::End();
+
+    // ── floating panels (rendered outside ##f3editor) ─────────────────────
+    if (g_det_scene) {
+        ImGui::SetNextWindowPos({50.f, 60.f}, ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize({700, 500}, ImGuiCond_FirstUseEver);
+        if (ImGui::Begin("Scene##float", &g_det_scene)) {
+            if (ImGui::Button("Dock##scene")) g_det_scene = false;
+            ImGui::Separator();
+            ImVec2 av = ImGui::GetContentRegionAvail();
+            ImGui::BeginChild("##fh", {av.x * 0.30f, av.y}, false);
+            EditorHierarchy::Get().DrawContent();
+            ImGui::EndChild();
+            ImGui::SameLine(0, 4);
+            ImGui::BeginChild("##fi", {0.f, av.y}, false);
+            EditorInspector::Get().DrawContent();
+            ImGui::EndChild();
+        }
+        ImGui::End();
+    }
+    if (g_det_ai) {
+        ImGui::SetNextWindowPos({80.f, 90.f}, ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize({700, 500}, ImGuiCond_FirstUseEver);
+        if (ImGui::Begin("AI##float", &g_det_ai)) {
+            if (ImGui::Button("Dock##ai")) g_det_ai = false;
+            ImGui::Separator();
+            ImVec2 av = ImGui::GetContentRegionAvail();
+            ImGui::BeginChild("##fdir", {av.x * 0.50f, av.y}, false);
+            EditorDirectorPanel::Get().DrawContent();
+            ImGui::EndChild();
+            ImGui::SameLine(0, 4);
+            ImGui::BeginChild("##fvc", {0.f, av.y}, false);
+            EditorViewConePanel::Get().DrawContent();
+            ImGui::EndChild();
+        }
+        ImGui::End();
+    }
+    if (g_det_anim) {
+        ImGui::SetNextWindowPos({110.f, 120.f}, ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize({700, 500}, ImGuiCond_FirstUseEver);
+        if (ImGui::Begin("Animation##float", &g_det_anim)) {
+            if (ImGui::Button("Dock##anim")) g_det_anim = false;
+            ImGui::Separator();
+            ImVec2 av = ImGui::GetContentRegionAvail();
+            ImGui::BeginChild("##fan", {av.x, 180.f}, false);
+            EditorAnimationPanel::Get().DrawContent();
+            ImGui::EndChild();
+            ImGui::BeginChild("##fsq", {av.x, 0.f}, false);
+            EditorSequencerPanel::Get().DrawContent();
+            ImGui::EndChild();
+        }
+        ImGui::End();
+    }
+    if (g_det_flow) {
+        ImGui::SetNextWindowPos({140.f, 150.f}, ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize({700, 500}, ImGuiCond_FirstUseEver);
+        if (ImGui::Begin("FlowGraph##float", &g_det_flow)) {
+            if (ImGui::Button("Dock##flow")) g_det_flow = false;
+            ImGui::Separator();
+            EditorFlowGraphPanel::Get().DrawContent();
+        }
+        ImGui::End();
+    }
+    if (g_det_debug) {
+        ImGui::SetNextWindowPos({170.f, 180.f}, ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize({700, 500}, ImGuiCond_FirstUseEver);
+        if (ImGui::Begin("Debug##float", &g_det_debug)) {
+            if (ImGui::Button("Dock##debug")) g_det_debug = false;
+            ImGui::Separator();
+            ImVec2 av = ImGui::GetContentRegionAvail();
+            ImGui::BeginChild("##fcon", {av.x * 0.60f, av.y}, false);
+            EditorConsole::Get().DrawContent();
+            ImGui::EndChild();
+            ImGui::SameLine(0, 4);
+            ImGui::BeginChild("##fgpu", {0.f, av.y}, false);
+            EditorGpuProfilerPanel::Get().DrawContent();
+            ImGui::EndChild();
+        }
+        ImGui::End();
+    }
+    if (g_det_cam) {
+        ImVec2 ds = ImGui::GetIO().DisplaySize;
+        ImGui::SetNextWindowPos({ds.x - 420.f, 30.f}, ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize({400, 300}, ImGuiCond_FirstUseEver);
+        if (ImGui::Begin("Camera##float", &g_det_cam)) {
+            if (ImGui::Button("Dock##cam")) g_det_cam = false;
+            ImGui::Separator();
+            EditorCameraPanel::Get().DrawContent();
+        }
+        ImGui::End();
+    }
 #endif
 }
 
