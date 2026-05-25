@@ -225,11 +225,25 @@ void EditorCore::Update(float dt) {
     ImGui::End();
 
     // ── floating panels (rendered outside ##f3editor) ─────────────────────
-    // pos/size updated every frame while detached → panel remembers where user left it.
+    // min_y: panel title bars must never overlap the toolbar + tab bar strip.
+    // Without this clamp the title bar sits on top of the tab bar and the user
+    // accidentally drags the panel when trying to click a tab.
+    const float min_y = toolbar_h + ImGui::GetFrameHeight() + 4.f;
+    static constexpr ImGuiWindowFlags FLOAT_FLAGS =
+        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings;
+
+    auto f3_end = [&](ImVec2& pos, ImVec2& sz) {
+        pos = ImGui::GetWindowPos();
+        if (pos.y < min_y) { pos.y = min_y; ImGui::SetWindowPos(pos); }
+        sz = ImGui::GetWindowSize();
+        ImGui::End();
+    };
+
     if (g_det_scene) {
+        if (f3_pos_scene.y < min_y) f3_pos_scene.y = min_y;
         ImGui::SetNextWindowPos(f3_pos_scene, ImGuiCond_Appearing);
         ImGui::SetNextWindowSize(f3_size_scene, ImGuiCond_Appearing);
-        if (ImGui::Begin("Scene##float", &g_det_scene)) {
+        if (ImGui::Begin("Scene##float", &g_det_scene, FLOAT_FLAGS)) {
             if (ImGui::Button("Dock##scene")) g_det_scene = false;
             ImGui::Separator();
             ImVec2 av = ImGui::GetContentRegionAvail();
@@ -241,14 +255,13 @@ void EditorCore::Update(float dt) {
             EditorInspector::Get().DrawContent();
             ImGui::EndChild();
         }
-        f3_pos_scene  = ImGui::GetWindowPos();
-        f3_size_scene = ImGui::GetWindowSize();
-        ImGui::End();
+        f3_end(f3_pos_scene, f3_size_scene);
     }
     if (g_det_ai) {
+        if (f3_pos_ai.y < min_y) f3_pos_ai.y = min_y;
         ImGui::SetNextWindowPos(f3_pos_ai, ImGuiCond_Appearing);
         ImGui::SetNextWindowSize(f3_size_ai, ImGuiCond_Appearing);
-        if (ImGui::Begin("AI##float", &g_det_ai)) {
+        if (ImGui::Begin("AI##float", &g_det_ai, FLOAT_FLAGS)) {
             if (ImGui::Button("Dock##ai")) g_det_ai = false;
             ImGui::Separator();
             ImVec2 av = ImGui::GetContentRegionAvail();
@@ -260,14 +273,13 @@ void EditorCore::Update(float dt) {
             EditorViewConePanel::Get().DrawContent();
             ImGui::EndChild();
         }
-        f3_pos_ai  = ImGui::GetWindowPos();
-        f3_size_ai = ImGui::GetWindowSize();
-        ImGui::End();
+        f3_end(f3_pos_ai, f3_size_ai);
     }
     if (g_det_anim) {
+        if (f3_pos_anim.y < min_y) f3_pos_anim.y = min_y;
         ImGui::SetNextWindowPos(f3_pos_anim, ImGuiCond_Appearing);
         ImGui::SetNextWindowSize(f3_size_anim, ImGuiCond_Appearing);
-        if (ImGui::Begin("Animation##float", &g_det_anim)) {
+        if (ImGui::Begin("Animation##float", &g_det_anim, FLOAT_FLAGS)) {
             if (ImGui::Button("Dock##anim")) g_det_anim = false;
             ImGui::Separator();
             ImVec2 av = ImGui::GetContentRegionAvail();
@@ -278,26 +290,24 @@ void EditorCore::Update(float dt) {
             EditorSequencerPanel::Get().DrawContent();
             ImGui::EndChild();
         }
-        f3_pos_anim  = ImGui::GetWindowPos();
-        f3_size_anim = ImGui::GetWindowSize();
-        ImGui::End();
+        f3_end(f3_pos_anim, f3_size_anim);
     }
     if (g_det_flow) {
+        if (f3_pos_flow.y < min_y) f3_pos_flow.y = min_y;
         ImGui::SetNextWindowPos(f3_pos_flow, ImGuiCond_Appearing);
         ImGui::SetNextWindowSize(f3_size_flow, ImGuiCond_Appearing);
-        if (ImGui::Begin("FlowGraph##float", &g_det_flow)) {
+        if (ImGui::Begin("FlowGraph##float", &g_det_flow, FLOAT_FLAGS)) {
             if (ImGui::Button("Dock##flow")) g_det_flow = false;
             ImGui::Separator();
             EditorFlowGraphPanel::Get().DrawContent();
         }
-        f3_pos_flow  = ImGui::GetWindowPos();
-        f3_size_flow = ImGui::GetWindowSize();
-        ImGui::End();
+        f3_end(f3_pos_flow, f3_size_flow);
     }
     if (g_det_debug) {
+        if (f3_pos_debug.y < min_y) f3_pos_debug.y = min_y;
         ImGui::SetNextWindowPos(f3_pos_debug, ImGuiCond_Appearing);
         ImGui::SetNextWindowSize(f3_size_debug, ImGuiCond_Appearing);
-        if (ImGui::Begin("Debug##float", &g_det_debug)) {
+        if (ImGui::Begin("Debug##float", &g_det_debug, FLOAT_FLAGS)) {
             if (ImGui::Button("Dock##debug")) g_det_debug = false;
             ImGui::Separator();
             ImVec2 av = ImGui::GetContentRegionAvail();
@@ -309,21 +319,18 @@ void EditorCore::Update(float dt) {
             EditorGpuProfilerPanel::Get().DrawContent();
             ImGui::EndChild();
         }
-        f3_pos_debug  = ImGui::GetWindowPos();
-        f3_size_debug = ImGui::GetWindowSize();
-        ImGui::End();
+        f3_end(f3_pos_debug, f3_size_debug);
     }
     if (g_det_cam) {
+        if (f3_pos_cam.y < min_y) f3_pos_cam.y = min_y;
         ImGui::SetNextWindowPos(f3_pos_cam, ImGuiCond_Appearing);
         ImGui::SetNextWindowSize(f3_size_cam, ImGuiCond_Appearing);
-        if (ImGui::Begin("Camera##float", &g_det_cam)) {
+        if (ImGui::Begin("Camera##float", &g_det_cam, FLOAT_FLAGS)) {
             if (ImGui::Button("Dock##cam")) g_det_cam = false;
             ImGui::Separator();
             EditorCameraPanel::Get().DrawContent();
         }
-        f3_pos_cam  = ImGui::GetWindowPos();
-        f3_size_cam = ImGui::GetWindowSize();
-        ImGui::End();
+        f3_end(f3_pos_cam, f3_size_cam);
     }
 #endif
 }
