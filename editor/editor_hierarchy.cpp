@@ -117,7 +117,7 @@ void EditorHierarchy::DrawContextMenu(entt::entity e) {
     if (ImGui::MenuItem("Kill NPC")) {
         if (reg.valid(e)) {
             if (reg.all_of<Combat>(e))  reg.get<Combat>(e).is_dead = true;
-            if (reg.all_of<Health>(e))  reg.get<Health>(e).current = 0.f;
+            if (reg.all_of<Health>(e)) { auto& h = reg.get<Health>(e); for (int _i=0;_i<LIMB_COUNT;++_i) h.hp[_i]=0.f; }
         }
     }
     if (ImGui::MenuItem("Freeze LOD")) {
@@ -147,6 +147,11 @@ void EditorHierarchy::Draw() {
         ImGui::End();
         return;
     }
+    DrawContent();
+    ImGui::End();
+}
+
+void EditorHierarchy::DrawContent() {
 
     auto& ec  = EditorCore::Get();
     auto& reg = Registry::Get();
@@ -243,6 +248,5 @@ void EditorHierarchy::Draw() {
     else
         ImGui::TextDisabled("sel: %d | total: %d", ec.selected_count, entity_cache_count_);
 
-    ImGui::End();
 }
 #endif

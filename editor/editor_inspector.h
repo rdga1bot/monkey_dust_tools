@@ -8,6 +8,7 @@ public:
     static EditorInspector& Get() { static EditorInspector inst; return inst; }
 
     void Draw();
+    void DrawContent();
 
 private:
     EditorInspector() = default;

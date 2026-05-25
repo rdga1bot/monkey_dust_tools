@@ -32,6 +32,11 @@ void EditorDirectorPanel::Draw() {
     if (!ImGui::Begin("Director Tuning##dir", &EditorCore::Get().panels_visible[10])) {
         ImGui::End(); return;
     }
+    DrawContent();
+    ImGui::End();
+}
+
+void EditorDirectorPanel::DrawContent() {
 
     auto& ds = DirectorSystem::Get();
 
@@ -89,6 +94,5 @@ void EditorDirectorPanel::Draw() {
         }
     }
 
-    ImGui::End();
 }
 #endif

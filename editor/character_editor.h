@@ -9,6 +9,7 @@
 #else
 #  include "char_preview_gl.h"
 #endif
+#include "bug_capture.h"
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -273,15 +274,16 @@ static void Draw() {
     ImGui::SeparatorText("Identity");
     ImGui::SetNextItemWidth(-1);
     ImGui::InputText("##cc_name", s_def.name, sizeof(s_def.name));
-    ImGui::RadioButton("Male##cc",   (int*)&s_def.sex, 0);
+    { int sv = s_def.sex; if (ImGui::RadioButton("Male##cc",   &sv, 0)) s_def.sex = (uint8_t)sv; }
     ImGui::SameLine();
-    ImGui::RadioButton("Female##cc", (int*)&s_def.sex, 1);
+    { int sv = s_def.sex; if (ImGui::RadioButton("Female##cc", &sv, 1)) s_def.sex = (uint8_t)sv; }
     const char* races[] = { "Human", "Shek", "Hive Worker", "Hive Prince", "Skeleton" };
     int ri = s_def.race;
     ImGui::SetNextItemWidth(-1);
+    ImGui::AlignTextToFramePadding(); ImGui::TextDisabled("Race"); ImGui::SameLine();
+    float cw = ImGui::GetContentRegionAvail().x;
+    ImGui::SetNextItemWidth(cw > 8.f ? cw : 8.f);
     if (ImGui::Combo("##cc_race", &ri, races, 5)) s_def.race = (uint8_t)ri;
-    ImGui::SameLine(); ImGui::AlignTextToFramePadding();
-    ImGui::TextDisabled("Race");
 
     ImGui::SeparatorText("Colours");
     ImGui::SetNextItemWidth(-1);
@@ -317,6 +319,26 @@ static void Draw() {
     if (ImGui::Button("Save##cc"))       SaveJSON(s_path);
     ImGui::SameLine();
     if (ImGui::Button("Load##cc"))       LoadJSON(s_path);
+    ImGui::SameLine();
+    if (ImGui::Button("Dump##cc")) {
+        char dpath[256];
+        FILE* df = BugCapture::Open("chars", dpath, sizeof(dpath));
+        if (df) {
+            fprintf(df, "[CharDef]\n");
+            fprintf(df, "  name=%s  sex=%d  race=%d\n", s_def.name, s_def.sex, s_def.race);
+            fprintf(df, "  height=%.4f  bulk=%.4f\n", s_def.height, s_def.bulk);
+            fprintf(df, "  skin=%.3f,%.3f,%.3f  str=%.3f\n",
+                s_def.skin[0], s_def.skin[1], s_def.skin[2], s_def.color_strength);
+            fprintf(df, "  sat=%.3f  bri=%.3f\n", s_def.skintone_sat, s_def.skintone_bri);
+            fprintf(df, "  morphs=%d:", s_def.morph_count);
+            for (int i = 0; i < s_def.morph_count; ++i) fprintf(df, " %.2f", s_def.morph_w[i]);
+            fprintf(df, "\n\n");
+#ifdef MD_SDL_GPU
+            CharPreviewSDLGPU::DumpState(df);
+#endif
+            BugCapture::Close(df);
+        }
+    }
 
     // ── BODY / FACE / HAIR tabs — ліва панель, під File ──────────────────────
     ImGui::Spacing();

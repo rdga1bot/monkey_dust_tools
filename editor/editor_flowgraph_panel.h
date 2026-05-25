@@ -7,6 +7,7 @@ class EditorFlowGraphPanel {
 public:
     static EditorFlowGraphPanel& Get() { static EditorFlowGraphPanel i; return i; }
     void Draw();
+    void DrawContent();
     void Shutdown();
 
 private:

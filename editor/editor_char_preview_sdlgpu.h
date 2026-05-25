@@ -55,6 +55,17 @@ static float s_str = 0.55f, s_sat = 1.f, s_bri = 0.f;
 static float s_muscle = 0.f;
 static float s_hair[3] = {0.18f, 0.12f, 0.08f};
 
+static void DumpState(FILE* f) {
+    fprintf(f, "[CharPreview]\n");
+    fprintf(f, "  ok=%d  ni=%d  rtt=%dx%d\n", s_ok, s_ni, s_rtt_w, s_rtt_h);
+    fprintf(f, "  color_tex=%s  depth_tex=%s\n", s_color ? "ok" : "null", s_depth ? "ok" : "null");
+    fprintf(f, "  yaw=%.4f  pit=%.4f  dist=%.4f\n", s_yaw, s_pit, s_dist);
+    fprintf(f, "  skin=%.3f,%.3f,%.3f  str=%.3f\n", s_skin[0], s_skin[1], s_skin[2], s_str);
+    fprintf(f, "  sat=%.3f  bri=%.3f  muscle=%.3f\n", s_sat, s_bri, s_muscle);
+    fprintf(f, "  hair=%.3f,%.3f,%.3f\n", s_hair[0], s_hair[1], s_hair[2]);
+    fprintf(f, "  height=%.3f  bulk=%.3f\n\n", s_height, s_bulk);
+}
+
 // ── Mat4 (column-major) ───────────────────────────────────────────────────────
 struct M4 { float m[16] = {1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1}; };
 static M4 m4_mul(const M4& a, const M4& b) {
@@ -213,6 +224,13 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
 
     SDL_GPURenderPass* rp=SDL_BeginGPURenderPass(cmd,&ct,1,&di);
     if (!rp) return;
+
+    if (!s_pipeline.SDLPipeline() || !s_vbo.SDLBuffer() || !s_ibo.SDLBuffer() ||
+        !s_tex.SDLTexture()        || !s_tex.SDLSampler()        ||
+        !s_tex_muscle.SDLTexture() || !s_tex_muscle.SDLSampler() ||
+        !s_tex_blood.SDLTexture()  || !s_tex_blood.SDLSampler()) {
+        SDL_EndGPURenderPass(rp); return;
+    }
 
     SDL_BindGPUGraphicsPipeline(rp, s_pipeline.SDLPipeline());
 

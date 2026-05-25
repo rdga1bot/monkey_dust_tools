@@ -295,13 +295,17 @@ void EditorInspector::Draw() {
         ImGui::End();
         return;
     }
+    DrawContent();
+    ImGui::End();
+}
+
+void EditorInspector::DrawContent() {
 
     auto& ec = EditorCore::Get();
     entt::entity e = ec.GetPrimary();
 
     if (e == entt::null || !Registry::Get().valid(e)) {
         ImGui::TextDisabled("No entity selected");
-        ImGui::End();
         return;
     }
 
@@ -323,6 +327,5 @@ void EditorInspector::Draw() {
     DrawCharacterDef(e);
     DrawAddComponent(e);
 
-    ImGui::End();
 }
 #endif

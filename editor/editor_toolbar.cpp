@@ -144,25 +144,26 @@ void EditorToolbar::DrawMenuBar() {
     // ── View ─────────────────────────────────────────────────
     if (ImGui::BeginMenu("View")) {
         auto& pv = EditorCore::Get().panels_visible;
-        ImGui::MenuItem("Hierarchy",   nullptr, &pv[0]);
-        ImGui::MenuItem("Inspector",   nullptr, &pv[1]);
-        ImGui::MenuItem("Assets",      nullptr, &pv[2]);
-        ImGui::MenuItem("Console",     nullptr, &pv[3]);
-        ImGui::MenuItem("Graphics",    nullptr, &pv[4]);
-        ImGui::MenuItem("Camera",      nullptr, &pv[5]);
-        ImGui::MenuItem("Animation",   nullptr, &pv[6]);
+#ifndef MONKEY_DUST_STANDALONE_EDITOR
+        ImGui::MenuItem("Hierarchy",          nullptr, &pv[0]);
+        ImGui::MenuItem("Inspector",          nullptr, &pv[1]);
+        ImGui::MenuItem("Console",            nullptr, &pv[3]);
+        ImGui::MenuItem("Camera",             nullptr, &pv[5]);
+        ImGui::MenuItem("Animation",          nullptr, &pv[6]);
         ImGui::Separator();
         ImGui::MenuItem("ViewCone Inspector", nullptr, &pv[8]);
         ImGui::MenuItem("FlowGraph",          nullptr, &pv[9]);
+        ImGui::MenuItem("Sequencer",          nullptr, &pv[13]);
         ImGui::MenuItem("Director",           nullptr, &pv[10]);
         ImGui::MenuItem("GPU Profiler",       nullptr, &pv[11]);
-        ImGui::MenuItem("Node Graph",         nullptr, &pv[12]);
-        ImGui::MenuItem("Sequencer",          nullptr, &pv[13]);
-        ImGui::MenuItem("Terrain Sculpt",     nullptr, &pv[14]);
         ImGui::Separator();
         if (ImGui::MenuItem("Reset Layout")) {
-            for (int i = 0; i < 15; ++i) pv[i] = (i < 6);
+            for (int i = 0; i < 15; ++i) pv[i] = false;
+            pv[0] = pv[1] = pv[3] = pv[5] = pv[6] = true;
         }
+#else
+        ImGui::TextDisabled("Panels are embedded in tabs");
+#endif
         ImGui::EndMenu();
     }
 

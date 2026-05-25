@@ -9,6 +9,7 @@ public:
     static EditorHierarchy& Get() { static EditorHierarchy inst; return inst; }
 
     void Draw();
+    void DrawContent();
 
 private:
     EditorHierarchy() = default;

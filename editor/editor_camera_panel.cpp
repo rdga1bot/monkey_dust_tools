@@ -12,6 +12,11 @@ void EditorCameraPanel::Draw() {
         ImGui::End();
         return;
     }
+    DrawContent();
+    ImGui::End();
+}
+
+void EditorCameraPanel::DrawContent() {
 
     auto& ec  = EditorCore::Get();
     auto& cam = ec.editor_cam;
@@ -65,6 +70,5 @@ void EditorCameraPanel::Draw() {
 #endif
     }
 
-    ImGui::End();
 }
 #endif

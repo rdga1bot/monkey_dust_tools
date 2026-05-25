@@ -6,15 +6,24 @@
 #include "imgui.h"
 #include <monkey_dust/world/terrain_gen.h>
 #include <monkey_dust/nodegraph/terrain_tile_gen.h>
+#include <monkey_dust/ecs/registry.h>
+#include <monkey_dust/world/world_transform.h>
 #include <SDL3/SDL.h>
 #include <cstdio>
 #include "../../game/src/render/scene_render.h"
 
+// ── Scatter ECS tag (P-NG-6) ─────────────────────────────────────────────────
+struct PcgScatterTag {
+    uint16_t prefab_id;
+    float    scale;
+    float    rot_y;
+};
+
+static entt::entity s_scatter_ents[md::PCG_MAX_SCATTER];
+static int          s_scatter_count = 0;
+
 void EditorTerrainPanel::Draw(float dt) {
     if (!EditorCore::Get().panels_visible[14]) return;
-
-    auto& sr = SceneRender::Get();
-
     ImGui::SetNextWindowSize(ImVec2(300, 560), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowPos(ImVec2(570, 60),   ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Terrain Sculpt##TerrainPanel",
@@ -22,6 +31,12 @@ void EditorTerrainPanel::Draw(float dt) {
         ImGui::End();
         return;
     }
+    DrawContent(dt);
+    ImGui::End();
+}
+
+void EditorTerrainPanel::DrawContent(float dt) {
+    auto& sr = SceneRender::Get();
 
     // ── PCG Generate ──────────────────────────────────────────────────────────
     if (ImGui::CollapsingHeader("PCG Generate", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -75,12 +90,29 @@ void EditorTerrainPanel::Draw(float dt) {
             rebuild_debounce_s_ = 0.f;
         }
 
-        // Poll for completed tile — upload to 3D viewport when ready
+        // Poll for completed tile — upload to 3D viewport + sync scatter ECS
         if (tg.PollApply()) {
             const md::TileData& tile = tg.GetReady();
             EditorW3D_UploadTerrainHeightmap(
                 tile.heightmap, md::TILE_RES, md::TILE_RES,
                 tile.world_size, tile.chunk_x, tile.chunk_z);
+
+            // P-NG-6.1-6.2: purge old scatter entities, create new ones
+            entt::registry& reg = Registry::Get();
+            for (int i = 0; i < s_scatter_count; ++i)
+                if (reg.valid(s_scatter_ents[i]))
+                    reg.destroy(s_scatter_ents[i]);
+            s_scatter_count = 0;
+
+            int n = tile.scatter_count;
+            if (n > md::PCG_MAX_SCATTER) n = md::PCG_MAX_SCATTER;
+            for (int i = 0; i < n; ++i) {
+                const md::ScatterPoint& sp = tile.scatter[i];
+                entt::entity e = reg.create();
+                reg.emplace<WorldTransform>(e, WorldTransform{sp.x, 0.f, sp.z, sp.rot_y, 0xFFFFFFFFu});
+                reg.emplace<PcgScatterTag>(e, PcgScatterTag{sp.prefab_id, sp.scale, sp.rot_y});
+                s_scatter_ents[s_scatter_count++] = e;
+            }
         }
 
         // Apply to World button (writes PCG heightmap into master + refreshes chunks)
@@ -169,7 +201,5 @@ void EditorTerrainPanel::Draw(float dt) {
         ImGui::TextUnformatted(save_status_);
         ImGui::PopStyleColor();
     }
-
-    ImGui::End();
 }
 #endif
