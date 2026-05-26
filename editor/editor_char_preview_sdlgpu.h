@@ -99,7 +99,7 @@ static void ensure_rtt(int w, int h) {
     ci.width=(uint32_t)w; ci.height=(uint32_t)h;
     ci.layer_count_or_depth=1; ci.num_levels=1;
     s_color=SDL_CreateGPUTexture(dev,&ci);
-    ci.format=SDL_GPU_TEXTUREFORMAT_D24_UNORM;
+    ci.format=SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
     ci.usage=SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
     s_depth=SDL_CreateGPUTexture(dev,&ci);
 }
