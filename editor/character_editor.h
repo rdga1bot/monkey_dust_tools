@@ -144,11 +144,28 @@ struct Def {
     }
 
     // Derived parameters for renderer
-    float skintone_sat() const { return body[0] / 100.f * 2.0f; }          // Aka Locus → sat
-    float skintone_bri() const { return body[1] / 100.f * 0.6f - 0.3f; }  // Dark Tone → bri
-    float eff_height()   const { return 0.80f + body[2] / 100.f * 0.40f; }
-    float eff_frame()    const { return 0.80f + body[3] / 100.f * 0.40f; }
-    float muscular()     const { return body[10] / 100.f; }
+    float skintone_sat() const { return body[0] / 100.f * 2.0f; }   // Aka Locus  → sat 0..2
+    float skintone_bri() const { return body[1] / 100.f * 0.8f - 0.4f; }  // Dark Tone → bri -0.4..+0.4
+
+    float eff_height() const {
+        float h = 0.80f + body[2] / 100.f * 0.40f;   // Height        0.80..1.20
+        h += (body[7] / 100.f - 0.5f) * 0.14f;       // Leg length   ±0.07
+        h += (body[4] / 100.f - 0.5f) * 0.06f;       // Posture       ±0.03
+        return h < 0.55f ? 0.55f : (h > 1.45f ? 1.45f : h);
+    }
+    float eff_frame() const {
+        float b = 0.80f + body[3] / 100.f * 0.40f;   // Frame         0.80..1.20
+        b += (body[8] / 100.f - 0.5f) * 0.22f;       // Shoulders    ±0.11
+        b += (body[9] / 100.f - 0.5f) * 0.10f;       // Arm bulk     ±0.05
+        b += (body[12]/ 100.f - 0.5f) * 0.10f;       // Chest        ±0.05
+        b += (body[15]/ 100.f - 0.5f) * 0.08f;       // Hips         ±0.04
+        return b < 0.55f ? 0.55f : (b > 1.55f ? 1.55f : b);
+    }
+    float muscular() const {
+        float m = body[10] / 100.f;   // Bot build
+        m += (body[11] / 100.f) * 0.4f; // Hands (minor contribution)
+        return m < 0.f ? 0.f : (m > 1.f ? 1.f : m);
+    }
 };
 
 static Def   s_def;
