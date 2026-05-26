@@ -196,6 +196,9 @@ static bool Init(const char* glb_path, const char* tex_path) {
         ti.usage=SDL_GPU_TEXTUREUSAGE_SAMPLER;
         ti.width=30; ti.height=1; ti.layer_count_or_depth=1; ti.num_levels=1;
         s_bones_tex=SDL_CreateGPUTexture(dev,&ti);
+        if (!s_bones_tex) {
+            fprintf(stderr,"[CharPreview] bones tex create failed: %s\n",SDL_GetError());
+        }
         SDL_GPUSamplerCreateInfo si={};
         si.min_filter=SDL_GPU_FILTER_NEAREST; si.mag_filter=SDL_GPU_FILTER_NEAREST;
         si.mipmap_mode=SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
@@ -203,21 +206,27 @@ static bool Init(const char* glb_path, const char* tex_path) {
         si.address_mode_v=SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
         si.address_mode_w=SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
         s_bones_sampler=SDL_CreateGPUSampler(dev,&si);
-        // Initial upload
-        uint32_t up_sz=30*4*4; // 30 texels × 4 channels × 4 bytes
-        SDL_GPUTransferBufferCreateInfo tb={};
-        tb.usage=SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD; tb.size=up_sz;
-        SDL_GPUTransferBuffer* tr=SDL_CreateGPUTransferBuffer(dev,&tb);
-        void* mp=SDL_MapGPUTransferBuffer(dev,tr,false);
-        if(mp){memcpy(mp,s_boneScales,up_sz);SDL_UnmapGPUTransferBuffer(dev,tr);}
-        SDL_GPUCommandBuffer* uc=SDL_AcquireGPUCommandBuffer(dev);
-        SDL_GPUCopyPass* cp=SDL_BeginGPUCopyPass(uc);
-        SDL_GPUTextureTransferInfo src={tr,0,(uint32_t)30,(uint32_t)1};
-        SDL_GPUTextureRegion dst={s_bones_tex,0,0,0,0,0,30,1,1};
-        SDL_UploadToGPUTexture(cp,&src,&dst,false);
-        SDL_EndGPUCopyPass(cp);
-        SDL_SubmitGPUCommandBuffer(uc);
-        SDL_ReleaseGPUTransferBuffer(dev,tr);
+        // Initial upload (only if texture was created)
+        if (s_bones_tex) {
+            uint32_t up_sz=30*4*4; // 30 texels × 4 channels × 4 bytes
+            SDL_GPUTransferBufferCreateInfo tb={};
+            tb.usage=SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD; tb.size=up_sz;
+            SDL_GPUTransferBuffer* tr=SDL_CreateGPUTransferBuffer(dev,&tb);
+            if (tr) {
+                void* mp=SDL_MapGPUTransferBuffer(dev,tr,false);
+                if(mp){memcpy(mp,s_boneScales,up_sz);SDL_UnmapGPUTransferBuffer(dev,tr);}
+                SDL_GPUCommandBuffer* uc=SDL_AcquireGPUCommandBuffer(dev);
+                if (uc) {
+                    SDL_GPUCopyPass* cp=SDL_BeginGPUCopyPass(uc);
+                    SDL_GPUTextureTransferInfo src={tr,0,(uint32_t)30,(uint32_t)1};
+                    SDL_GPUTextureRegion dst={s_bones_tex,0,0,0,0,0,30,1,1};
+                    SDL_UploadToGPUTexture(cp,&src,&dst,false);
+                    SDL_EndGPUCopyPass(cp);
+                    SDL_SubmitGPUCommandBuffer(uc);
+                }
+                SDL_ReleaseGPUTransferBuffer(dev,tr);
+            }
+        }
     }
 
     // Pipeline
