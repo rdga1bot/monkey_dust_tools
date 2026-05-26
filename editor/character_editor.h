@@ -1,7 +1,7 @@
 #pragma once
-// character_editor.h — Character Creator tab for monkey_dust_editor.
-// Header-only: SDL_GPU preview via editor_char_preview_sdlgpu.h (MD_SDL_GPU),
-// or OpenGL preview via char_preview_gl.h (legacy path).
+// character_editor.h v2 — Kenshi-style 3-panel character creator.
+// LEFT (160px): race/gender/desc/stats  |  CENTER: 3D preview  |  RIGHT (270px): BODY/FACE/HAIR sliders
+// Redesigned to match Kenshi character editor layout from RE analysis.
 
 #include "imgui.h"
 #ifdef MD_SDL_GPU
@@ -14,446 +14,627 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cmath>
 
 namespace CharacterEditor {
 
-// ── Data ──────────────────────────────────────────────────────────────────────
-static constexpr int MAX_MORPHS = 48;
+// ── Window state (required by editor_layout / main.cpp) ──────────────────────
+static bool    g_detached  = false;
+static ImVec2  g_win_pos   = {160.f, 60.f};
+static ImVec2  g_win_size  = {900.f, 640.f};
 
+// ── Morph layout ─────────────────────────────────────────────────────────────
+// BODY  [0..17]  18 sliders  (body shape + skin tone params)
+// FACE  [18..41] 24 sliders  (face shape morphs)
+// HAIR  [42..46]  5 sliders  (hair + extra colour params)
+static constexpr int BODY_N   = 18;
+static constexpr int FACE_N   = 24;
+static constexpr int HAIR_N   =  5;
+static constexpr int FACE_OFF = BODY_N;
+static constexpr int HAIR_OFF = BODY_N + FACE_N;
+static constexpr int MORPH_TOT = BODY_N + FACE_N + HAIR_N;  // 47
+
+// BODY sliders — matches Kenshi screenshots exactly
+static const char* const kBodyLbl[BODY_N] = {
+    "Aka Locus",   "Dark Tone",    "Height",       "Frame",
+    "Posture",     "Shoulder set", "Neck pos.",    "Leg length",
+    "Shoulders",   "Arm bulk",     "Bot build",    "Hands",
+    "Chest",       "Stomach",      "Bosom",        "Hips",
+    "Legs",        "Foot size"
+};
+// Default values (0–100 display scale; 40=neutral-low, 100=neutral-high)
+static const float kBodyDef[BODY_N] = {
+    40, 40,  40, 100,  40,  40,  40, 100,
+   100, 40,  40,  40, 100,  40,  40,  40,
+   100, 40
+};
+
+// FACE sliders — from RE kenshi_x64.exe.c + character_editor_structs.md
+static const char* const kFaceLbl[FACE_N] = {
+    "Head size",   "Head shape",  "Neck",         "Neck width",
+    "Eye size",    "Eye shape",   "Eye spacing",  "Eye height",
+    "Nose width",  "Nose height", "Nose depth",   "Nose tip",
+    "Cheekbone",   "Cheekbone h.","Brow",         "Brow height",
+    "Jaw",         "Mouth width", "Mouth pos.",   "Lips",
+    "Chin",        "Chin height", "Chin width",   "Dead eyes"
+};
+static const float kFaceDef[FACE_N] = {
+    40, 40,  40, 40,  40, 40, 40, 40,
+    40, 40,  40, 40,  40, 40, 40, 40,
+    40, 40,  40, 40,  40, 40, 40,  0
+};
+
+// HAIR sliders
+static const char* const kHairLbl[HAIR_N] = {
+    "Colour",   "Grow amount",  "2d lightness",  "Saturation",  "Brightness"
+};
+static const float kHairDef[HAIR_N] = { 40, 40, 40, 100, 50 };
+
+// ── Race data ─────────────────────────────────────────────────────────────────
+// stat_bonus[7]: Athletics / Strength / Toughness / Melee / Ranged / Thievery / Perception
+struct KRace {
+    const char* name;
+    const char* subrace;   // nullptr = no subrace display
+    uint8_t     race_idx;  // maps to RaceType enum
+    const char* desc;
+    int8_t      stat_bonus[7];
+};
+
+static const KRace kRaces[] = {
+    { "Human", "Greenlander", 0,
+      "Greenlanders tend to value money above all else. They make natural traders and adaptable "
+      "mercenaries, comfortable in most professions. Despite lacking the raw power of other races, "
+      "they compensate through versatility, resourcefulness and an eye for opportunity.",
+      { 0, 0, 0, 0, 0, 0, 0 } },
+
+    { "Human", "Scorchlander", 1,
+      "Primarily from outcast cultures, Scorchlanders are fierce and hardened desert survivors. "
+      "They have a flair for the dramatic and excel at stealth and perception, making excellent "
+      "scouts, thieves and wanderers across the harshest regions of the land.",
+      { 0, 0, 0, 0, 0, 5, 10 } },
+
+    { "Shek", nullptr, 2,
+      "Proud warriors born of a harsh environment. The Shek are blessed with incredible natural "
+      "strength and toughness, and hold deep respect only for those who match their power in battle. "
+      "Their pride makes them poor thieves and unconvincing liars — but feared warriors.",
+      { 0, 20, 15, 0, 0, -15, -5 } },
+
+    { "Hive", "Worker", 3,
+      "Small drone workers from the Hive collective. They are among the weakest physically but "
+      "compensate with exceptional agility, endurance and a natural talent for stealth. They make "
+      "excellent thieves and support characters, thriving where brute force is not the answer.",
+      { 15, -20, 0, 0, 0, 20, 0 } },
+
+    { "Hive", "Soldier", 4,
+      "Hive Soldiers serve as guards and frontline warriors for the collective. Tougher and more "
+      "battle-hardened than their worker counterparts, they are reliable in direct combat while "
+      "retaining the Hive's innate agility.",
+      { 0, 0, 10, 10, 0, 0, 0 } },
+
+    { "Skeleton", nullptr, 5,
+      "Ancient mechanical beings of unknown origin. They require no food, no sleep, and can only "
+      "be repaired by engineers — not medics. What they lack in finesse they compensate with raw "
+      "resilience. Their true motivations and history remain a mystery to the inhabitants of the land.",
+      { 0, 10, 0, 0, 0, 0, 0 } },
+};
+static constexpr int RACE_COUNT = (int)(sizeof(kRaces) / sizeof(kRaces[0]));
+
+static const char* const kStatNames[7] = {
+    "Athletics", "Strength", "Toughness", "Melee Atk", "Ranged", "Thievery", "Perception"
+};
+
+// ── Data struct ───────────────────────────────────────────────────────────────
 struct Def {
-    char  name[32]       = {};
-    uint8_t sex          = 0;
-    uint8_t race         = 0;
-    // Шар 1 — body shape
-    float height         = 1.0f;
-    float bulk           = 1.0f;
-    // Шар 2 — colour
-    float skin[3]        = { 0.82f, 0.65f, 0.52f };
-    float hair[3]        = { 0.18f, 0.12f, 0.08f };
-    float color_strength = 0.55f;
-    // Kenshi-style skintone (RE: character.hlsl)
-    float skintone_sat   = 1.0f;   // [0.0, 2.0] saturation  (1=neutral)
-    float skintone_bri   = 0.0f;   // [-0.3, 0.3] brightness (0=neutral)
-    // Шар 3 — morphs
-    float morph_w[MAX_MORPHS] = {};
-    int   morph_count    = 0;
+    char    name[32]       = {};
+    uint8_t sex            = 0;   // 0=Male, 1=Female
+    uint8_t race_row       = 0;   // index into kRaces[]
+    float   body[BODY_N];         // BODY morphs (0–100 scale)
+    float   face[FACE_N];         // FACE morphs
+    float   hair_f[HAIR_N];       // HAIR params
+    float   skin_rgb[3]    = { 0.82f, 0.65f, 0.52f };
+    float   hair_rgb[3]    = { 0.18f, 0.12f, 0.08f };
+    float   color_strength = 0.55f;
+
+    Def() {
+        memset(name, 0, sizeof(name));
+        strncpy(name, "Player", 7);
+        for (int i = 0; i < BODY_N; ++i) body[i] = kBodyDef[i];
+        for (int i = 0; i < FACE_N; ++i) face[i] = kFaceDef[i];
+        for (int i = 0; i < HAIR_N; ++i) hair_f[i] = kHairDef[i];
+    }
+
+    // Derived parameters for renderer
+    float skintone_sat() const { return body[0] / 100.f * 2.0f; }          // Aka Locus → sat
+    float skintone_bri() const { return body[1] / 100.f * 0.6f - 0.3f; }  // Dark Tone → bri
+    float eff_height()   const { return 0.80f + body[2] / 100.f * 0.40f; }
+    float eff_frame()    const { return 0.80f + body[3] / 100.f * 0.40f; }
+    float muscular()     const { return body[10] / 100.f; }
 };
 
 static Def   s_def;
-static char  s_path[256]    = "game/data/chars/player.chardef";
-static char  s_morph_names[MAX_MORPHS][48] = {};
-static bool  s_morphs_loaded = false;
-static bool  g_detached = false;
-static ImVec2 g_win_pos  = {160.f, 90.f};
-static ImVec2 g_win_size = {780.f, 560.f};
+static char  s_path[256] = "game/data/chars/player.chardef";
+static int   s_tab       = 0;   // 0=BODY 1=FACE 2=HAIR
 
-// ── JSON helpers ──────────────────────────────────────────────────────────────
-static float parse_float(const char* buf, const char* key) {
-    const char* p = strstr(buf, key);
-    if (!p) return 0.f;
-    p = strchr(p, ':');
-    return p ? (float)atof(p + 1) : 0.f;
+// ── JSON save/load ────────────────────────────────────────────────────────────
+static float s_parse_f(const char* b, const char* k) {
+    const char* p = strstr(b, k); if (!p) return 0.f;
+    p = strchr(p, ':'); return p ? (float)atof(p + 1) : 0.f;
 }
-static int parse_int(const char* buf, const char* key) {
-    const char* p = strstr(buf, key);
-    if (!p) return 0;
-    p = strchr(p, ':');
-    return p ? atoi(p + 1) : 0;
+static int s_parse_i(const char* b, const char* k) {
+    const char* p = strstr(b, k); if (!p) return 0;
+    p = strchr(p, ':'); return p ? atoi(p + 1) : 0;
 }
-static void parse_str(const char* buf, const char* key, char* out, int sz) {
-    const char* p = strstr(buf, key);
-    if (!p) { out[0] = '\0'; return; }
-    p = strchr(p, ':');
-    if (!p) { out[0] = '\0'; return; }
-    while (*p && (*p == ':' || *p == ' ' || *p == '"')) ++p;
-    int n = 0;
-    while (*p && *p != '"' && n < sz - 1) out[n++] = *p++;
-    out[n] = '\0';
+static void s_parse_str(const char* b, const char* k, char* out, int sz) {
+    const char* p = strstr(b, k); if (!p) { out[0]='\0'; return; }
+    p = strchr(p, ':'); if (!p) { out[0]='\0'; return; }
+    while (*p && (*p==':'||*p==' '||*p=='"')) ++p;
+    int n=0; while (*p && *p!='"' && n<sz-1) out[n++]=*p++;
+    out[n]='\0';
 }
-
+static void LoadMorphNames(const char* /*path*/) {}  // names are hardcoded; file ignored
 static bool LoadJSON(const char* path) {
-    FILE* f = fopen(path, "r");
-    if (!f) return false;
+    FILE* f = fopen(path, "r"); if (!f) return false;
     fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
-    if (sz <= 0 || sz > 8192) { fclose(f); return false; }
+    if (sz <= 0 || sz > 16384) { fclose(f); return false; }
     char* buf = (char*)malloc((size_t)sz + 1);
     fread(buf, 1, (size_t)sz, f); buf[sz] = '\0'; fclose(f);
 
-    parse_str(buf, "\"name\"", s_def.name, 32);
-    s_def.sex            = (uint8_t)parse_int(buf, "\"sex\"");
-    s_def.race           = (uint8_t)parse_int(buf, "\"race\"");
-    s_def.height         = parse_float(buf, "\"height\"");
-    s_def.bulk           = parse_float(buf, "\"bulk\"");
-    s_def.skin[0]        = parse_float(buf, "\"skin_r\"");
-    s_def.skin[1]        = parse_float(buf, "\"skin_g\"");
-    s_def.skin[2]        = parse_float(buf, "\"skin_b\"");
-    s_def.hair[0]        = parse_float(buf, "\"hair_r\"");
-    s_def.hair[1]        = parse_float(buf, "\"hair_g\"");
-    s_def.hair[2]        = parse_float(buf, "\"hair_b\"");
-    s_def.color_strength = parse_float(buf, "\"color_strength\"");
-    {
-        float s = parse_float(buf, "\"skintone_sat\"");
-        s_def.skintone_sat = (s > 0.01f) ? s : 1.0f;
-        s_def.skintone_bri = parse_float(buf, "\"skintone_bri\"");
-    }
-    s_def.morph_count    = parse_int(buf, "\"morph_count\"");
-    if (s_def.height < 0.5f || s_def.height > 2.f) s_def.height = 1.f;
-    if (s_def.bulk   < 0.3f || s_def.bulk   > 2.f) s_def.bulk   = 1.f;
-    if (s_def.morph_count < 0) s_def.morph_count = 0;
-    if (s_def.morph_count > MAX_MORPHS) s_def.morph_count = MAX_MORPHS;
+    s_parse_str(buf, "\"name\"", s_def.name, 32);
+    s_def.sex      = (uint8_t)s_parse_i(buf, "\"sex\"");
+    s_def.race_row = (uint8_t)s_parse_i(buf, "\"race_row\"");
+    if (s_def.race_row >= RACE_COUNT) s_def.race_row = 0;
+    s_def.skin_rgb[0]    = s_parse_f(buf, "\"skin_r\"");
+    s_def.skin_rgb[1]    = s_parse_f(buf, "\"skin_g\"");
+    s_def.skin_rgb[2]    = s_parse_f(buf, "\"skin_b\"");
+    s_def.hair_rgb[0]    = s_parse_f(buf, "\"hair_r\"");
+    s_def.hair_rgb[1]    = s_parse_f(buf, "\"hair_g\"");
+    s_def.hair_rgb[2]    = s_parse_f(buf, "\"hair_b\"");
+    s_def.color_strength = s_parse_f(buf, "\"color_str\"");
+    if (s_def.color_strength < 0.01f) s_def.color_strength = 0.55f;
 
-    const char* mp = strstr(buf, "\"morphs\"");
-    if (mp) {
-        mp = strchr(mp, '[');
-        if (mp) { ++mp;
-            for (int i = 0; i < s_def.morph_count; ++i) {
-                while (*mp && (*mp == ' ' || *mp == ',')) ++mp;
-                if (!*mp || *mp == ']') break;
-                s_def.morph_w[i] = (float)atof(mp);
-                while (*mp && *mp != ',' && *mp != ']') ++mp;
+    auto load_arr = [&](const char* key, float* arr, int n, const float* defs) {
+        const char* p = strstr(buf, key);
+        if (p) { p = strchr(p, '['); if (p) { ++p;
+            for (int i = 0; i < n; ++i) {
+                while (*p && (*p==' '||*p==',')) ++p;
+                if (!*p || *p == ']') break;
+                arr[i] = (float)atof(p);
+                while (*p && *p!=',' && *p!=']') ++p;
             }
-        }
-    }
-    free(buf);
-    return true;
-}
+        }} else { for (int i=0;i<n;++i) arr[i]=defs[i]; }
+    };
+    load_arr("\"body\"",   s_def.body,   BODY_N, kBodyDef);
+    load_arr("\"face\"",   s_def.face,   FACE_N, kFaceDef);
+    load_arr("\"hair_f\"", s_def.hair_f, HAIR_N, kHairDef);
 
-static bool SaveMorphsJSON(const char* path) {
-    FILE* f = fopen(path, "w");
-    if (!f) return false;
-    const char* fallback[6] = {"tall","fat","muscular","longlegs","bighead","broadshdr"};
-    int n = s_def.morph_count < 6 ? s_def.morph_count : 6;
-    fprintf(f, "{\n");
-    for (int i = 0; i < n; ++i) {
-        const char* nm = (s_morphs_loaded && s_morph_names[i][0]) ? s_morph_names[i] : fallback[i];
-        fprintf(f, "  \"%s\": %.4f%s\n", nm, s_def.morph_w[i], i < n-1 ? "," : "");
-    }
-    fprintf(f, "}\n");
-    fclose(f);
-    return true;
+    free(buf); return true;
 }
-
 static bool SaveJSON(const char* path) {
-    FILE* f = fopen(path, "w");
-    if (!f) return false;
-    fprintf(f, "{\n  \"name\": \"%s\",\n", s_def.name);
-    fprintf(f, "  \"sex\": %d,\n  \"race\": %d,\n", s_def.sex, s_def.race);
-    fprintf(f, "  \"height\": %.4f,\n  \"bulk\": %.4f,\n", s_def.height, s_def.bulk);
-    fprintf(f, "  \"skin_r\": %.4f,\n  \"skin_g\": %.4f,\n  \"skin_b\": %.4f,\n",
-            s_def.skin[0], s_def.skin[1], s_def.skin[2]);
-    fprintf(f, "  \"hair_r\": %.4f,\n  \"hair_g\": %.4f,\n  \"hair_b\": %.4f,\n",
-            s_def.hair[0], s_def.hair[1], s_def.hair[2]);
-    fprintf(f, "  \"color_strength\": %.4f,\n", s_def.color_strength);
-    fprintf(f, "  \"skintone_sat\": %.4f,\n  \"skintone_bri\": %.4f,\n",
-            s_def.skintone_sat, s_def.skintone_bri);
-    fprintf(f, "  \"morph_count\": %d", s_def.morph_count);
-    if (s_def.morph_count > 0) {
-        fprintf(f, ",\n  \"morphs\": [");
-        for (int i = 0; i < s_def.morph_count; ++i)
-            fprintf(f, "%s%.4f", i ? "," : "", s_def.morph_w[i]);
-        fprintf(f, "]");
-    }
-    fprintf(f, "\n}\n");
-    fclose(f);
-    return true;
+    FILE* f = fopen(path, "w"); if (!f) return false;
+    fprintf(f, "{\n  \"name\": \"%s\",\n  \"sex\": %d,\n  \"race_row\": %d,\n",
+            s_def.name, s_def.sex, s_def.race_row);
+    fprintf(f, "  \"skin_r\": %.4f, \"skin_g\": %.4f, \"skin_b\": %.4f,\n",
+            s_def.skin_rgb[0], s_def.skin_rgb[1], s_def.skin_rgb[2]);
+    fprintf(f, "  \"hair_r\": %.4f, \"hair_g\": %.4f, \"hair_b\": %.4f,\n",
+            s_def.hair_rgb[0], s_def.hair_rgb[1], s_def.hair_rgb[2]);
+    fprintf(f, "  \"color_str\": %.4f,\n", s_def.color_strength);
+    auto save_arr = [&](const char* key, const float* arr, int n) {
+        fprintf(f, "  \"%s\": [", key);
+        for (int i=0;i<n;++i) fprintf(f, "%s%.2f", i?",":"", arr[i]);
+        fprintf(f, "]%s\n", n<HAIR_N?",":" ");
+    };
+    save_arr("body",   s_def.body,   BODY_N);
+    save_arr("face",   s_def.face,   FACE_N);
+    save_arr("hair_f", s_def.hair_f, HAIR_N);
+    fprintf(f, "}\n"); fclose(f); return true;
 }
 
-static void LoadMorphNames(const char* path) {
-    FILE* f = fopen(path, "r");
-    if (!f) return;
-    int n = 0;
-    while (n < MAX_MORPHS && fgets(s_morph_names[n], 48, f)) {
-        char* nl = strchr(s_morph_names[n], '\n');
-        if (nl) *nl = '\0';
-        if (s_morph_names[n][0]) ++n;
-    }
-    fclose(f);
-    if (n > s_def.morph_count) s_def.morph_count = n;
-    s_morphs_loaded = (n > 0);
+// ── Kenshi color theme ────────────────────────────────────────────────────────
+static constexpr int K_THEME_N = 28;
+static void PushKenshiTheme() {
+    ImGui::PushStyleColor(ImGuiCol_WindowBg,          {0.094f,0.071f,0.043f,1.f}); //  1
+    ImGui::PushStyleColor(ImGuiCol_ChildBg,           {0.110f,0.086f,0.055f,1.f}); //  2
+    ImGui::PushStyleColor(ImGuiCol_PopupBg,           {0.125f,0.098f,0.063f,1.f}); //  3
+    ImGui::PushStyleColor(ImGuiCol_Border,            {0.353f,0.271f,0.165f,1.f}); //  4
+    ImGui::PushStyleColor(ImGuiCol_FrameBg,           {0.150f,0.118f,0.071f,1.f}); //  5
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered,    {0.220f,0.173f,0.102f,1.f}); //  6
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive,     {0.290f,0.224f,0.133f,1.f}); //  7
+    ImGui::PushStyleColor(ImGuiCol_TitleBg,           {0.094f,0.071f,0.043f,1.f}); //  8
+    ImGui::PushStyleColor(ImGuiCol_TitleBgActive,     {0.150f,0.118f,0.071f,1.f}); //  9
+    ImGui::PushStyleColor(ImGuiCol_Button,            {0.235f,0.188f,0.114f,1.f}); // 10
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered,     {0.361f,0.290f,0.173f,1.f}); // 11
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive,      {0.490f,0.392f,0.235f,1.f}); // 12
+    ImGui::PushStyleColor(ImGuiCol_SliderGrab,        {0.647f,0.510f,0.251f,1.f}); // 13
+    ImGui::PushStyleColor(ImGuiCol_SliderGrabActive,  {0.796f,0.639f,0.345f,1.f}); // 14
+    ImGui::PushStyleColor(ImGuiCol_Text,              {0.847f,0.780f,0.627f,1.f}); // 15
+    ImGui::PushStyleColor(ImGuiCol_TextDisabled,      {0.455f,0.380f,0.275f,1.f}); // 16
+    ImGui::PushStyleColor(ImGuiCol_Separator,         {0.353f,0.271f,0.165f,1.f}); // 17
+    ImGui::PushStyleColor(ImGuiCol_Header,            {0.290f,0.224f,0.133f,1.f}); // 18
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered,     {0.388f,0.310f,0.184f,1.f}); // 19
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive,      {0.490f,0.392f,0.235f,1.f}); // 20
+    ImGui::PushStyleColor(ImGuiCol_ScrollbarBg,       {0.094f,0.071f,0.043f,1.f}); // 21
+    ImGui::PushStyleColor(ImGuiCol_ScrollbarGrab,     {0.353f,0.271f,0.165f,1.f}); // 22
+    ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabHovered,{0.490f,0.392f,0.235f,1.f}); // 23
+    ImGui::PushStyleColor(ImGuiCol_Tab,               {0.196f,0.157f,0.094f,1.f}); // 24
+    ImGui::PushStyleColor(ImGuiCol_TabHovered,        {0.388f,0.310f,0.184f,1.f}); // 25
+    ImGui::PushStyleColor(ImGuiCol_TabActive,         {0.549f,0.431f,0.251f,1.f}); // 26
+    ImGui::PushStyleColor(ImGuiCol_TabUnfocusedActive,{0.451f,0.353f,0.208f,1.f}); // 27
+    ImGui::PushStyleColor(ImGuiCol_CheckMark,         {0.796f,0.639f,0.345f,1.f}); // 28
 }
+static void PopKenshiTheme() { ImGui::PopStyleColor(K_THEME_N); }
 
-// ── Helpers: Kenshi-style label|slider table ──────────────────────────────────
-static bool BeginPropTable() {
-    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, {6.0f, 2.0f});
-    float w = ImGui::GetContentRegionAvail().x - 8.0f;
-    if (!ImGui::BeginTable("##pt", 2,
-            ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV,
-            {w, 0})) {
-        ImGui::PopStyleVar();
-        return false;
-    }
-    ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed,   120.0f);
-    ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthStretch);
-    return true;
-}
-static void EndPropTable() { ImGui::EndTable(); ImGui::PopStyleVar(); }
+// ── Kenshi-style slider: [Label           ] [---●-------] [80] ─────────────
+static bool KenshiSlider(const char* lbl, float* v, float lo, float hi) {
+    ImGui::PushID(lbl);
+    bool changed = false;
+    float avail  = ImGui::GetContentRegionAvail().x;
+    float lbl_w  = 96.f;
+    float val_w  = 30.f;
+    float spc    = ImGui::GetStyle().ItemSpacing.x;
+    float sld_w  = avail - lbl_w - val_w - spc * 2.f;
+    if (sld_w < 40.f) sld_w = 40.f;
 
-static void PropSlider(const char* label, float* v, float lo, float hi,
-                       const char* fmt = "%.2f") {
-    ImGui::TableNextRow();
-    ImGui::TableSetColumnIndex(0);
     ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted(label);
-    ImGui::TableSetColumnIndex(1);
-    ImGui::PushID(label);
-    ImGui::SetNextItemWidth(-1.0f);
-    ImGui::SliderFloat("##v", v, lo, hi, fmt);
+    ImGui::TextUnformatted(lbl);
+    ImGui::SameLine(lbl_w, 0.f);
+    ImGui::SetNextItemWidth(sld_w);
+    changed = ImGui::SliderFloat("##s", v, lo, hi, "");
+    ImGui::SameLine(0.f, 4.f);
+    ImGui::SetNextItemWidth(val_w);
+
+    // Right-aligned integer value in dimmed colour
+    char vbuf[8]; snprintf(vbuf, sizeof(vbuf), "%d", (int)*v);
+    float vw = ImGui::CalcTextSize(vbuf).x;
+    float ox = val_w - vw;
+    if (ox > 0.f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ox);
+    ImGui::TextDisabled("%s", vbuf);
+
     ImGui::PopID();
+    return changed;
 }
 
-// ── Preview silhouette ────────────────────────────────────────────────────────
-static void DrawSilhouette(float W, float H) {
+// ── Arrow + centred label navigator (RACE / GENDER etc.) ─────────────────────
+static void NavRow(const char* label_id, const char* val,
+                   bool can_left, bool can_right,
+                   bool* pressed_left, bool* pressed_right) {
+    float aw   = ImGui::GetContentRegionAvail().x;
+    float bw   = 18.f;
+    float txtw = aw - bw * 2.f - ImGui::GetStyle().ItemSpacing.x * 2.f;
+
+    char lid[48], rid[48];
+    snprintf(lid, sizeof(lid), "<##nl_%s", label_id);
+    snprintf(rid, sizeof(rid), ">##nr_%s", label_id);
+
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {1.f, 2.f});
+    if (!can_left)  { ImGui::BeginDisabled(); }
+    *pressed_left  = ImGui::Button(lid, {bw, 0.f});
+    if (!can_left)  { ImGui::EndDisabled(); }
+
+    ImGui::SameLine(0.f, 2.f);
+
+    // Centred value text
+    float ts = ImGui::CalcTextSize(val).x;
+    float px = ImGui::GetCursorPosX() + (txtw - ts) * 0.5f;
+    if (px > ImGui::GetCursorPosX()) ImGui::SetCursorPosX(px);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(val);
+    ImGui::SameLine(0.f, 2.f);
+
+    if (!can_right) { ImGui::BeginDisabled(); }
+    *pressed_right = ImGui::Button(rid, {bw, 0.f});
+    if (!can_right) { ImGui::EndDisabled(); }
+    ImGui::PopStyleVar();
+}
+
+// ── Stat bar (green/red, centred zero) ──────────────────────────────────────
+static void StatBar(const char* stat_name, int val) {
+    float avail = ImGui::GetContentRegionAvail().x;
+    float lbl_w = 76.f;
+    float num_w = 26.f;
+    float bar_w = avail - lbl_w - num_w - ImGui::GetStyle().ItemSpacing.x * 2.f;
+    if (bar_w < 20.f) bar_w = 20.f;
+
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(stat_name);
+    ImGui::SameLine(lbl_w, 0.f);
+
+    float bar_h = ImGui::GetTextLineHeight() * 0.65f;
+    float pad_y = (ImGui::GetFrameHeight() - bar_h) * 0.5f;
+    ImVec2 p    = { ImGui::GetCursorScreenPos().x,
+                    ImGui::GetCursorScreenPos().y + pad_y };
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    ImVec2 p0 = ImGui::GetCursorScreenPos();
-    float cx = p0.x + W * 0.5f;
 
-    dl->AddRectFilled(p0, {p0.x + W, p0.y + H}, IM_COL32(28, 28, 34, 255), 4.f);
+    // Background
+    dl->AddRectFilled(p, {p.x + bar_w, p.y + bar_h}, IM_COL32(40,30,18,255), 2.f);
+    // Filled portion (centred at 0)
+    if (val != 0) {
+        float cx    = p.x + bar_w * 0.5f;
+        float fill  = fabsf((float)val) / 30.f * (bar_w * 0.5f);
+        if (fill > bar_w * 0.5f) fill = bar_w * 0.5f;
+        ImU32 col   = val > 0 ? IM_COL32(55,155,55,255) : IM_COL32(165,50,50,255);
+        if (val > 0)
+            dl->AddRectFilled({cx, p.y}, {cx + fill, p.y + bar_h}, col, 2.f);
+        else
+            dl->AddRectFilled({cx - fill, p.y}, {cx, p.y + bar_h}, col, 2.f);
+    }
+    // Centre line
+    float cx = p.x + bar_w * 0.5f;
+    dl->AddLine({cx, p.y}, {cx, p.y + bar_h}, IM_COL32(90,70,40,220));
 
-    ImU32 sc = ImGui::ColorConvertFloat4ToU32(
-        {s_def.skin[0], s_def.skin[1], s_def.skin[2], 1.f});
-    ImU32 hc = ImGui::ColorConvertFloat4ToU32(
-        {s_def.hair[0], s_def.hair[1], s_def.hair[2], 1.f});
+    ImGui::Dummy({bar_w, ImGui::GetFrameHeight()});
+    ImGui::SameLine(0.f, 4.f);
 
-    float fig_h = H * 0.80f * s_def.height;
-    float fig_w = W * 0.26f * s_def.bulk;
-    float base_y = p0.y + H * 0.92f;
-
-    float leg_h = fig_h * 0.42f, leg_w = fig_w * 0.22f;
-    dl->AddRectFilled({cx - leg_w*1.3f, base_y - leg_h}, {cx - leg_w*0.1f, base_y}, sc, 3.f);
-    dl->AddRectFilled({cx + leg_w*0.1f, base_y - leg_h}, {cx + leg_w*1.3f, base_y}, sc, 3.f);
-
-    float torso_h = fig_h * 0.32f, torso_y = base_y - leg_h - torso_h;
-    dl->AddRectFilled({cx - fig_w*0.5f, torso_y}, {cx + fig_w*0.5f, base_y - leg_h}, sc, 4.f);
-
-    float arm_w = fig_w * 0.18f, arm_h = torso_h * 0.95f;
-    dl->AddRectFilled({cx - fig_w*0.5f - arm_w*1.1f, torso_y},
-                      {cx - fig_w*0.5f - arm_w*0.1f, torso_y + arm_h}, sc, 3.f);
-    dl->AddRectFilled({cx + fig_w*0.5f + arm_w*0.1f, torso_y},
-                      {cx + fig_w*0.5f + arm_w*1.1f, torso_y + arm_h}, sc, 3.f);
-
-    float head_r = fig_w * 0.33f, head_cy = torso_y - head_r * 1.1f;
-    dl->AddCircleFilled({cx, head_cy}, head_r, sc, 32);
-    dl->AddCircleFilled({cx, head_cy - head_r * 0.45f}, head_r * 0.72f, hc, 24);
-
-    ImGui::Dummy({W, H});
+    if (val > 0) {
+        ImGui::PushStyleColor(ImGuiCol_Text, {0.40f, 0.85f, 0.40f, 1.f});
+        ImGui::Text("+%d", val);
+        ImGui::PopStyleColor();
+    } else if (val < 0) {
+        ImGui::PushStyleColor(ImGuiCol_Text, {0.85f, 0.38f, 0.38f, 1.f});
+        ImGui::Text("%d", val);
+        ImGui::PopStyleColor();
+    } else {
+        ImGui::TextDisabled(" 0");
+    }
 }
 
 // ── Main Draw ─────────────────────────────────────────────────────────────────
 static void Draw() {
-    if (g_detached) {
-        ImGui::SetNextWindowPos(g_win_pos,   ImGuiCond_Appearing);
-        ImGui::SetNextWindowSize(g_win_size, ImGuiCond_Appearing);
-        bool open = true;
-        if (!ImGui::Begin("Characters##float", &open)) {
-            ImGui::End();
-            if (!open) g_detached = false;
-            ImGui::Dummy({0,0});
-            return;
-        }
-        g_win_pos  = ImGui::GetWindowPos();
-        g_win_size = ImGui::GetWindowSize();
-    }
+    PushKenshiTheme();
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {4.f, 4.f});
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,   {4.f, 3.f});
 
-    // Detach / Dock button (right-aligned)
-    {
-        const char* lbl = g_detached ? "Dock##chars" : "Detach##chars";
-        float btn_w = ImGui::CalcTextSize(lbl).x + ImGui::GetStyle().FramePadding.x * 2.f;
-        ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - btn_w);
-        ImGui::PushStyleColor(ImGuiCol_Button,
-            g_detached ? ImVec4(0.25f,0.45f,0.65f,1.f) : ImVec4(0.18f,0.18f,0.28f,1.f));
-        if (ImGui::Button(lbl)) g_detached = !g_detached;
-        ImGui::PopStyleColor();
-    }
+    const float total_w  = ImGui::GetContentRegionAvail().x;
+    const float total_h  = ImGui::GetContentRegionAvail().y;
+    const float left_w   = 160.f;
+    const float right_w  = 270.f;
+    const float spc      = ImGui::GetStyle().ItemSpacing.x;
+    float center_w = total_w - left_w - right_w - spc * 2.f;
+    if (center_w < 40.f) center_w = 40.f;
 
-    float total_w = ImGui::GetContentRegionAvail().x;
-    float left_w  = total_w * 0.30f;
+    const KRace& kr = kRaces[s_def.race_row];
 
-    // ── Left panel: identity, colours, file ──────────────────────────────────
-    ImGui::BeginChild("##cc_left", {left_w, 0}, false);
+    // ═══════════════════════════════════════════════════════════════
+    // LEFT PANEL
+    // ═══════════════════════════════════════════════════════════════
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4{0.090f,0.070f,0.043f,1.f});
+    ImGui::BeginChild("##cc_left", {left_w, total_h}, true,
+                      ImGuiWindowFlags_NoScrollbar);
+    ImGui::PopStyleColor();
 
-    ImGui::SeparatorText("Identity");
-    ImGui::SetNextItemWidth(-1);
+    // Name field
+    ImGui::SetNextItemWidth(-1.f);
     ImGui::InputText("##cc_name", s_def.name, sizeof(s_def.name));
-    { int sv = s_def.sex; if (ImGui::RadioButton("Male##cc",   &sv, 0)) s_def.sex = (uint8_t)sv; }
-    ImGui::SameLine();
-    { int sv = s_def.sex; if (ImGui::RadioButton("Female##cc", &sv, 1)) s_def.sex = (uint8_t)sv; }
-    const char* races[] = { "Human", "Shek", "Hive Worker", "Hive Prince", "Skeleton" };
-    int ri = s_def.race;
-    ImGui::SetNextItemWidth(-1);
-    ImGui::AlignTextToFramePadding(); ImGui::TextDisabled("Race"); ImGui::SameLine();
-    float cw = ImGui::GetContentRegionAvail().x;
-    ImGui::SetNextItemWidth(cw > 8.f ? cw : 8.f);
-    if (ImGui::Combo("##cc_race", &ri, races, 5)) s_def.race = (uint8_t)ri;
-
-    ImGui::SeparatorText("Colours");
-    ImGui::SetNextItemWidth(-1);
-    ImGui::ColorEdit3("Skin##cc", s_def.skin);
-    ImGui::SetNextItemWidth(-1);
-    ImGui::ColorEdit3("Hair##cc", s_def.hair);
-    ImGui::SetNextItemWidth(-1);
-    ImGui::SliderFloat("Tint##cc", &s_def.color_strength, 0.f, 1.f, "%.2f");
-    // Kenshi-style skintone (RE: character.hlsl colorise — sat/bri applied in shader)
-    if (BeginPropTable()) {
-        PropSlider("Saturation", &s_def.skintone_sat, 0.0f, 2.0f, "%.2f");
-        PropSlider("Brightness", &s_def.skintone_bri, -0.3f, 0.3f, "%.2f");
-        EndPropTable();
-    }
-
     ImGui::Spacing();
-    if (ImGui::Button("Rand Body##cc")) {
-        s_def.height = 0.88f + (rand()%100)/100.f*0.28f;
-        s_def.bulk   = 0.80f + (rand()%100)/100.f*0.48f;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Rand Skin##cc")) {
-        s_def.skin[0] = 0.35f+(rand()%100)/100.f*0.55f;
-        s_def.skin[1] = 0.25f+(rand()%100)/100.f*0.45f;
-        s_def.skin[2] = 0.15f+(rand()%100)/100.f*0.35f;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Reset##cc")) { s_def = Def{}; strncpy(s_def.name,"Player",7); }
 
-    ImGui::SeparatorText("File");
-    ImGui::SetNextItemWidth(-1);
-    ImGui::InputText("##ccpath", s_path, sizeof(s_path));
-    if (ImGui::Button("Save##cc"))       SaveJSON(s_path);
-    ImGui::SameLine();
-    if (ImGui::Button("Load##cc"))       LoadJSON(s_path);
-    ImGui::SameLine();
-    if (ImGui::Button("Dump##cc")) {
-        char dpath[256];
-        FILE* df = BugCapture::Open("chars", dpath, sizeof(dpath));
-        if (df) {
-            fprintf(df, "[CharDef]\n");
-            fprintf(df, "  name=%s  sex=%d  race=%d\n", s_def.name, s_def.sex, s_def.race);
-            fprintf(df, "  height=%.4f  bulk=%.4f\n", s_def.height, s_def.bulk);
-            fprintf(df, "  skin=%.3f,%.3f,%.3f  str=%.3f\n",
-                s_def.skin[0], s_def.skin[1], s_def.skin[2], s_def.color_strength);
-            fprintf(df, "  sat=%.3f  bri=%.3f\n", s_def.skintone_sat, s_def.skintone_bri);
-            fprintf(df, "  morphs=%d:", s_def.morph_count);
-            for (int i = 0; i < s_def.morph_count; ++i) fprintf(df, " %.2f", s_def.morph_w[i]);
-            fprintf(df, "\n\n");
-#ifdef MD_SDL_GPU
-            CharPreviewSDLGPU::DumpState(df);
-#endif
-            BugCapture::Close(df);
-        }
-    }
+    // ── Race navigation ──────────────────────────────────────────
+    ImGui::TextDisabled("RACE");
+    bool pl = false, pr = false;
+    // Collect unique race group names by "name" field
+    // Navigate by cycling kRaces[] rows
+    NavRow("race", kr.name, true, true, &pl, &pr);
+    if (pl) s_def.race_row = (uint8_t)((s_def.race_row + RACE_COUNT - 1) % RACE_COUNT);
+    if (pr) s_def.race_row = (uint8_t)((s_def.race_row + 1) % RACE_COUNT);
 
-    // ── BODY / FACE / HAIR tabs — ліва панель, під File ──────────────────────
-    ImGui::Spacing();
-    ImGui::Separator();
-    if (ImGui::BeginTabBar("##cc_tabs")) {
-
-        if (ImGui::BeginTabItem("BODY")) {
-            ImGui::Spacing();
-            if (BeginPropTable()) {
-                PropSlider("Height", &s_def.height, 0.80f, 1.20f);
-                PropSlider("Bulk",   &s_def.bulk,   0.70f, 1.40f);
-                EndPropTable();
-            }
-            // Named body morphs (tall/fat/muscular/longlegs/bighead/broadshdr)
-            if (s_morphs_loaded && s_def.morph_count >= 6) {
-                ImGui::Spacing();
-                ImGui::SeparatorText("Shape");
-                if (BeginPropTable()) {
-                    for (int i = 0; i < 6; ++i)
-                        PropSlider(s_morph_names[i], &s_def.morph_w[i], -1.f, 1.f, "%.2f");
-                    EndPropTable();
-                }
-                ImGui::Spacing();
-                if (ImGui::Button("Export Morphs##cc"))
-                    SaveMorphsJSON("game/data/chars/player_morphs.json");
-            }
-            ImGui::EndTabItem();
-        }
-
-        if (ImGui::BeginTabItem("FACE")) {
-            ImGui::Spacing();
-            int n = s_def.morph_count < MAX_MORPHS ? s_def.morph_count : MAX_MORPHS;
-            if (n > 0 && BeginPropTable()) {
-                for (int i = 0; i < n; ++i) {
-                    const char* lbl = s_morphs_loaded ? s_morph_names[i] : "morph";
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::AlignTextToFramePadding();
-                    ImGui::TextUnformatted(lbl);
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::PushID(i);
-                    ImGui::SetNextItemWidth(-1.0f);
-                    ImGui::SliderFloat("##m", &s_def.morph_w[i], -1.f, 1.f, "%.2f");
-                    ImGui::PopID();
-                }
-                EndPropTable();
-            } else if (n == 0) {
-                ImGui::Spacing();
-                ImGui::TextDisabled("No morphs loaded.");
-            }
-            ImGui::EndTabItem();
-        }
-
-        if (ImGui::BeginTabItem("HAIR")) {
-            ImGui::Spacing();
-            ImGui::SetNextItemWidth(-1);
-            ImGui::ColorEdit3("Colour##hair_cc", s_def.hair);
-            ImGui::EndTabItem();
-        }
-
-        ImGui::EndTabBar();
-    }
-
-    ImGui::EndChild();
-
-    // ── Right panel: full-height 3D preview ──────────────────────────────────
-    ImGui::SameLine();
-    ImGui::BeginChild("##cc_right", {0, 0}, false);
-
-    // Init 3D preview on first use
+    // ── Subrace (shown only when race has a subrace) ─────────────
+    ImGui::TextDisabled("SUBRACE");
+    const char* sub_val = kr.subrace ? kr.subrace : "—";
+    ImGui::PushStyleColor(ImGuiCol_Text, kr.subrace
+        ? ImVec4{0.847f,0.780f,0.627f,1.f}
+        : ImVec4{0.455f,0.380f,0.275f,1.f});
     {
-        static bool s_preview_init = false;
-        if (!s_preview_init) {
-            s_preview_init = true;
+        float px = (left_w - 8.f - ImGui::CalcTextSize(sub_val).x) * 0.5f;
+        if (px > 0.f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + px);
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(sub_val);
+    }
+    ImGui::PopStyleColor();
+
+    // ── Gender navigation ────────────────────────────────────────
+    static const char* kGender[2] = { "Male", "Female" };
+    ImGui::TextDisabled("GENDER");
+    bool gl = false, gr = false;
+    NavRow("gen", kGender[s_def.sex], true, true, &gl, &gr);
+    if (gl || gr) s_def.sex ^= 1;
+
+    ImGui::Spacing();
+
+    // Import / Export
+    {
+        float hw = (ImGui::GetContentRegionAvail().x - spc) * 0.5f;
+        if (ImGui::Button("IMPORT##cc", {hw, 0.f})) LoadJSON(s_path);
+        ImGui::SameLine(0.f, spc);
+        if (ImGui::Button("EXPORT##cc", {hw, 0.f})) SaveJSON(s_path);
+    }
+
+    // Clothes toggle
+    {
+        static bool s_clothes = true;
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {4.f, 2.f});
+        if (s_clothes) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.45f,0.35f,0.20f,1.f});
+        if (ImGui::Button(s_clothes ? u8"● CLOTHES" : "  CLOTHES",
+                          {ImGui::GetContentRegionAvail().x, 0.f}))
+            s_clothes = !s_clothes;
+        if (s_clothes) ImGui::PopStyleColor();
+        ImGui::PopStyleVar();
+    }
+
+    ImGui::Spacing();
+
+    // Character navigation (single char; UI-complete for future multi-char)
+    ImGui::TextDisabled("CHANGE CHARACTER");
+    {
+        bool dummy_l = false, dummy_r = false;
+        NavRow("char", "1 / 1", false, false, &dummy_l, &dummy_r);
+    }
+
+    ImGui::Separator();
+
+    // ── Race description ─────────────────────────────────────────
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.647f,0.510f,0.251f,1.f});
+    ImGui::TextUnformatted("RACE DESCRIPTION");
+    ImGui::PopStyleColor();
+
+    {
+        float desc_h = total_h * 0.22f;
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4{0.07f,0.055f,0.033f,1.f});
+        ImGui::BeginChild("##rc_desc", {0.f, desc_h}, false);
+        ImGui::PopStyleColor();
+        ImGui::PushTextWrapPos(0.f);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.73f,0.66f,0.51f,1.f});
+        ImGui::TextWrapped("%s", kr.desc);
+        ImGui::PopStyleColor();
+        ImGui::PopTextWrapPos();
+        ImGui::EndChild();
+    }
+
+    ImGui::Separator();
+
+    // ── Race stats ───────────────────────────────────────────────
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.647f,0.510f,0.251f,1.f});
+    ImGui::TextUnformatted("RACE STATS");
+    ImGui::PopStyleColor();
+
+    {
+        float stats_h = total_h - ImGui::GetCursorPosY() - 4.f;
+        if (stats_h < 60.f) stats_h = 60.f;
+        ImGui::BeginChild("##rc_stats", {0.f, stats_h}, false);
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {4.f, 1.f});
+        for (int i = 0; i < 7; ++i)
+            StatBar(kStatNames[i], (int)kr.stat_bonus[i]);
+        ImGui::PopStyleVar();
+        ImGui::EndChild();
+    }
+
+    ImGui::EndChild();  // left
+
+    // ═══════════════════════════════════════════════════════════════
+    // CENTER: 3D PREVIEW
+    // ═══════════════════════════════════════════════════════════════
+    ImGui::SameLine(0.f, spc);
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4{0.055f,0.043f,0.027f,1.f});
+    ImGui::BeginChild("##cc_center", {center_w, total_h}, false);
+    ImGui::PopStyleColor();
+
+    {
+        static bool s_prev_init = false;
+        if (!s_prev_init) {
+            s_prev_init = true;
 #ifdef MD_SDL_GPU
-            CharPreviewSDLGPU::Init(
-                "game/data/props/md_human.glb",
-                "game/data/textures/md_human_body.png");
+            CharPreviewSDLGPU::Init("game/data/props/md_human.glb",
+                                    "game/data/textures/md_human_body.png");
 #else
-            CharPreviewGL::Init(
-                "game/data/props/md_human.glb",
-                "game/data/textures/md_human_body.png");
+            CharPreviewGL::Init("game/data/props/md_human.glb",
+                                "game/data/textures/md_human_body.png");
 #endif
         }
     }
 
     ImVec2 avail = ImGui::GetContentRegionAvail();
-    const float skin_rgb[3] = { s_def.skin[0], s_def.skin[1], s_def.skin[2] };
-
-    // Map body morphs → effective height/bulk for the preview
-    // tall[0] + longlegs[3] boost height; fat[1] + muscular[2] + broadshdr[5] boost bulk
-    auto mw = [&](int i) { return (s_def.morph_count > i) ? s_def.morph_w[i] : 0.f; };
-    float eff_h = s_def.height * (1.f + mw(0)*0.20f + mw(3)*0.12f);
-    float eff_b = s_def.bulk   * (1.f + mw(1)*0.25f + mw(2)*0.15f + mw(5)*0.10f);
-    if (eff_h < 0.5f) eff_h = 0.5f; if (eff_h > 1.8f) eff_h = 1.8f;
-    if (eff_b < 0.4f) eff_b = 0.4f; if (eff_b > 2.0f) eff_b = 2.0f;
-
 #ifdef MD_SDL_GPU
     CharPreviewSDLGPU::DrawInImGui(
         avail.x, avail.y,
-        eff_h, eff_b,
-        skin_rgb, s_def.color_strength,
-        s_def.skintone_sat, s_def.skintone_bri,
-        mw(2),          // muscular morph weight → muscleBlend
-        s_def.hair);    // hair tint RGB
+        s_def.eff_height(), s_def.eff_frame(),
+        s_def.skin_rgb, s_def.color_strength,
+        s_def.skintone_sat(), s_def.skintone_bri(),
+        s_def.muscular(), s_def.hair_rgb);
 #else
     CharPreviewGL::DrawInImGui(
         avail.x, avail.y,
-        eff_h, eff_b,
-        skin_rgb, s_def.color_strength,
-        s_def.skintone_sat, s_def.skintone_bri);
+        s_def.eff_height(), s_def.eff_frame(),
+        s_def.skin_rgb, s_def.color_strength,
+        s_def.skintone_sat(), s_def.skintone_bri());
 #endif
 
+    ImGui::EndChild();  // center
+
+    // ═══════════════════════════════════════════════════════════════
+    // RIGHT PANEL: BODY / FACE / HAIR
+    // ═══════════════════════════════════════════════════════════════
+    ImGui::SameLine(0.f, spc);
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4{0.090f,0.070f,0.043f,1.f});
+    ImGui::BeginChild("##cc_right", {right_w, total_h}, true,
+                      ImGuiWindowFlags_NoScrollbar);
+    ImGui::PopStyleColor();
+
+    // ── BODY / FACE / HAIR tab buttons ───────────────────────────
+    {
+        float bw3 = (ImGui::GetContentRegionAvail().x - spc * 2.f) / 3.f;
+        static const char* kTabLbl[3] = { "BODY", "FACE", "HAIR" };
+        for (int t = 0; t < 3; ++t) {
+            if (t > 0) ImGui::SameLine(0.f, spc);
+            bool active = (s_tab == t);
+            if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.549f,0.431f,0.251f,1.f});
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {2.f, 4.f});
+            if (ImGui::Button(kTabLbl[t], {bw3, 0.f})) s_tab = t;
+            ImGui::PopStyleVar();
+            if (active) ImGui::PopStyleColor();
+        }
+    }
+    ImGui::Separator();
+
+    // ── Slider list (scrollable) ─────────────────────────────────
+    const float bottom_h = ImGui::GetFrameHeightWithSpacing() + 10.f;
+    ImGui::BeginChild("##sliders", {0.f, -bottom_h}, false);
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {4.f, 2.f});
+
+    if (s_tab == 0) {
+        // BODY: all 18, skip "Bosom" (idx 14) for Male
+        for (int i = 0; i < BODY_N; ++i) {
+            if (i == 14 && s_def.sex == 0) continue;
+            KenshiSlider(kBodyLbl[i], &s_def.body[i], 0.f, 100.f);
+        }
+    } else if (s_tab == 1) {
+        for (int i = 0; i < FACE_N; ++i)
+            KenshiSlider(kFaceLbl[i], &s_def.face[i], 0.f, 100.f);
+    } else {
+        // HAIR tab: colour params + extra sliders
+        for (int i = 0; i < 3; ++i)
+            KenshiSlider(kHairLbl[i], &s_def.hair_f[i], 0.f, 100.f);
+        ImGui::Spacing();
+        ImGui::TextDisabled("Hair Colour");
+        ImGui::SetNextItemWidth(-1.f);
+        ImGui::ColorEdit3("##hcol", s_def.hair_rgb);
+        ImGui::Spacing();
+        ImGui::TextDisabled("Skin Colour");
+        ImGui::SetNextItemWidth(-1.f);
+        ImGui::ColorEdit3("##scol", s_def.skin_rgb);
+        ImGui::Spacing();
+        // Saturation / Brightness map to hair_f[3/4]
+        KenshiSlider("Saturation", &s_def.hair_f[3], 0.f, 200.f);
+        KenshiSlider("Brightness", &s_def.hair_f[4], 0.f, 100.f);
+    }
+
+    ImGui::PopStyleVar();
     ImGui::EndChild();
-    if (g_detached) { ImGui::End(); ImGui::Dummy({0,0}); }
+
+    // ── Bottom: RAND / RAND ALL / RESET ALL ─────────────────────
+    ImGui::Separator();
+    {
+        float bw3 = (ImGui::GetContentRegionAvail().x - spc * 2.f) / 3.f;
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {2.f, 3.f});
+
+        if (ImGui::Button("RAND##cc", {bw3, 0.f})) {
+            if (s_tab == 0) { for (int i = 2; i < BODY_N; ++i) s_def.body[i] = (float)(rand() % 101); }
+            if (s_tab == 1) { for (int i = 0; i < FACE_N; ++i) s_def.face[i] = (float)(rand() % 101); }
+        }
+        ImGui::SameLine(0.f, spc);
+        if (ImGui::Button("RAND ALL##cc", {bw3, 0.f})) {
+            for (int i = 2; i < BODY_N; ++i) s_def.body[i] = (float)(rand() % 101);
+            for (int i = 0; i < FACE_N; ++i) s_def.face[i] = (float)(rand() % 101);
+            s_def.skin_rgb[0] = 0.35f + (rand()%100)/100.f * 0.55f;
+            s_def.skin_rgb[1] = 0.25f + (rand()%100)/100.f * 0.45f;
+            s_def.skin_rgb[2] = 0.15f + (rand()%100)/100.f * 0.35f;
+        }
+        ImGui::SameLine(0.f, spc);
+        if (ImGui::Button("RESET##cc", {bw3, 0.f})) { s_def = Def{}; }
+
+        ImGui::PopStyleVar();
+    }
+
+    ImGui::EndChild();  // right
+
+    ImGui::PopStyleVar(2);
+    PopKenshiTheme();
 }
 
 } // namespace CharacterEditor
