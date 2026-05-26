@@ -15,18 +15,19 @@
 #include <cstring>
 #include <cstdio>
 #include <cmath>
+#include <initializer_list>
 
 namespace CharPreviewSDLGPU {
 
-// ── Vertex layout: pos(12) + norm(12) + uv(8) = stride 32 ────────────────────
-struct Vtx { float px,py,pz, nx,ny,nz, u,v; };
+// ── Vertex layout: pos(12)+norm(12)+uv(8)+joints_u8x4(4)+weights_f4(16) = stride 52 ──
+struct Vtx { float px,py,pz, nx,ny,nz, u,v; uint8_t ji[4]; float wt[4]; };
 
 // ── Uniform structs ───────────────────────────────────────────────────────────
 struct VU { float mvp[16]; float normalMat[16]; };  // 128 bytes, set=1
 struct FU {                                          // 48 bytes, set=3
-    float skin[3]; float str;          // skin_str vec4
-    float sat; float bri; float muscle; float pad; // sat_bri vec4
-    float hair[3]; float hairpad;      // hair_color vec4
+    float skin[3]; float str;
+    float sat; float bri; float muscle; float pad;
+    float hair[3]; float hairpad;
 };
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -36,8 +37,14 @@ static GpuStaticBuffer s_ibo;
 static GpuTexture      s_tex;
 static GpuTexture      s_tex_muscle;  // 1×1 neutral muscle mask
 static GpuTexture      s_tex_blood;   // 1×1 clear blood overlay
+// Bone scale texture: 30×1 RGBA32F — raw SDL_GPU (GpuTexture only supports RGBA8)
+static SDL_GPUTexture* s_bones_tex     = nullptr;
+static SDL_GPUSampler* s_bones_sampler = nullptr;
 static int             s_ni  = 0;
 static bool            s_ok  = false;
+
+// Per-bone scale (xyz) + pivot_y (w) — 30 bones, updated each frame
+static float s_boneScales[30][4]; // [bone_idx][xyzw]
 
 static SDL_GPUTexture* s_color = nullptr;
 static SDL_GPUTexture* s_depth = nullptr;
@@ -116,12 +123,14 @@ static bool Init(const char* glb_path, const char* tex_path) {
     if (!d->meshes_count||!d->meshes[0].primitives_count) { cgltf_free(d); return false; }
 
     cgltf_primitive& pr=d->meshes[0].primitives[0];
-    cgltf_accessor *ap=nullptr,*an=nullptr,*au=nullptr;
+    cgltf_accessor *ap=nullptr,*an=nullptr,*au=nullptr,*aj=nullptr,*aw=nullptr;
     for (size_t i=0;i<pr.attributes_count;i++) {
         auto& a=pr.attributes[i];
         if      (a.type==cgltf_attribute_type_position) ap=a.data;
         else if (a.type==cgltf_attribute_type_normal)   an=a.data;
         else if (a.type==cgltf_attribute_type_texcoord&&!au) au=a.data;
+        else if (a.type==cgltf_attribute_type_joints&&!aj)   aj=a.data;
+        else if (a.type==cgltf_attribute_type_weights&&!aw)  aw=a.data;
     }
     if (!ap||!pr.indices) { cgltf_free(d); return false; }
 
@@ -138,6 +147,16 @@ static bool Init(const char* glb_path, const char* tex_path) {
     if (au) for (size_t i=0;i<vc;i++) {
         float v[2]={}; cgltf_accessor_read_float(au,i,v,2);
         vb[i].u=v[0]; vb[i].v=v[1];
+    }
+    if (aj) for (size_t i=0;i<vc;i++) {
+        float v[4]={}; cgltf_accessor_read_float(aj,i,v,4);
+        vb[i].ji[0]=(uint8_t)v[0]; vb[i].ji[1]=(uint8_t)v[1];
+        vb[i].ji[2]=(uint8_t)v[2]; vb[i].ji[3]=(uint8_t)v[3];
+    }
+    if (aw) for (size_t i=0;i<vc;i++) {
+        float v[4]={}; cgltf_accessor_read_float(aw,i,v,4);
+        vb[i].wt[0]=v[0]; vb[i].wt[1]=v[1];
+        vb[i].wt[2]=v[2]; vb[i].wt[3]=v[3];
     }
 
     s_ni=(int)pr.indices->count;
@@ -167,20 +186,56 @@ static bool Init(const char* glb_path, const char* tex_path) {
     { uint8_t p[4]={128,128,128,255}; GpuSamplerDesc sd; s_tex_muscle.InitFromMemory(p,1,1,sd); }
     // Blood overlay placeholder: fully transparent (no wounds)
     { uint8_t p[4]={0,0,0,0}; GpuSamplerDesc sd; s_tex_blood.InitFromMemory(p,1,1,sd); }
+    // Bone scale texture: 30×1 RGBA32F — GpuTexture only does RGBA8, so raw SDL_GPU
+    {
+        for (int i=0;i<30;i++){ s_boneScales[i][0]=1;s_boneScales[i][1]=1;s_boneScales[i][2]=1;s_boneScales[i][3]=0; }
+        SDL_GPUDevice* dev = md::GpuDevice::Get().SDLDevice();
+        SDL_GPUTextureCreateInfo ti={};
+        ti.type=SDL_GPU_TEXTURETYPE_2D;
+        ti.format=SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;
+        ti.usage=SDL_GPU_TEXTUREUSAGE_SAMPLER;
+        ti.width=30; ti.height=1; ti.layer_count_or_depth=1; ti.num_levels=1;
+        s_bones_tex=SDL_CreateGPUTexture(dev,&ti);
+        SDL_GPUSamplerCreateInfo si={};
+        si.min_filter=SDL_GPU_FILTER_NEAREST; si.mag_filter=SDL_GPU_FILTER_NEAREST;
+        si.mipmap_mode=SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
+        si.address_mode_u=SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+        si.address_mode_v=SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+        si.address_mode_w=SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+        s_bones_sampler=SDL_CreateGPUSampler(dev,&si);
+        // Initial upload
+        uint32_t up_sz=30*4*4; // 30 texels × 4 channels × 4 bytes
+        SDL_GPUTransferBufferCreateInfo tb={};
+        tb.usage=SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD; tb.size=up_sz;
+        SDL_GPUTransferBuffer* tr=SDL_CreateGPUTransferBuffer(dev,&tb);
+        void* mp=SDL_MapGPUTransferBuffer(dev,tr,false);
+        if(mp){memcpy(mp,s_boneScales,up_sz);SDL_UnmapGPUTransferBuffer(dev,tr);}
+        SDL_GPUCommandBuffer* uc=SDL_AcquireGPUCommandBuffer(dev);
+        SDL_GPUCopyPass* cp=SDL_BeginGPUCopyPass(uc);
+        SDL_GPUTextureTransferInfo src={tr,0,(uint32_t)30,(uint32_t)1};
+        SDL_GPUTextureRegion dst={s_bones_tex,0,0,0,0,0,30,1,1};
+        SDL_UploadToGPUTexture(cp,&src,&dst,false);
+        SDL_EndGPUCopyPass(cp);
+        SDL_SubmitGPUCommandBuffer(uc);
+        SDL_ReleaseGPUTransferBuffer(dev,tr);
+    }
 
     // Pipeline
     GpuPipeline::Desc pd;
     pd.vert_path = "shaders/char_preview.vert";
     pd.frag_path = "shaders/char_preview.frag";
-    pd.layout.count = 3;
+    pd.layout.count = 5;
     pd.layout.stride = sizeof(Vtx);
-    pd.layout.attribs[0] = { 0,  0, GpuAttribFmt::F3 };  // aPos
-    pd.layout.attribs[1] = { 1, 12, GpuAttribFmt::F3 };  // aNorm
-    pd.layout.attribs[2] = { 2, 24, GpuAttribFmt::F2 };  // aUV
+    pd.layout.attribs[0] = { 0,  0, GpuAttribFmt::F3 };    // aPos
+    pd.layout.attribs[1] = { 1, 12, GpuAttribFmt::F3 };    // aNorm
+    pd.layout.attribs[2] = { 2, 24, GpuAttribFmt::F2 };    // aUV
+    pd.layout.attribs[3] = { 3, 32, GpuAttribFmt::U8x4 };  // aJoints
+    pd.layout.attribs[4] = { 4, 36, GpuAttribFmt::F4 };    // aWeights
     pd.raster.depth_test = true;
     pd.raster.depth_write = true;
     pd.raster.cull_back = true;
-    pd.vert_uniform_bufs = 1;   // set=1
+    pd.vert_uniform_bufs = 1;   // set=1 binding=0: VU
+    pd.vert_samplers = 1;       // set=1 binding=1: uBoneScales (bone scale texture)
     pd.frag_samplers = 3;       // set=2: body_diffuse, muscle_mask, blood_overlay
     pd.frag_uniform_bufs = 1;   // set=3
     pd.color_format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
@@ -196,6 +251,23 @@ static bool Init(const char* glb_path, const char* tex_path) {
 // ── RenderFrame: render T-pose to RTT (call before ImGui render) ──────────────
 static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
     if (!s_ok||!s_color||s_rtt_w<4||s_rtt_h<4) return;
+
+    // Upload bone scales via copy pass (before render pass)
+    if (s_bones_tex) {
+        SDL_GPUDevice* dev=md::GpuDevice::Get().SDLDevice();
+        uint32_t up_sz=30*4*4;
+        SDL_GPUTransferBufferCreateInfo tb={};
+        tb.usage=SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD; tb.size=up_sz;
+        SDL_GPUTransferBuffer* tr=SDL_CreateGPUTransferBuffer(dev,&tb);
+        void* mp=SDL_MapGPUTransferBuffer(dev,tr,false);
+        if(mp){memcpy(mp,s_boneScales,up_sz);SDL_UnmapGPUTransferBuffer(dev,tr);}
+        SDL_GPUCopyPass* cp=SDL_BeginGPUCopyPass(cmd);
+        SDL_GPUTextureTransferInfo src={tr,0,(uint32_t)30,(uint32_t)1};
+        SDL_GPUTextureRegion dst={s_bones_tex,0,0,0,0,0,30,1,1};
+        SDL_UploadToGPUTexture(cp,&src,&dst,false);
+        SDL_EndGPUCopyPass(cp);
+        SDL_ReleaseGPUTransferBuffer(dev,tr);
+    }
 
     // Model: scale by bulk/height, translate feet to origin
     M4 ms; ms.m[0]=s_bulk; ms.m[5]=s_height; ms.m[10]=s_bulk;
@@ -228,7 +300,8 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
     if (!s_pipeline.SDLPipeline() || !s_vbo.SDLBuffer() || !s_ibo.SDLBuffer() ||
         !s_tex.SDLTexture()        || !s_tex.SDLSampler()        ||
         !s_tex_muscle.SDLTexture() || !s_tex_muscle.SDLSampler() ||
-        !s_tex_blood.SDLTexture()  || !s_tex_blood.SDLSampler()) {
+        !s_tex_blood.SDLTexture()  || !s_tex_blood.SDLSampler()  ||
+        !s_bones_tex               || !s_bones_sampler) {
         SDL_EndGPURenderPass(rp); return;
     }
 
@@ -240,6 +313,10 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
     SDL_GPUBufferBinding ib{s_ibo.SDLBuffer(),0u};
     SDL_BindGPUIndexBuffer(rp,&ib,SDL_GPU_INDEXELEMENTSIZE_32BIT);
 
+    // Bind bone scale texture as vertex sampler slot 0
+    SDL_GPUTextureSamplerBinding bsb{s_bones_tex, s_bones_sampler};
+    SDL_BindGPUVertexSamplers(rp,0,&bsb,1);
+
     VU vu; memcpy(vu.mvp, mvp.m,64); memcpy(vu.normalMat,norm.m,64);
     SDL_PushGPUVertexUniformData(cmd,0,&vu,sizeof(vu));
 
@@ -249,15 +326,111 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
     fu.hair[0]=s_hair[0]; fu.hair[1]=s_hair[1]; fu.hair[2]=s_hair[2];
     SDL_PushGPUFragmentUniformData(cmd,0,&fu,sizeof(fu));
 
-    SDL_GPUTextureSamplerBinding tb[3] = {
+    SDL_GPUTextureSamplerBinding ftb[3] = {
         { s_tex.SDLTexture(),        s_tex.SDLSampler()        },
         { s_tex_muscle.SDLTexture(), s_tex_muscle.SDLSampler() },
         { s_tex_blood.SDLTexture(),  s_tex_blood.SDLSampler()  },
     };
-    SDL_BindGPUFragmentSamplers(rp,0,tb,3);
+    SDL_BindGPUFragmentSamplers(rp,0,ftb,3);
 
     SDL_DrawGPUIndexedPrimitives(rp,(uint32_t)s_ni,1,0,0,0);
     SDL_EndGPURenderPass(rp);
+}
+
+// ── Bone scale CPU → GPU: call once per frame before DrawInImGui ─────────────
+// body[18] and face[24] are the 0-100 slider values from character_editor Def.
+static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
+    for (int i=0;i<30;i++){ s_boneScales[i][0]=1;s_boneScales[i][1]=1;s_boneScales[i][2]=1;s_boneScales[i][3]=0; }
+
+    // t: normalised deviation from slider midpoint; range ≈ -0.5..+0.5
+    auto t=[](float v){ return (v-50.f)/100.f; };
+
+    // ── BODY ────────────────────────────────────────────────────────────────
+    // Leg length (body[7], def=100): thigh+calf Y
+    float ly=1.f+t(body[7])*0.5f;
+    for(int ji:{2,3,7,8}) s_boneScales[ji][1]=ly;
+
+    // Legs (body[16], def=100): thigh+calf thickness (XZ)
+    float lxz=1.f+t(body[16])*0.5f;
+    for(int ji:{2,3,7,8}){ s_boneScales[ji][0]*=lxz; s_boneScales[ji][2]*=lxz; }
+
+    // Shoulders (body[8], def=100): clavicle + upper arm XZ
+    float sh=1.f+t(body[8])*0.5f;
+    for(int ji:{15,25,16,26}){ s_boneScales[ji][0]=sh; s_boneScales[ji][2]=sh; }
+
+    // Arm bulk (body[9], def=40): arm XZ thickness
+    float arm=1.f+t(body[9])*0.6f;
+    for(int ji:{16,17,26,27}){ s_boneScales[ji][0]*=arm; s_boneScales[ji][2]*=arm; }
+
+    // Hands (body[11], def=40): hand uniform
+    float hnd=1.f+t(body[11])*0.5f;
+    for(int ji:{18,28}){ s_boneScales[ji][0]=hnd; s_boneScales[ji][1]=hnd; s_boneScales[ji][2]=hnd; }
+
+    // Chest (body[12], def=100): Spine2 XZ
+    float cst=1.f+t(body[12])*0.5f;
+    s_boneScales[14][0]=cst; s_boneScales[14][2]=cst;
+
+    // Stomach (body[13], def=40): Spine XZ
+    float stm=1.f+t(body[13])*0.4f;
+    s_boneScales[12][0]=stm; s_boneScales[12][2]=stm;
+
+    // Hips (body[15], def=40): Pelvis XZ
+    float hps=1.f+t(body[15])*0.5f;
+    s_boneScales[1][0]=hps; s_boneScales[1][2]=hps;
+
+    // Bot build (body[10], def=40): lower body volume (pelvis XZ)
+    float bot=1.f+t(body[10])*0.4f;
+    s_boneScales[1][0]*=bot; s_boneScales[1][2]*=bot;
+
+    // Foot size (body[17], def=40): foot+toe uniform
+    float ft=1.f+t(body[17])*0.6f;
+    for(int ji:{4,5,6,9,10,11}){ s_boneScales[ji][0]=ft; s_boneScales[ji][1]=ft; s_boneScales[ji][2]=ft; }
+
+    // ── FACE ────────────────────────────────────────────────────────────────
+    // Head size (face[0], def=40): head uniform
+    float hdsz=1.f+t(face[0])*0.6f;
+    s_boneScales[21][0]=hdsz; s_boneScales[21][1]=hdsz; s_boneScales[21][2]=hdsz;
+
+    // Neck length (face[2], def=40): neck Y
+    s_boneScales[20][1]=1.f+t(face[2])*0.5f;
+    // Neck width (face[3], def=40): neck XZ
+    float nxz=1.f+t(face[3])*0.4f;
+    s_boneScales[20][0]=nxz; s_boneScales[20][2]=nxz;
+
+    // ── Pivot Y (model-space bone centre, ~1.8 total height) ─────────────
+    static const float kPivY[30]={
+        0.95f,  // 0 Bip01
+        0.95f,  // 1 Pelvis
+        0.80f,  // 2 L Thigh
+        0.45f,  // 3 L Calf
+        0.05f,  // 4 L Foot
+        0.01f,  // 5 L Toe0
+        0.00f,  // 6 L Toe0Nub
+        0.80f,  // 7 R Thigh
+        0.45f,  // 8 R Calf
+        0.05f,  // 9 R Foot
+        0.01f,  //10 R Toe0
+        0.00f,  //11 R Toe0Nub
+        1.00f,  //12 Spine
+        1.10f,  //13 Spine1
+        1.25f,  //14 Spine2
+        1.35f,  //15 L Clavicle
+        1.35f,  //16 L UpperArm
+        1.15f,  //17 L Forearm
+        0.95f,  //18 L Hand
+        1.00f,  //19 Prop1
+        1.50f,  //20 Neck
+        1.65f,  //21 Head
+        1.75f,  //22 HeadNub
+        1.70f,  //23 Jaw
+        1.68f,  //24 JawNub
+        1.35f,  //25 R Clavicle
+        1.35f,  //26 R UpperArm
+        1.15f,  //27 R Forearm
+        0.95f,  //28 R Hand
+        1.00f,  //29 Prop2
+    };
+    for(int i=0;i<30;i++) s_boneScales[i][3]=kPivY[i];
 }
 
 // ── DrawInImGui: orbit input + show RTT ──────────────────────────────────────
