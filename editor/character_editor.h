@@ -144,8 +144,17 @@ struct Def {
     }
 
     // Derived parameters for renderer
-    float skintone_sat() const { return body[0] / 100.f * 2.0f; }   // Aka Locus  → sat 0..2
-    float skintone_bri() const { return body[1] / 100.f * 0.8f - 0.4f; }  // Dark Tone → bri -0.4..+0.4
+    // HAIR tab Saturation/Brightness are primary; BODY Aka Locus / Dark Tone add ±0.2
+    float skintone_sat() const {
+        float s = hair_f[3] / 100.f;             // Saturation 0-200 → 0.0-2.0
+        s += (body[0] / 100.f - 0.5f) * 0.4f;   // Aka Locus ±0.2
+        return s < 0.f ? 0.f : (s > 2.5f ? 2.5f : s);
+    }
+    float skintone_bri() const {
+        float b = (hair_f[4] / 100.f - 0.5f) * 0.8f;  // Brightness 0-100 → -0.4..+0.4
+        b += (body[1] / 100.f - 0.5f) * 0.4f;          // Dark Tone ±0.2
+        return b < -0.5f ? -0.5f : (b > 0.5f ? 0.5f : b);
+    }
 
     float eff_height() const {
         float h = 0.80f + body[2] / 100.f * 0.40f;   // Height        0.80..1.20
@@ -314,32 +323,36 @@ static bool KenshiSlider(const char* lbl, float* v, float lo, float hi) {
 static void NavRow(const char* label_id, const char* val,
                    bool can_left, bool can_right,
                    bool* pressed_left, bool* pressed_right) {
-    float aw   = ImGui::GetContentRegionAvail().x;
-    float bw   = 18.f;
-    float txtw = aw - bw * 2.f - ImGui::GetStyle().ItemSpacing.x * 2.f;
+    float aw  = ImGui::GetContentRegionAvail().x;
+    float bw  = 18.f;
+    float pad = ImGui::GetStyle().WindowPadding.x;
+    float ts  = ImGui::CalcTextSize(val).x;
 
     char lid[48], rid[48];
     snprintf(lid, sizeof(lid), "<##nl_%s", label_id);
     snprintf(rid, sizeof(rid), ">##nr_%s", label_id);
 
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {1.f, 2.f});
-    if (!can_left)  { ImGui::BeginDisabled(); }
-    *pressed_left  = ImGui::Button(lid, {bw, 0.f});
-    if (!can_left)  { ImGui::EndDisabled(); }
 
-    ImGui::SameLine(0.f, 2.f);
+    // < button at left edge
+    if (!can_left) ImGui::BeginDisabled();
+    *pressed_left = ImGui::Button(lid, {bw, 0.f});
+    if (!can_left) ImGui::EndDisabled();
 
-    // Centred value text
-    float ts = ImGui::CalcTextSize(val).x;
-    float px = ImGui::GetCursorPosX() + (txtw - ts) * 0.5f;
-    if (px > ImGui::GetCursorPosX()) ImGui::SetCursorPosX(px);
+    // Text: absolutely centred in content region
+    float center_x = pad + aw * 0.5f;
+    float text_x   = center_x - ts * 0.5f;
+    float min_x    = pad + bw + 2.f;
+    ImGui::SetCursorPosX(text_x > min_x ? text_x : min_x);
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(val);
-    ImGui::SameLine(0.f, 2.f);
 
-    if (!can_right) { ImGui::BeginDisabled(); }
+    // > button pinned to right edge
+    ImGui::SameLine(pad + aw - bw);
+    if (!can_right) ImGui::BeginDisabled();
     *pressed_right = ImGui::Button(rid, {bw, 0.f});
-    if (!can_right) { ImGui::EndDisabled(); }
+    if (!can_right) ImGui::EndDisabled();
+
     ImGui::PopStyleVar();
 }
 
