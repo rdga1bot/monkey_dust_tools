@@ -561,6 +561,7 @@ static void Draw() {
 
     ImVec2 avail = ImGui::GetContentRegionAvail();
 #ifdef MD_SDL_GPU
+    CharPreviewSDLGPU::SetBoneScalesFromDef(s_def.body, s_def.face);
     CharPreviewSDLGPU::DrawInImGui(
         avail.x, avail.y,
         s_def.eff_height(), s_def.eff_frame(),
