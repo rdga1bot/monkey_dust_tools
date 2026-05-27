@@ -366,6 +366,14 @@ static bool LoadJSON(const char* path) {
     load_arr("\"face\"",   s_def.face,   FACE_N, kFaceDef);
     load_arr("\"hair_f\"", s_def.hair_f, HAIR_N, kHairDef);
 
+    // Clamp loaded values to valid Kenshi ranges; resets stale saves to neutral
+    for (int i = 0; i < BODY_N; ++i)
+        if (s_def.body[i] < kBodyLo[i] || s_def.body[i] > kBodyHi[i])
+            s_def.body[i] = kBodyDef[i];
+    for (int i = 0; i < FACE_N; ++i)
+        if (s_def.face[i] < kFaceLo[i] || s_def.face[i] > kFaceHi[i])
+            s_def.face[i] = kFaceDef[i];
+
     free(buf); return true;
 }
 static bool SaveJSON(const char* path) {
@@ -684,10 +692,10 @@ static void Draw() {
         if (!s_prev_init) {
             s_prev_init = true;
 #ifdef MD_SDL_GPU
-            CharPreviewSDLGPU::Init("game/data/props/md_human.glb",
+            CharPreviewSDLGPU::Init("game/data/props/md_human_t.glb",
                                     "game/data/textures/md_human_body.png");
 #else
-            CharPreviewGL::Init("game/data/props/md_human.glb",
+            CharPreviewGL::Init("game/data/props/md_human_t.glb",
                                 "game/data/textures/md_human_body.png");
 #endif
         }
@@ -696,6 +704,7 @@ static void Draw() {
     ImVec2 avail = ImGui::GetContentRegionAvail();
 #ifdef MD_SDL_GPU
     CharPreviewSDLGPU::SetBoneScalesFromDef(s_def.body, s_def.face);
+    CharPreviewSDLGPU::SetMorphWeightsFromFace(s_def.face, kFaceDef, kFaceLo, kFaceHi);
     CharPreviewSDLGPU::DrawInImGui(
         avail.x, avail.y,
         s_def.eff_height(), s_def.eff_frame(),
