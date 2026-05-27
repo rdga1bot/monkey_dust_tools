@@ -24,9 +24,9 @@ static ImVec2  g_win_pos   = {160.f, 60.f};
 static ImVec2  g_win_size  = {900.f, 640.f};
 
 // ── Morph layout ─────────────────────────────────────────────────────────────
-// BODY  [0..17]  18 sliders  (body shape + skin tone params)
-// FACE  [18..41] 24 sliders  (face shape morphs)
-// HAIR  [42..46]  5 sliders  (hair + extra colour params)
+// BODY  [0..17]  18 entries  (body[0..1]=skin params hidden from slider list)
+// FACE  [0..23]  24 sliders  (face shape morphs, Kenshi male_editor.cfg order)
+// HAIR  [0..4]    5 sliders  (hair + skin colour params)
 static constexpr int BODY_N   = 18;
 static constexpr int FACE_N   = 24;
 static constexpr int HAIR_N   =  5;
@@ -34,34 +34,168 @@ static constexpr int FACE_OFF = BODY_N;
 static constexpr int HAIR_OFF = BODY_N + FACE_N;
 static constexpr int MORPH_TOT = BODY_N + FACE_N + HAIR_N;  // 47
 
-// BODY sliders — matches Kenshi screenshots exactly
+// BODY sliders — exact Kenshi names from male_editor.cfg + RE audit.
+// body[0..1] are skin-tone params; they remain in the array for save compat
+// but are NOT shown in the BODY tab slider loop (Skin Colour shown as colour picker).
 static const char* const kBodyLbl[BODY_N] = {
-    "Aka Locus",   "Dark Tone",    "Height",       "Frame",
-    "Posture",     "Shoulder set", "Neck pos.",    "Leg length",
-    "Shoulders",   "Arm bulk",     "Bot build",    "Hands",
-    "Chest",       "Stomach",      "Bosom",        "Hips",
-    "Legs",        "Foot size"
+    "Skin tone",   "Skin tone 2",  "Height",       "Frame",
+    "Posture",     "Shoulder set", "Neck position","Leg length",
+    "Shoulders",   "Arm bulk",     "Waist",        "Hands",
+    "Chest",       "Stomach",      "Breast size",  "Hips",
+    "Legs bulk",   "Feet"
 };
-// Default values (0–100 display scale; 40=neutral-low, 100=neutral-high)
+// Kenshi male_editor.cfg ranges [lo, hi] per slider
+static const float kBodyLo[BODY_N] = {
+     0.f,   // [0] skin param
+     0.f,   // [1] skin param
+    80.f,   // [2] Height
+    80.f,   // [3] Frame
+     0.f,   // [4] Posture
+     0.f,   // [5] Shoulder set
+    25.f,   // [6] Neck position
+    85.f,   // [7] Leg length
+    90.f,   // [8] Shoulders
+    85.f,   // [9] Arm bulk
+    65.f,   // [10] Waist
+    85.f,   // [11] Hands
+    80.f,   // [12] Chest
+    70.f,   // [13] Stomach
+    70.f,   // [14] Breast size
+    80.f,   // [15] Hips
+    70.f,   // [16] Legs bulk
+    80.f,   // [17] Feet
+};
+static const float kBodyHi[BODY_N] = {
+   100.f,  // [0] skin param
+   100.f,  // [1] skin param
+   120.f,  // [2] Height
+   120.f,  // [3] Frame
+    99.f,  // [4] Posture
+    90.f,  // [5] Shoulder set
+    80.f,  // [6] Neck position
+   115.f,  // [7] Leg length
+   110.f,  // [8] Shoulders
+   135.f,  // [9] Arm bulk
+   130.f,  // [10] Waist
+   115.f,  // [11] Hands
+   140.f,  // [12] Chest
+   190.f,  // [13] Stomach
+   130.f,  // [14] Breast size
+   110.f,  // [15] Hips
+   130.f,  // [16] Legs bulk
+   120.f,  // [17] Feet
+};
+// Default = midpoint of Kenshi range (= neutral T-pose, pose weight 0)
 static const float kBodyDef[BODY_N] = {
-    40, 40,  40, 100,  40,  40,  40, 100,
-   100, 40,  40,  40, 100,  40,  40,  40,
-   100, 40
+    50.f,   // [0] skin param
+    50.f,   // [1] skin param
+   100.f,   // [2] Height:       mid(80,120)
+   100.f,   // [3] Frame:        mid(80,120)
+    50.f,   // [4] Posture:      mid(0,99)
+    45.f,   // [5] Shoulder set: mid(0,90)
+    53.f,   // [6] Neck position:mid(25,80)
+   100.f,   // [7] Leg length:   mid(85,115)
+   100.f,   // [8] Shoulders:    mid(90,110)
+   110.f,   // [9] Arm bulk:     mid(85,135)
+    98.f,   // [10] Waist:       mid(65,130)
+   100.f,   // [11] Hands:       mid(85,115)
+   110.f,   // [12] Chest:       mid(80,140)
+   130.f,   // [13] Stomach:     mid(70,190)
+   100.f,   // [14] Breast size: mid(70,130)
+    95.f,   // [15] Hips:        mid(80,110)
+   100.f,   // [16] Legs bulk:   mid(70,130)
+   100.f,   // [17] Feet:        mid(80,120)
 };
 
-// FACE sliders — from RE kenshi_x64.exe.c + character_editor_structs.md
+// FACE sliders — Kenshi male_editor.cfg exact order (24 morphs).
+// face[17]=Jaw is the only OGRE pose that also drives a bone scale.
+// face[0..3] = Head/Neck bone scales; face[4..23] = OGRE poses (no bone effect yet).
 static const char* const kFaceLbl[FACE_N] = {
-    "Head size",   "Head shape",  "Neck",         "Neck width",
-    "Eye size",    "Eye shape",   "Eye spacing",  "Eye height",
-    "Nose width",  "Nose height", "Nose depth",   "Nose tip",
-    "Cheekbone",   "Cheekbone h.","Brow",         "Brow height",
-    "Jaw",         "Mouth width", "Mouth pos.",   "Lips",
-    "Chin",        "Chin height", "Chin width",   "Dead eyes"
+    "Head size",      "Head shape",    "Neck",          "Neck width",
+    "Neck length",    "Eye size",      "Eye shape",     "Eye spacing",
+    "Eye height",     "Nose width",    "Nose height",   "Nose depth",
+    "Nose tip",       "Cheekbone",     "Cheekbone ht.", "Brow",
+    "Brow height",    "Jaw",           "Mouth width",   "Mouth pos.",
+    "Lips",           "Chin",          "Chin width",    "Chin protrusion"
 };
+static const float kFaceLo[FACE_N] = {
+    90.f,   // [0]  Head size
+    90.f,   // [1]  Head shape
+    65.f,   // [2]  Neck
+    70.f,   // [3]  Neck width
+    90.f,   // [4]  Neck length
+    50.f,   // [5]  Eye size
+    80.f,   // [6]  Eye shape
+    85.f,   // [7]  Eye spacing
+    95.f,   // [8]  Eye height
+    50.f,   // [9]  Nose width
+    70.f,   // [10] Nose height
+    90.f,   // [11] Nose depth
+    60.f,   // [12] Nose tip
+    90.f,   // [13] Cheekbone
+    50.f,   // [14] Cheekbone height
+    50.f,   // [15] Brow
+    85.f,   // [16] Brow height
+    85.f,   // [17] Jaw
+    40.f,   // [18] Mouth width
+   -50.f,   // [19] Mouth position
+    20.f,   // [20] Lips
+    50.f,   // [21] Chin
+    60.f,   // [22] Chin width
+    70.f,   // [23] Chin protrusion
+};
+static const float kFaceHi[FACE_N] = {
+   110.f,  // [0]  Head size
+   110.f,  // [1]  Head shape
+   150.f,  // [2]  Neck
+   150.f,  // [3]  Neck width
+   110.f,  // [4]  Neck length
+   150.f,  // [5]  Eye size
+   120.f,  // [6]  Eye shape
+   115.f,  // [7]  Eye spacing
+   105.f,  // [8]  Eye height
+   150.f,  // [9]  Nose width
+   130.f,  // [10] Nose height
+   115.f,  // [11] Nose depth
+   150.f,  // [12] Nose tip
+   110.f,  // [13] Cheekbone
+   130.f,  // [14] Cheekbone height
+   200.f,  // [15] Brow
+   115.f,  // [16] Brow height
+   115.f,  // [17] Jaw
+   140.f,  // [18] Mouth width
+   250.f,  // [19] Mouth position
+   180.f,  // [20] Lips
+   130.f,  // [21] Chin
+   150.f,  // [22] Chin width
+   130.f,  // [23] Chin protrusion
+};
+// Defaults = midpoint of [lo, hi] (= neutral T-pose)
 static const float kFaceDef[FACE_N] = {
-    40, 40,  40, 40,  40, 40, 40, 40,
-    40, 40,  40, 40,  40, 40, 40, 40,
-    40, 40,  40, 40,  40, 40, 40,  0
+   100.f,  // [0]  Head size:       mid(90,110)
+   100.f,  // [1]  Head shape:      mid(90,110)
+   108.f,  // [2]  Neck:            mid(65,150)
+   110.f,  // [3]  Neck width:      mid(70,150)
+   100.f,  // [4]  Neck length:     mid(90,110)
+   100.f,  // [5]  Eye size:        mid(50,150)
+   100.f,  // [6]  Eye shape:       mid(80,120)
+   100.f,  // [7]  Eye spacing:     mid(85,115)
+   100.f,  // [8]  Eye height:      mid(95,105)
+   100.f,  // [9]  Nose width:      mid(50,150)
+   100.f,  // [10] Nose height:     mid(70,130)
+   103.f,  // [11] Nose depth:      mid(90,115)
+   105.f,  // [12] Nose tip:        mid(60,150)
+   100.f,  // [13] Cheekbone:       mid(90,110)
+    90.f,  // [14] Cheekbone ht.:   mid(50,130)
+   125.f,  // [15] Brow:            mid(50,200)
+   100.f,  // [16] Brow height:     mid(85,115)
+   100.f,  // [17] Jaw:             mid(85,115)
+    90.f,  // [18] Mouth width:     mid(40,140)
+   100.f,  // [19] Mouth pos.:      mid(-50,250)
+   100.f,  // [20] Lips:            mid(20,180)
+    90.f,  // [21] Chin:            mid(50,130)
+   105.f,  // [22] Chin width:      mid(60,150)
+   100.f,  // [23] Chin protrusion: mid(70,130)
 };
 
 // HAIR sliders
@@ -93,28 +227,28 @@ static const KRace kRaces[] = {
       "scouts, thieves and wanderers across the harshest regions of the land.",
       { 0, 0, 0, 0, 0, 5, 10 } },
 
-    { "Shek", nullptr, 2,
-      "Proud warriors born of a harsh environment. The Shek are blessed with incredible natural "
-      "strength and toughness, and hold deep respect only for those who match their power in battle. "
-      "Their pride makes them poor thieves and unconvincing liars — but feared warriors.",
+    { "Grahl", nullptr, 2,
+      "Hulking warriors shaped by generations of harsh living. Grahl are renowned for their "
+      "physical dominance and a code of honour that prizes strength above all else. Blunt in "
+      "speech and direct in action, they are poor infiltrators but devastating in open combat.",
       { 0, 20, 15, 0, 0, -15, -5 } },
 
-    { "Hive", "Worker", 3,
-      "Small drone workers from the Hive collective. They are among the weakest physically but "
-      "compensate with exceptional agility, endurance and a natural talent for stealth. They make "
-      "excellent thieves and support characters, thriving where brute force is not the answer.",
+    { "Keth", "Drone", 3,
+      "Small colony-born drones of the Keth swarm. Physically slight but extraordinarily nimble, "
+      "they move where larger beings cannot and perceive threats before others notice them. "
+      "They thrive in support roles — scouts, thieves, and survivalists in any terrain.",
       { 15, -20, 0, 0, 0, 20, 0 } },
 
-    { "Hive", "Soldier", 4,
-      "Hive Soldiers serve as guards and frontline warriors for the collective. Tougher and more "
-      "battle-hardened than their worker counterparts, they are reliable in direct combat while "
-      "retaining the Hive's innate agility.",
+    { "Keth", "Guard", 4,
+      "Keth Guards are the armoured fighting caste of the swarm, bred for front-line endurance. "
+      "Tougher than their drone kin and trained from birth in coordinated combat, they form "
+      "the backbone of Keth military strength without sacrificing their innate quickness.",
       { 0, 0, 10, 10, 0, 0, 0 } },
 
-    { "Skeleton", nullptr, 5,
-      "Ancient mechanical beings of unknown origin. They require no food, no sleep, and can only "
-      "be repaired by engineers — not medics. What they lack in finesse they compensate with raw "
-      "resilience. Their true motivations and history remain a mystery to the inhabitants of the land.",
+    { "Wrought", nullptr, 5,
+      "Autonomous constructs of forgotten manufacture, built from alloys that no living smith "
+      "can reproduce. They need no sustenance, no rest, and shrug off wounds that would kill "
+      "flesh-and-blood beings — but only an engineer's tools can restore what battle damages.",
       { 0, 10, 0, 0, 0, 0, 0 } },
 };
 static constexpr int RACE_COUNT = (int)(sizeof(kRaces) / sizeof(kRaces[0]));
@@ -143,36 +277,35 @@ struct Def {
         for (int i = 0; i < HAIR_N; ++i) hair_f[i] = kHairDef[i];
     }
 
-    // Derived parameters for renderer
-    // HAIR tab Saturation/Brightness are primary; BODY Aka Locus / Dark Tone add ±0.2
+    // Derived parameters for renderer.
+    // All body neutrals = kBodyDef[i] (midpoint of Kenshi range); scale=1.0 at neutral.
     float skintone_sat() const {
-        float s = hair_f[3] / 100.f;             // Saturation 0-200 → 0.0-2.0
-        s += (body[0] / 100.f - 0.5f) * 0.4f;   // Aka Locus ±0.2
+        float s = hair_f[3] / 100.f;   // Saturation 0-200 → 0.0-2.0
         return s < 0.f ? 0.f : (s > 2.5f ? 2.5f : s);
     }
     float skintone_bri() const {
         float b = (hair_f[4] / 100.f - 0.5f) * 0.8f;  // Brightness 0-100 → -0.4..+0.4
-        b += (body[1] / 100.f - 0.5f) * 0.4f;          // Dark Tone ±0.2
         return b < -0.5f ? -0.5f : (b > 0.5f ? 0.5f : b);
     }
 
     float eff_height() const {
-        float h = 0.80f + body[2] / 100.f * 0.40f;   // Height        0.80..1.20
-        h += (body[7] / 100.f - 0.5f) * 0.14f;       // Leg length   ±0.07
-        h += (body[4] / 100.f - 0.5f) * 0.06f;       // Posture       ±0.03
+        float h = body[2] / 100.f;                    // Height neutral=100 → 1.0
+        h += (body[7] / 100.f - 1.0f) * 0.07f;       // Leg length  ±0.07
+        h += (body[4] / 99.f  - 0.5f) * 0.06f;       // Posture     ±0.03
         return h < 0.55f ? 0.55f : (h > 1.45f ? 1.45f : h);
     }
     float eff_frame() const {
-        float b = 0.80f + body[3] / 100.f * 0.40f;   // Frame         0.80..1.20
-        b += (body[8] / 100.f - 0.5f) * 0.22f;       // Shoulders    ±0.11
-        b += (body[9] / 100.f - 0.5f) * 0.10f;       // Arm bulk     ±0.05
-        b += (body[12]/ 100.f - 0.5f) * 0.10f;       // Chest        ±0.05
-        b += (body[15]/ 100.f - 0.5f) * 0.08f;       // Hips         ±0.04
+        float b = body[3] / 100.f;                    // Frame neutral=100 → 1.0
+        b += (body[8]  / 100.f - 1.0f) * 0.11f;      // Shoulders  ±0.11
+        b += (body[9]  / 110.f - 1.0f) * 0.05f;      // Arm bulk   ±0.05 (neutral=110)
+        b += (body[12] / 110.f - 1.0f) * 0.05f;      // Chest      ±0.05 (neutral=110)
+        b += (body[15] / 95.f  - 1.0f) * 0.04f;      // Hips       ±0.04 (neutral=95)
         return b < 0.55f ? 0.55f : (b > 1.55f ? 1.55f : b);
     }
     float muscular() const {
-        float m = body[10] / 100.f;   // Bot build
-        m += (body[11] / 100.f) * 0.4f; // Hands (minor contribution)
+        float arm = body[9]  / 110.f;  // Arm bulk neutral=110
+        float stm = body[13] / 130.f;  // Stomach neutral=130
+        float m = arm * 0.5f + stm * 0.5f - 0.8f;
         return m < 0.f ? 0.f : (m > 1.f ? 1.f : m);
     }
 };
@@ -339,7 +472,8 @@ static void NavRow(const char* label_id, const char* val,
     *pressed_left = ImGui::Button(lid, {bw, 0.f});
     if (!can_left) ImGui::EndDisabled();
 
-    // Text: absolutely centred in content region
+    // Text: absolutely centred on the SAME ROW as the buttons
+    ImGui::SameLine(0.f, 0.f);
     float center_x = pad + aw * 0.5f;
     float text_x   = center_x - ts * 0.5f;
     float min_x    = pad + bw + 2.f;
@@ -609,14 +743,19 @@ static void Draw() {
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {4.f, 2.f});
 
     if (s_tab == 0) {
-        // BODY: all 18, skip "Bosom" (idx 14) for Male
-        for (int i = 0; i < BODY_N; ++i) {
+        // Skin colour picker at top (matches Kenshi BODY tab)
+        ImGui::TextDisabled("Skin Colour");
+        ImGui::SetNextItemWidth(-1.f);
+        ImGui::ColorEdit3("##scol2", s_def.skin_rgb);
+        ImGui::Spacing();
+        // Body morphs: skip body[0..1] (skin params), skip Breast size for Male
+        for (int i = 2; i < BODY_N; ++i) {
             if (i == 14 && s_def.sex == 0) continue;
-            KenshiSlider(kBodyLbl[i], &s_def.body[i], 0.f, 100.f);
+            KenshiSlider(kBodyLbl[i], &s_def.body[i], kBodyLo[i], kBodyHi[i]);
         }
     } else if (s_tab == 1) {
         for (int i = 0; i < FACE_N; ++i)
-            KenshiSlider(kFaceLbl[i], &s_def.face[i], 0.f, 100.f);
+            KenshiSlider(kFaceLbl[i], &s_def.face[i], kFaceLo[i], kFaceHi[i]);
     } else {
         // HAIR tab: colour params + extra sliders
         for (int i = 0; i < 3; ++i)
@@ -644,14 +783,19 @@ static void Draw() {
         float bw3 = (ImGui::GetContentRegionAvail().x - spc * 2.f) / 3.f;
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {2.f, 3.f});
 
+        // Use exact Kenshi [lo, hi] range per slider — prevents mesh collapse at extremes.
+        auto randSlider = [](float lo, float hi) -> float {
+            int r = (int)(hi - lo);
+            return r > 0 ? lo + (float)(rand() % (r + 1)) : lo;
+        };
         if (ImGui::Button("RAND##cc", {bw3, 0.f})) {
-            if (s_tab == 0) { for (int i = 2; i < BODY_N; ++i) s_def.body[i] = (float)(rand() % 101); }
-            if (s_tab == 1) { for (int i = 0; i < FACE_N; ++i) s_def.face[i] = (float)(rand() % 101); }
+            if (s_tab == 0) { for (int i = 2; i < BODY_N; ++i) s_def.body[i] = randSlider(kBodyLo[i], kBodyHi[i]); }
+            if (s_tab == 1) { for (int i = 0; i < FACE_N; ++i) s_def.face[i] = randSlider(kFaceLo[i], kFaceHi[i]); }
         }
         ImGui::SameLine(0.f, spc);
         if (ImGui::Button("RAND ALL##cc", {bw3, 0.f})) {
-            for (int i = 2; i < BODY_N; ++i) s_def.body[i] = (float)(rand() % 101);
-            for (int i = 0; i < FACE_N; ++i) s_def.face[i] = (float)(rand() % 101);
+            for (int i = 2; i < BODY_N; ++i) s_def.body[i] = randSlider(kBodyLo[i], kBodyHi[i]);
+            for (int i = 0; i < FACE_N; ++i) s_def.face[i] = randSlider(kFaceLo[i], kFaceHi[i]);
             s_def.skin_rgb[0] = 0.35f + (rand()%100)/100.f * 0.55f;
             s_def.skin_rgb[1] = 0.25f + (rand()%100)/100.f * 0.45f;
             s_def.skin_rgb[2] = 0.15f + (rand()%100)/100.f * 0.35f;
