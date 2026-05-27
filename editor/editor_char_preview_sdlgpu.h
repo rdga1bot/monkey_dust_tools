@@ -347,97 +347,104 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
 }
 
 // ── Bone scale CPU → GPU: call once per frame before DrawInImGui ─────────────
-// body[18] and face[24] are the 0-100 slider values from character_editor Def.
+// All body/face neutrals = Kenshi range midpoints (kBodyDef / kFaceDef).
+// scale = val/neutral → 1.0 at neutral. Clamped [0.1, 4].
+//
+// Body neutrals:  [2]Ht=100 [3]Fr=100 [7]LL=100 [8]Sho=100 [9]Arm=110
+//   [10]Wst=98 [11]Hnd=100 [12]Cst=110 [13]Stm=130 [15]Hip=95 [16]Leg=100 [17]Ft=100
+// Face neutrals:  [0]HdSz=100 [1]HdSh=100 [2]Nk=108 [3]NkW=110 [17]Jaw=100
+//   (face[4]=Neck length shifts Jaw from legacy face[16] → face[17])
 static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
-    for (int i=0;i<30;i++){ s_boneScales[i][0]=1;s_boneScales[i][1]=1;s_boneScales[i][2]=1;s_boneScales[i][3]=0; }
+    for(int i=0;i<30;i++){ s_boneScales[i][0]=1;s_boneScales[i][1]=1;s_boneScales[i][2]=1;s_boneScales[i][3]=0; }
 
-    // t: normalised deviation from slider midpoint; range ≈ -0.5..+0.5
-    auto t=[](float v){ return (v-50.f)/100.f; };
+    auto clamp=[](float x) -> float { return x<0.1f?0.1f:(x>4.f?4.f:x); };
 
-    // ── BODY ────────────────────────────────────────────────────────────────
-    // Leg length (body[7], def=100): thigh+calf Y
-    float ly=1.f+t(body[7])*0.5f;
-    for(int ji:{2,3,7,8}) s_boneScales[ji][1]=ly;
+    // ── Frame / Height ────────────────────────────────────────────────────
+    float fr = clamp(body[3] / 100.f);   // Frame, neutral=100
+    float ht = clamp(body[2] / 100.f);   // Height, neutral=100
 
-    // Legs (body[16], def=100): thigh+calf thickness (XZ)
-    float lxz=1.f+t(body[16])*0.5f;
-    for(int ji:{2,3,7,8}){ s_boneScales[ji][0]*=lxz; s_boneScales[ji][2]*=lxz; }
+    // ── Legs ──────────────────────────────────────────────────────────────
+    float ly  = clamp(body[7]  / 100.f * ht);   // Leg length × height, neutral=100
+    float lxz = clamp(body[16] / 100.f * fr);   // Legs bulk  × frame,  neutral=100
+    for(int ji:{2,3,7,8}){ s_boneScales[ji][0]=lxz; s_boneScales[ji][1]=ly; s_boneScales[ji][2]=lxz; }
 
-    // Shoulders (body[8], def=100): clavicle + upper arm XZ
-    float sh=1.f+t(body[8])*0.5f;
-    for(int ji:{15,25,16,26}){ s_boneScales[ji][0]=sh; s_boneScales[ji][2]=sh; }
-
-    // Arm bulk (body[9], def=40): arm XZ thickness
-    float arm=1.f+t(body[9])*0.6f;
-    for(int ji:{16,17,26,27}){ s_boneScales[ji][0]*=arm; s_boneScales[ji][2]*=arm; }
-
-    // Hands (body[11], def=40): hand uniform
-    float hnd=1.f+t(body[11])*0.5f;
-    for(int ji:{18,28}){ s_boneScales[ji][0]=hnd; s_boneScales[ji][1]=hnd; s_boneScales[ji][2]=hnd; }
-
-    // Chest (body[12], def=100): Spine2 XZ
-    float cst=1.f+t(body[12])*0.5f;
-    s_boneScales[14][0]=cst; s_boneScales[14][2]=cst;
-
-    // Stomach (body[13], def=40): Spine XZ
-    float stm=1.f+t(body[13])*0.4f;
-    s_boneScales[12][0]=stm; s_boneScales[12][2]=stm;
-
-    // Hips (body[15], def=40): Pelvis XZ
-    float hps=1.f+t(body[15])*0.5f;
-    s_boneScales[1][0]=hps; s_boneScales[1][2]=hps;
-
-    // Bot build (body[10], def=40): lower body volume (pelvis XZ)
-    float bot=1.f+t(body[10])*0.4f;
-    s_boneScales[1][0]*=bot; s_boneScales[1][2]*=bot;
-
-    // Foot size (body[17], def=40): foot+toe uniform
-    float ft=1.f+t(body[17])*0.6f;
+    float ft = clamp(body[17] / 100.f * fr);    // Feet, neutral=100
     for(int ji:{4,5,6,9,10,11}){ s_boneScales[ji][0]=ft; s_boneScales[ji][1]=ft; s_boneScales[ji][2]=ft; }
 
-    // ── FACE ────────────────────────────────────────────────────────────────
-    // Head size (face[0], def=40): head uniform
-    float hdsz=1.f+t(face[0])*0.6f;
-    s_boneScales[21][0]=hdsz; s_boneScales[21][1]=hdsz; s_boneScales[21][2]=hdsz;
+    // ── Pelvis ────────────────────────────────────────────────────────────
+    float hps = clamp(body[15] / 95.f * fr);    // Hips × frame, neutral=95
+    float wst = clamp(body[10] / 98.f);         // Waist,        neutral=98
+    s_boneScales[1][0]=clamp(hps*wst); s_boneScales[1][2]=clamp(hps*wst);
 
-    // Neck length (face[2], def=40): neck Y
-    s_boneScales[20][1]=1.f+t(face[2])*0.5f;
-    // Neck width (face[3], def=40): neck XZ
-    float nxz=1.f+t(face[3])*0.4f;
-    s_boneScales[20][0]=nxz; s_boneScales[20][2]=nxz;
+    // ── Spine ─────────────────────────────────────────────────────────────
+    float stm = clamp(body[13] / 130.f * fr);   // Stomach → Spine XZ, neutral=130
+    float cst = clamp(body[12] / 110.f * fr);   // Chest   → Spine2 XZ, neutral=110
+    s_boneScales[12][0]=stm; s_boneScales[12][1]=ht; s_boneScales[12][2]=stm;
+    s_boneScales[13][0]=fr;  s_boneScales[13][1]=ht; s_boneScales[13][2]=fr;   // Spine1
+    s_boneScales[14][0]=cst; s_boneScales[14][1]=ht; s_boneScales[14][2]=cst;
 
-    // ── Pivot Y (model-space bone centre, ~1.8 total height) ─────────────
+    // ── Shoulders / arms ──────────────────────────────────────────────────
+    float shou_r = clamp(body[8] / 100.f);                       // Shoulders, neutral=100
+    float shou   = clamp(shou_r * fr);
+    float shou_y = clamp((shou_r-1.f)*0.3f + 1.f);
+    for(int ji:{15,25}){ s_boneScales[ji][0]=shou; s_boneScales[ji][1]=shou_y; s_boneScales[ji][2]=shou; }
+
+    float arm_r = clamp(body[9] / 110.f);                        // Arm bulk, neutral=110
+    float arm   = clamp(arm_r * fr);
+    float arm_z = clamp(((arm_r-1.f)*1.5f + 1.f) * fr);
+    for(int ji:{16,26}){ s_boneScales[ji][0]=clamp(arm*shou_r); s_boneScales[ji][2]=clamp(arm_z*shou_r); }
+    for(int ji:{17,27}){ s_boneScales[ji][0]=arm; s_boneScales[ji][2]=arm_z; }
+
+    float hnd = clamp(body[11] / 100.f);                         // Hands, neutral=100
+    for(int ji:{18,28}){ s_boneScales[ji][0]=hnd; s_boneScales[ji][1]=hnd; s_boneScales[ji][2]=hnd; }
+
+    // ── Head / neck ────────────────────────────────────────────────────────
+    float hdsz = clamp(face[0] / 100.f);                         // Head size, neutral=100
+    float hdsh = clamp(1.f + (face[1] / 100.f - 1.f) * 1.f);    // Head shape ±10%, neutral=100
+    s_boneScales[21][0]=clamp(hdsz*hdsh); s_boneScales[21][1]=hdsz; s_boneScales[21][2]=hdsz;
+
+    // face[17]=Jaw (Neck length at face[4] shifted Jaw from legacy face[16] → face[17])
+    float jaw = clamp(face[17] / 100.f);
+    s_boneScales[23][0]=clamp(jaw*hdsz); s_boneScales[23][1]=hdsz; s_boneScales[23][2]=hdsz;
+
+    float ny  = clamp(face[2] / 108.f);                          // Neck Y, neutral=108
+    float nxz = clamp(face[3] / 110.f * shou_r);                 // Neck XZ × shoulders, neutral=110
+    s_boneScales[20][0]=nxz; s_boneScales[20][1]=ny; s_boneScales[20][2]=nxz;
+
+    // ── Pivot Y: PARENT joint world-Y (not bone center). Scaling from the ─
+    // joint keeps the mesh connected — shrinking a thigh pulls the knee up,
+    // not toward the bone center.
     static const float kPivY[30]={
-        0.95f,  // 0 Bip01
-        0.95f,  // 1 Pelvis
-        0.80f,  // 2 L Thigh
-        0.45f,  // 3 L Calf
-        0.05f,  // 4 L Foot
-        0.01f,  // 5 L Toe0
-        0.00f,  // 6 L Toe0Nub
-        0.80f,  // 7 R Thigh
-        0.45f,  // 8 R Calf
-        0.05f,  // 9 R Foot
-        0.01f,  //10 R Toe0
-        0.00f,  //11 R Toe0Nub
-        1.00f,  //12 Spine
-        1.10f,  //13 Spine1
-        1.25f,  //14 Spine2
-        1.35f,  //15 L Clavicle
-        1.35f,  //16 L UpperArm
-        1.15f,  //17 L Forearm
-        0.95f,  //18 L Hand
-        1.00f,  //19 Prop1
-        1.50f,  //20 Neck
-        1.65f,  //21 Head
-        1.75f,  //22 HeadNub
-        1.70f,  //23 Jaw
-        1.68f,  //24 JawNub
-        1.35f,  //25 R Clavicle
-        1.35f,  //26 R UpperArm
-        1.15f,  //27 R Forearm
-        0.95f,  //28 R Hand
-        1.00f,  //29 Prop2
+        0.95f,  // 0  Bip01       — pelvis/root
+        0.95f,  // 1  Pelvis      — hip height
+        0.95f,  // 2  L Thigh    — hip joint (was 0.80 — wrong: scaled from center)
+        0.50f,  // 3  L Calf     — knee joint
+        0.08f,  // 4  L Foot     — ankle joint
+        0.02f,  // 5  L Toe0     — ball of foot
+        0.00f,  // 6  L Toe0Nub
+        0.95f,  // 7  R Thigh    — hip joint
+        0.50f,  // 8  R Calf     — knee joint
+        0.08f,  // 9  R Foot     — ankle joint
+        0.02f,  // 10 R Toe0
+        0.00f,  // 11 R Toe0Nub
+        0.97f,  // 12 Spine      — pelvis top
+        1.08f,  // 13 Spine1     — lower spine top
+        1.20f,  // 14 Spine2     — mid spine top
+        1.38f,  // 15 L Clavicle — shoulder girdle
+        1.42f,  // 16 L UpperArm — shoulder joint
+        1.18f,  // 17 L Forearm  — elbow joint (arm hangs)
+        0.90f,  // 18 L Hand     — wrist joint
+        1.00f,  // 19 Prop1
+        1.48f,  // 20 Neck       — collar top
+        1.60f,  // 21 Head       — neck-head junction
+        1.78f,  // 22 HeadNub
+        1.62f,  // 23 Jaw        — jaw hinge
+        1.65f,  // 24 JawNub
+        1.38f,  // 25 R Clavicle
+        1.42f,  // 26 R UpperArm
+        1.18f,  // 27 R Forearm
+        0.90f,  // 28 R Hand
+        1.00f,  // 29 Prop2
     };
     for(int i=0;i<30;i++) s_boneScales[i][3]=kPivY[i];
 }
