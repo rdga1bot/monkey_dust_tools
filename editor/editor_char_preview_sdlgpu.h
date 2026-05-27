@@ -55,6 +55,15 @@ static bool   s_drag = false;
 static ImVec2 s_d0;
 static float  s_y0;
 
+// ── Morph target (blend shape) state ─────────────────────────────────────────
+static Vtx*   s_base_verts_cpu  = nullptr;   // persistent base mesh (not freed after GPU upload)
+static int    s_base_vc         = 0;
+static float* s_morph_deltas    = nullptr;   // [morph_count × vc × 3] heap-allocated
+static int    s_morph_count     = 0;
+static char   s_morph_names[32][48]  = {};
+static float  s_morph_weights[32]    = {};
+static bool   s_morphs_dirty    = false;
+
 // Params saved by DrawInImGui → consumed by RenderFrame
 static float s_height = 1.f, s_bulk = 1.f;
 static float s_skin[3] = {0.82f, 0.65f, 0.52f};
@@ -159,14 +168,65 @@ static bool Init(const char* glb_path, const char* tex_path) {
         vb[i].wt[2]=v[2]; vb[i].wt[3]=v[3];
     }
 
+    // ── Morph targets — load before cgltf_free ───────────────────────────────
+    delete[] s_base_verts_cpu; s_base_verts_cpu = vb;  // take ownership (vb NOT freed below)
+    s_base_vc = (int)vc;
+
+    free(s_morph_deltas); s_morph_deltas = nullptr;
+    s_morph_count = 0;
+    memset(s_morph_names,  0, sizeof(s_morph_names));
+    memset(s_morph_weights,0, sizeof(s_morph_weights));
+
+    int n_mt = (int)pr.targets_count;
+    if (n_mt > 32) n_mt = 32;
+    if (n_mt > 0) {
+        // Parse targetNames from mesh extras JSON
+        const char* ej = d->meshes[0].extras.data;
+        int names_found = 0;
+        if (ej) {
+            const char* p = strstr(ej, "\"targetNames\"");
+            if (p) { p = strchr(p, '['); if (p) { ++p;
+                while (*p && names_found < n_mt) {
+                    while (*p && *p != '"' && *p != ']') ++p;
+                    if (!*p || *p == ']') break;
+                    ++p; int len=0;
+                    while (*p && *p != '"' && len<47) s_morph_names[names_found][len++]=*p++;
+                    s_morph_names[names_found][len]='\0';
+                    if (*p=='"') ++p;
+                    ++names_found;
+                }
+            }}
+        }
+        s_morph_deltas = (float*)calloc((size_t)n_mt * vc * 3, sizeof(float));
+        if (s_morph_deltas) {
+            for (int mt = 0; mt < n_mt; ++mt) {
+                if (mt >= names_found || s_morph_names[mt][0]=='\0')
+                    snprintf(s_morph_names[mt], 48, "morph_%d", mt);
+                cgltf_morph_target& tgt = pr.targets[mt];
+                for (cgltf_size ai = 0; ai < tgt.attributes_count; ++ai) {
+                    if (tgt.attributes[ai].type != cgltf_attribute_type_position) continue;
+                    cgltf_accessor* dacc = tgt.attributes[ai].data;
+                    float* base = s_morph_deltas + (size_t)mt * vc * 3;
+                    cgltf_size rn = dacc->count < vc ? dacc->count : vc;
+                    for (cgltf_size vi = 0; vi < rn; ++vi)
+                        cgltf_accessor_read_float(dacc, vi, base + vi*3, 3);
+                    break;
+                }
+            }
+            s_morph_count = n_mt;
+        }
+        fprintf(stdout,"[CharPreview] %d morph targets\n", s_morph_count);
+    }
+    s_morphs_dirty = false;
+
     s_ni=(int)pr.indices->count;
     uint32_t* ib=new uint32_t[s_ni];
     for (int i=0;i<s_ni;i++) ib[i]=(uint32_t)cgltf_accessor_read_index(pr.indices,(size_t)i);
     cgltf_free(d);
 
-    s_vbo.Init(0x8892u, vb, (uint32_t)(vc*sizeof(Vtx)));   // 0x8892=GL_ARRAY_BUFFER
-    s_ibo.Init(0x8893u, ib, (uint32_t)(s_ni*sizeof(uint32_t))); // 0x8893=GL_ELEMENT_ARRAY_BUFFER
-    delete[] vb; delete[] ib;
+    s_vbo.Init(0x8892u, s_base_verts_cpu, (uint32_t)(vc*sizeof(Vtx)));
+    s_ibo.Init(0x8893u, ib, (uint32_t)(s_ni*sizeof(uint32_t)));
+    delete[] ib;  // vb is owned by s_base_verts_cpu — do NOT delete here
 
     // Body texture
     {
@@ -260,6 +320,39 @@ static bool Init(const char* glb_path, const char* tex_path) {
 // ── RenderFrame: render T-pose to RTT (call before ImGui render) ──────────────
 static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
     if (!s_ok||!s_color||s_rtt_w<4||s_rtt_h<4) return;
+
+    // Upload morphed vertex positions if any blend shape weights changed
+    if (s_morphs_dirty && s_base_verts_cpu && s_morph_count > 0 && s_vbo.SDLBuffer()) {
+        static Vtx s_mbuf[131072];
+        size_t vc = (size_t)s_base_vc;
+        memcpy(s_mbuf, s_base_verts_cpu, vc * sizeof(Vtx));
+        for (int m = 0; m < s_morph_count; ++m) {
+            float w = s_morph_weights[m];
+            if (w == 0.f) continue;
+            const float* dl = s_morph_deltas + (size_t)m * vc * 3;
+            for (size_t v = 0; v < vc; ++v) {
+                s_mbuf[v].px += w * dl[v*3+0];
+                s_mbuf[v].py += w * dl[v*3+1];
+                s_mbuf[v].pz += w * dl[v*3+2];
+            }
+        }
+        SDL_GPUDevice* dev = md::GpuDevice::Get().SDLDevice();
+        uint32_t up_sz = (uint32_t)(vc * sizeof(Vtx));
+        SDL_GPUTransferBufferCreateInfo mtb={};
+        mtb.usage=SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD; mtb.size=up_sz;
+        SDL_GPUTransferBuffer* mtr=SDL_CreateGPUTransferBuffer(dev,&mtb);
+        if (mtr) {
+            void* mp=SDL_MapGPUTransferBuffer(dev,mtr,false);
+            if (mp){memcpy(mp,s_mbuf,up_sz);SDL_UnmapGPUTransferBuffer(dev,mtr);}
+            SDL_GPUCopyPass* cp=SDL_BeginGPUCopyPass(cmd);
+            SDL_GPUTransferBufferLocation msrc={mtr,0};
+            SDL_GPUBufferRegion mdst={s_vbo.SDLBuffer(),0,up_sz};
+            SDL_UploadToGPUBuffer(cp,&msrc,&mdst,false);
+            SDL_EndGPUCopyPass(cp);
+            SDL_ReleaseGPUTransferBuffer(dev,mtr);
+        }
+        s_morphs_dirty = false;
+    }
 
     // Upload bone scales via copy pass (before render pass)
     if (s_bones_tex) {
@@ -447,6 +540,62 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
         1.00f,  // 29 Prop2
     };
     for(int i=0;i<30;i++) s_boneScales[i][3]=kPivY[i];
+}
+
+// ── Face morph target wiring ─────────────────────────────────────────────────
+// face[i] → (positive morph name, negative morph name).
+// Weight at neutral (def): 0.  Above def → pos weight.  Below def → neg weight.
+struct FME { int idx; const char* pos; const char* neg; };
+static const FME kFaceMorphMap[] = {
+    {  5, "big_eyes",           nullptr            },
+    {  6, "narrow_eyes",        nullptr            },
+    {  7, "close_eyes",         nullptr            },
+    {  8, "high_eyes",          nullptr            },
+    {  9, "wide_nose",          nullptr            },
+    { 10, "high_nose",          nullptr            },
+    { 11, "arch_nose",          nullptr            },
+    { 12, "tiltup_nose",        "tiltdown_nose"    },
+    { 13, "wide_cheekbones",    "narrow_cheekbones"},
+    { 15, "tiltup_brow",        "tiltdown_brow"    },
+    { 16, "high_brow",          "low_brow"         },
+    { 18, "wide_mouth",         nullptr            },
+    { 20, "big_mouth",          nullptr            },
+    { 21, "overbite",           "underbite"        },
+};
+static constexpr int kFaceMorphMapN = 14;
+
+static int s_morph_idx_by_name(const char* name) {
+    for (int i = 0; i < s_morph_count; ++i)
+        if (strcmp(s_morph_names[i], name) == 0) return i;
+    return -1;
+}
+
+// Call once per frame with current face[], def[], lo[], hi[] arrays.
+static void SetMorphWeightsFromFace(const float face[], const float def[],
+                                     const float lo[],  const float hi[]) {
+    memset(s_morph_weights, 0, sizeof(s_morph_weights));
+    for (int e = 0; e < kFaceMorphMapN; ++e) {
+        const FME& m = kFaceMorphMap[e];
+        float val = face[m.idx];
+        float d   = def[m.idx];
+        float rhi = hi[m.idx] - d;
+        float rlo = d - lo[m.idx];
+        if (m.pos && rhi > 1e-6f) {
+            int mi = s_morph_idx_by_name(m.pos);
+            if (mi >= 0) {
+                float w = (val - d) / rhi;
+                s_morph_weights[mi] = w < 0.f ? 0.f : (w > 1.f ? 1.f : w);
+            }
+        }
+        if (m.neg && rlo > 1e-6f) {
+            int mi = s_morph_idx_by_name(m.neg);
+            if (mi >= 0) {
+                float w = (d - val) / rlo;
+                s_morph_weights[mi] = w < 0.f ? 0.f : (w > 1.f ? 1.f : w);
+            }
+        }
+    }
+    s_morphs_dirty = true;
 }
 
 // ── DrawInImGui: orbit input + show RTT ──────────────────────────────────────

@@ -9,7 +9,10 @@ Usage:
 Output: game/data/props/md_human.glb
 """
 
-import xml.etree.ElementTree as ET
+try:
+    import defusedxml.ElementTree as ET  # pip install defusedxml
+except ImportError:
+    import xml.etree.ElementTree as ET  # trusted local OgreXMLConverter output only
 import struct, json, math, sys, argparse
 from collections import defaultdict
 
@@ -218,6 +221,35 @@ def parse_mesh(xml_path):
 
     return positions, normals, uvs, indices, joints, weights
 
+# ── Parse OGRE pose animations (face morph targets) ──────────────────────────
+
+def parse_poses(xml_path):
+    """Return list of (name, {vert_idx: (dx,dy,dz)}) from OGRE <poses> section."""
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
+    poses_el = None
+    for el in root.iter('poses'):
+        poses_el = el
+        break
+    if poses_el is None:
+        return []
+    result = []
+    seen = set()
+    for pose in poses_el:
+        name = pose.get('name', '')
+        if name in seen:
+            continue
+        seen.add(name)
+        offsets = {}
+        for po in pose.findall('poseoffset'):
+            vi = int(po.get('index'))
+            dx = float(po.get('x', 0)) * SCALE
+            dy = float(po.get('y', 0)) * SCALE
+            dz = float(po.get('z', 0)) * SCALE
+            offsets[vi] = (dx, dy, dz)
+        result.append((name, offsets))
+    return result
+
 # ── Parse skeleton XML ───────────────────────────────────────────────────────
 
 def parse_skeleton(xml_path, wanted_anims=None):
@@ -349,11 +381,42 @@ def main():
     acc_wgt = b.add_accessor(bv_wgt, 5126, nv, "VEC4")
     acc_idx = b.add_accessor(bv_idx, 5123, len(indices), "SCALAR")
 
-    b.meshes.append({"primitives": [{"attributes": {
+    # ── Morph targets (OGRE pose animations → GLB blend shapes) ──────────────
+    print(f"Extracting poses from {MESH_XML}")
+    poses = parse_poses(MESH_XML)
+    pose_names = [p[0] for p in poses]
+    print(f"  Poses={len(poses)}: {pose_names}")
+
+    morph_targets = []
+    for pose_name, offsets in poses:
+        # Sparse → dense: build nv-length delta array, fill non-zero entries
+        deltas = [(0.0, 0.0, 0.0)] * nv
+        for vi, (dx, dy, dz) in offsets.items():
+            if vi < nv:
+                deltas[vi] = (dx, dy, dz)
+        delta_data = b.pack_vec3(deltas)
+        bv_delta   = b.add_buffer(delta_data, target=34962)
+        dxs = [d[0] for d in deltas]
+        dys = [d[1] for d in deltas]
+        dzs = [d[2] for d in deltas]
+        acc_delta = b.add_accessor(bv_delta, 5126, nv, "VEC3",
+                                   [min(dxs), min(dys), min(dzs)],
+                                   [max(dxs), max(dys), max(dzs)])
+        morph_targets.append({"POSITION": acc_delta})
+
+    prim = {"attributes": {
         "POSITION":   acc_pos, "NORMAL":    acc_nrm,
         "TEXCOORD_0": acc_uv,
         "JOINTS_0":   acc_jnt, "WEIGHTS_0": acc_wgt,
-    }, "indices": acc_idx}]})
+    }, "indices": acc_idx}
+    if morph_targets:
+        prim["targets"] = morph_targets
+
+    mesh_entry = {"primitives": [prim]}
+    if pose_names:
+        mesh_entry["extras"]  = {"targetNames": pose_names}
+        mesh_entry["weights"] = [0.0] * len(pose_names)
+    b.meshes.append(mesh_entry)
 
     # ── Skeleton nodes ─────────────────────────────────────────────────────
     n_bones = len(bone_names)

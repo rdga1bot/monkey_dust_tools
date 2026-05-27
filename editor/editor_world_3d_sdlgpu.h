@@ -455,6 +455,7 @@ static bool Init(const char* overlay_path, int zone_ox = 28, int zone_oz = 28) {
     s_zone_oz_saved = zone_oz;
     s_cx = 32.f * CHUNK_SIZE;  // center of world
     s_cy = 28000.f;            // altitude to see full 32 km world (FOV 0.80 rad)
+    s_pitch = 1.05f;           // ~60° down — correct focal distance at 28 km
     s_cz = 32.f * CHUNK_SIZE;
 
     s_load_zone_amplitudes("game/data/terrain_config.txt");
