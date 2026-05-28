@@ -470,10 +470,10 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
         SDL_ReleaseGPUTransferBuffer(dev,tr);
     }
 
-    // Model: scale by bulk/height, translate feet to origin
-    M4 ms; ms.m[0]=s_bulk; ms.m[5]=s_height; ms.m[10]=s_bulk;
-    M4 mt = m4_translate(0.f, -0.95f*s_height, 0.f);
-    M4 model = m4_mul(ms, mt);
+    // Model: translate feet to origin only — bones handle all height/bulk proportions.
+    // Do NOT apply s_height/s_bulk scale here: SetBoneScalesFromDef already embeds H and Fr
+    // in ws_mat, so a non-uniform model-matrix scale would compound those values (1.76^2 = 3.1x).
+    M4 model = m4_translate(0.f, -0.95f, 0.f);
 
     // Orbit view + perspective
     M4 view = m4_mul(m4_translate(0.f,0.f,-s_dist), m4_mul(m4_rotX(s_pit), m4_rotY(s_yaw)));
