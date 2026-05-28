@@ -618,16 +618,29 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     for(int i=0;i<30;i++) s_boneScales[i][3]=kPivY[i];
 
     // Build 4×4 world-space scale matrices from s_boneScales[i] = (sx,sy,sz,pivotY).
-    // Ws = T(0,py,0) * Scale(sx,sy,sz) * T(0,-py,0)  stored column-major.
-    // At default (1,1,1,pivotY): Ws = Identity.
+    // Ws = T(0,py+offsetY,0) * Scale(sx,sy,sz) * T(0,-py,0)  stored column-major.
+    // At default (1,1,1,pivotY): Ws = Identity (offset=0).
+    //
+    // setBonePositionalSize approximation (Kenshi RE):
+    //   Thighs [2,7]: Y offset = (Fr*(2-H)*comp(Ch,0.45) - 1) * rest_Y
+    //                 → taller chars lift leg attachment point on pelvis
+    //   UpperArm [16,26]: X offset = ±(Sh*Fr - 1) * rest_X
+    //                 → wider shoulders push arms outward
+    float thigh_off_y = (Fr*(2.f-H)*comp(Ch, 0.45f) - 1.f) * 0.95f; // 0.95 = thigh rest Y
+    float arm_off_x   = (Sh*Fr - 1.f) * 0.17f;  // 0.17 = half shoulder width in rest pose
+
     for (int i = 0; i < 30; i++) {
         float sx=s_boneScales[i][0], sy=s_boneScales[i][1];
         float sz=s_boneScales[i][2], py=s_boneScales[i][3];
+        float oy = 0.f, ox = 0.f;
+        if (i==2||i==7) oy = thigh_off_y;             // L/R Thigh: leg attachment Y
+        if (i==16)      ox =  arm_off_x;              // L UpperArm: push left (+X)
+        if (i==26)      ox = -arm_off_x;              // R UpperArm: push right (-X)
         float* M=s_ws_mat[i];
         M[ 0]=sx; M[ 1]=0.f; M[ 2]=0.f; M[ 3]=0.f;  // col 0
         M[ 4]=0.f; M[ 5]=sy; M[ 6]=0.f; M[ 7]=0.f;  // col 1
         M[ 8]=0.f; M[ 9]=0.f; M[10]=sz; M[11]=0.f;  // col 2
-        M[12]=0.f; M[13]=py*(1.f-sy); M[14]=0.f; M[15]=1.f;  // col 3
+        M[12]=ox;  M[13]=py*(1.f-sy)+oy; M[14]=0.f; M[15]=1.f;  // col 3
     }
 }
 
