@@ -532,61 +532,69 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
 // Kenshi uses bone scale ONLY — no blend shapes for body proportions.
 // comp(x,k) = (x-1)*k+1  compresses deviation toward neutral (reduces rubber-tube).
 // H=Height*0.01, Fr=Frame*0.01  — H scales Y chain, Fr scales all XZ.
+// GLB bone local axis mapping (probe 2026-05-28, inverseBindMatrices analysis):
+// Spine chain (0-14,20,21): local X = +worldY (HEIGHT), local Y = +worldX (LATERAL), local Z = -worldZ (DEPTH)
+// Arm bones (16-18,26-28): local X = -worldY (arm girth vert), local Y = +worldX (arm LENGTH), local Z = +worldZ
+// Clavicles (15,25): local X = ±worldX, local Y = ±worldY → formula stays same (scale magnitude = world)
+//
+// CRITICAL: the Kenshi RE formulas give (world-X-scale, world-Y-scale, world-Z-scale).
+// We must remap to (local-X, local-Y, local-Z) for the ws_mat = bind*S*inv_bind computation.
+// Spine/Pelvis/Leg: [localX=worldY, localY=worldX, localZ≈worldZ] → swap first two values.
+// Arms: already mapped correctly (local Y = arm length = worldX = "height direction for arms").
+//
+// Shorthand: set3(i, wY_val, wX_val, wZ_val) — pass height, lateral, depth in world terms.
 static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     for(int i=0;i<30;i++){ s_boneScales[i][0]=1;s_boneScales[i][1]=1;s_boneScales[i][2]=1; }
 
     auto clamp=[](float x) -> float { return x<0.1f?0.1f:(x>4.f?4.f:x); };
-    // comp(x,k): compress deviation — (x-1)*k+1. Matches Kenshi's fVar=(fVar-1)*k+1.
     auto comp=[&](float x, float k) -> float { return clamp(1.f + (x - 1.f)*k); };
+    // Remap world-space scale (wy=height, wx=lateral, wz=depth) to bone local (lx,ly,lz).
+    // For spine/pelvis/leg bones: local X = worldY, local Y = worldX → swap.
+    auto setSpine=[&](int i, float wy, float wx, float wz){
+        s_boneScales[i][0]=wy; s_boneScales[i][1]=wx; s_boneScales[i][2]=wz;
+    };
 
-    // body[2]=Height(80-120, neu=100), body[3]=Frame(80-120), body[7]=Leg length,
-    // body[8]=Shoulders, body[9]=Arm bulk, body[10]=Waist, body[11]=Hands,
-    // body[12]=Chest, body[13]=Stomach, body[15]=Hips, body[16]=Legs bulk, body[17]=Feet
+    float H  = clamp(body[2]  / 100.f);
+    float Fr = clamp(body[3]  / 100.f);
+    float LL = clamp(body[7]  / 100.f);
+    float Wa = clamp(body[10] / 100.f);
+    float St = clamp(body[13] / 100.f);
+    float Ch = clamp(body[12] / 100.f);
+    float Ab = clamp(body[9]  / 100.f);
+    float Sh = clamp(body[8]  / 100.f);
+    float Hd = clamp(face[0]  / 100.f);
+    float Nl = clamp(face[2]  / 108.f);
+    float Nw = clamp(face[3]  / 110.f);
+    float Ft = clamp(body[17] / 100.f * H);
 
-    float H  = clamp(body[2]  / 100.f);   // Height factor
-    float Fr = clamp(body[3]  / 100.f);   // Frame factor (global XZ scale)
-    float LL = clamp(body[7]  / 100.f);   // Leg length (no race mult for humans)
-    float Wa = clamp(body[10] / 100.f);   // Waist
-    float St = clamp(body[13] / 100.f);   // Stomach
-    float Ch = clamp(body[12] / 100.f);   // Chest
-    float Ab = clamp(body[9]  / 100.f);   // Arm bulk
-    float Sh = clamp(body[8]  / 100.f);   // Shoulders
-    float Hd = clamp(face[0]  / 100.f);   // Head size
-    float Nl = clamp(face[2]  / 108.f);   // Neck length (neutral≈108)
-    float Nw = clamp(face[3]  / 110.f);   // Neck width  (neutral≈110)
-    float Ft = clamp(body[17] / 100.f * H); // Foot scale * Height
+    // Pelvis [1]: localX=worldY=H, localY=worldX=LL*Fr, localZ=worldZ=LL*Fr
+    setSpine(1, H, LL*Fr, LL*Fr);
 
-    // ── Bip01 Pelvis [1]: legs determine XZ, Height determines Y ──────────
-    s_boneScales[1][0]=LL*Fr; s_boneScales[1][1]=H; s_boneScales[1][2]=LL*Fr;
-
-    // ── Thighs + Calves [2,3,7,8]: leg length (Y) + legs bulk (XZ) ───────
+    // Thighs/Calves [2,3,7,8]: localX=worldY=LL*H (leg length+height), localY/Z=LgBulk
     float LgBulk = clamp(body[16] / 100.f * Fr);
-    for(int ji:{2,3,7,8}){ s_boneScales[ji][0]=LgBulk; s_boneScales[ji][1]=LL*H; s_boneScales[ji][2]=LgBulk; }
+    for(int ji:{2,3,7,8}) setSpine(ji, LL*H, LgBulk, LgBulk);
 
-    // ── Feet [4,5,6,9,10,11] ──────────────────────────────────────────────
-    for(int ji:{4,9}){ s_boneScales[ji][0]=Ft*Ft; s_boneScales[ji][1]=LL; s_boneScales[ji][2]=Ft*Ft; }
+    // Feet [4,9]: localX=worldY=LL, localY/Z=Ft*Ft
+    for(int ji:{4,9})      setSpine(ji, LL, Ft*Ft, Ft*Ft);
+    // Toes: uniform
     for(int ji:{5,6,10,11}){ s_boneScales[ji][0]=Ft*Ft; s_boneScales[ji][1]=Ft*Ft; s_boneScales[ji][2]=Ft*Ft; }
 
-    // ── Bip01 Spine [12]: waist compressed + stomach depth ────────────────
-    // RE: Vector3(comp(Wa,0.6)*Fr, H, comp(Wa,0.6)*St*Fr)
+    // Spine [12]: localX=H, localY=comp(Wa,0.6)*Fr, localZ=comp(Wa,0.6)*St*Fr
     float WaC = comp(Wa, 0.6f);
-    s_boneScales[12][0]=WaC*Fr; s_boneScales[12][1]=H; s_boneScales[12][2]=WaC*St*Fr;
+    setSpine(12, H, WaC*Fr, WaC*St*Fr);
 
-    // ── Bip01 Spine1 [13]: chest width, stomach depth ────────────────────
-    // RE: Vector3(Ch*Fr, H, St*Fr)
-    s_boneScales[13][0]=Ch*Fr; s_boneScales[13][1]=H; s_boneScales[13][2]=St*Fr;
+    // Spine1 [13]: localX=H, localY=Ch*Fr, localZ=St*Fr
+    setSpine(13, H, Ch*Fr, St*Fr);
 
-    // ── Bip01 Spine2 [14]: chest compressed (0.45 X, 0.9 Z) ──────────────
-    // RE: Vector3(comp(Ch,0.45)*Fr, H, comp(Ch,0.9)*Fr)
-    s_boneScales[14][0]=comp(Ch,0.45f)*Fr; s_boneScales[14][1]=H; s_boneScales[14][2]=comp(Ch,0.9f)*Fr;
+    // Spine2 [14]: localX=H, localY=comp(Ch,0.45)*Fr, localZ=comp(Ch,0.9)*Fr
+    setSpine(14, H, comp(Ch,0.45f)*Fr, comp(Ch,0.9f)*Fr);
 
-    // ── Clavicles [15,25]: shoulders XZ, compressed Y ────────────────────
-    // RE: Vector3(Sh*Fr, comp(Sh,0.3)*Fr, Sh*Fr)
+    // Clavicles [15,25]: local X≈worldX, local Y≈worldY — no swap needed
     float ShY = comp(Sh, 0.3f)*Fr;
     for(int ji:{15,25}){ s_boneScales[ji][0]=Sh*Fr; s_boneScales[ji][1]=ShY; s_boneScales[ji][2]=Sh*Fr; }
 
-    // ── UpperArm [16,26]: quadratic bulk scaling (RE-verified) ───────────
-    // RE base=(Ab*Fr, H, comp(Ab,1.5)*Fr); final = base * Ab*Fr
+    // UpperArm [16,26]: localX=-worldY(arm girth), localY=worldX(arm length), localZ=worldZ
+    // local axes for arms differ from spine — no swap needed here.
     float AbFr = Ab*Fr;
     float AbZ  = comp(Ab, 1.5f)*Fr;
     for(int ji:{16,26}){
@@ -594,29 +602,23 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
         s_boneScales[ji][1]=H*AbFr;
         s_boneScales[ji][2]=AbZ*AbFr;
     }
-    // ── Forearm [17,27]: simpler bulk (base * Ab*Fr) ──────────────────────
     for(int ji:{17,27}){
         s_boneScales[ji][0]=AbFr*AbFr;
         s_boneScales[ji][1]=H*AbFr;
         s_boneScales[ji][2]=AbFr*AbFr;
     }
-
-    // ── Hands [18,28]: hands slider squared (RE: base*hands twice) ────────
     float Hn = clamp(body[11] / 100.f);
     for(int ji:{18,28}){ s_boneScales[ji][0]=AbFr*Hn*Hn; s_boneScales[ji][1]=H*AbFr*Hn; s_boneScales[ji][2]=AbFr*Hn*Hn; }
 
-    // ── Neck [20]: width, length, depth ───────────────────────────────────
-    // RE: Vector3(Nw*Fr, Nl*0.01, NeckDepth*Fr)
-    s_boneScales[20][0]=Nw*Fr; s_boneScales[20][1]=Nl; s_boneScales[20][2]=Nw*Fr;
+    // Neck [20]: localX=worldY=Nl (neck length), localY=worldX=Nw*Fr, localZ=Nw*Fr
+    setSpine(20, Nl, Nw*Fr, Nw*Fr);
 
-    // ── Head [21]: frame-compressed + head size + shape ───────────────────
-    // RE: Vector3(comp(Fr,0.25)*Hd*Hshape*0.01, Hd, comp(Fr,0.25)*Hd)
+    // Head [21]: localX=worldY=Hd, localY=worldX=FrH*Hd*Hsp, localZ=worldZ=FrH*Hd
     float FrH = comp(Fr, 0.25f);
     float Hsp = clamp(face[1] / 100.f);
-    s_boneScales[21][0]=clamp(FrH*Hd*Hsp); s_boneScales[21][1]=Hd; s_boneScales[21][2]=FrH*Hd;
+    setSpine(21, Hd, clamp(FrH*Hd*Hsp), FrH*Hd);
 
-    // ── Jaw [23]: jaw slider scales on top of Head scale ──────────────────
-    // RE: Vector3(Jaw*0.01,1,1) * Head_scale_vector
+    // Jaw [23]: local X = +worldZ (different from spine pattern — use raw RE values)
     float jaw = clamp(face[17] / 100.f);
     s_boneScales[23][0]=jaw*FrH*Hd*Hsp; s_boneScales[23][1]=Hd; s_boneScales[23][2]=FrH*Hd;
 
