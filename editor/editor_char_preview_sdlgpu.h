@@ -161,9 +161,10 @@ static bool Init(const char* glb_path, const char* tex_path) {
         vb[i].u=v[0]; vb[i].v=v[1];
     }
     if (aj) for (size_t i=0;i<vc;i++) {
-        float v[4]={}; cgltf_accessor_read_float(aj,i,v,4);
-        vb[i].ji[0]=(uint8_t)v[0]; vb[i].ji[1]=(uint8_t)v[1];
-        vb[i].ji[2]=(uint8_t)v[2]; vb[i].ji[3]=(uint8_t)v[3];
+        // cgltf_accessor_read_uint gives raw integer indices, not normalized floats.
+        cgltf_uint u[4]={}; cgltf_accessor_read_uint(aj,i,u,4);
+        vb[i].ji[0]=(uint8_t)u[0]; vb[i].ji[1]=(uint8_t)u[1];
+        vb[i].ji[2]=(uint8_t)u[2]; vb[i].ji[3]=(uint8_t)u[3];
     }
     if (aw) for (size_t i=0;i<vc;i++) {
         float v[4]={}; cgltf_accessor_read_float(aw,i,v,4);
