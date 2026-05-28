@@ -44,10 +44,34 @@ static SDL_GPUSampler* s_bones_sampler = nullptr;
 static int             s_ni  = 0;
 static bool            s_ok  = false;
 
-// Per-bone scale (xyz) + pivot_y (w) — 30 bones, updated each frame
-static float s_boneScales[30][4]; // [bone_idx][xyzw]
-// World-space scale matrices built from s_boneScales → uploaded to 120×1 texture
+// Per-bone scale (xyz) — 30 bones, updated each frame
+static float s_boneScales[30][3]; // [bone_idx][xyz]
+// Bind-matrix-based world-space deformation matrices.
+// ws_mat[i] = bind[i] * diag(sx,sy,sz) * inv_bind[i]  (col-major mat4)
+// At neutral (sx=sy=sz=1): ws_mat = Identity. Scales in bone LOCAL space.
 static float s_ws_mat[30][16];    // [bone_idx][col-major mat4]
+static float s_inv_bind[30][16];  // inverseBindMatrices from GLB (model→bone local)
+static float s_bind[30][16];      // bind matrices = inv(inv_bind) (bone local→model)
+
+// col-major mat4 multiply: C = A * B
+static void m4mul(float* C, const float* A, const float* B) {
+    float T[16];
+    for (int j=0;j<4;j++) for (int i=0;i<4;i++) {
+        float s=0.f; for (int k=0;k<4;k++) s+=A[k*4+i]*B[j*4+k]; T[j*4+i]=s;
+    }
+    memcpy(C,T,64);
+}
+// Invert a rigid-body matrix (rotation+translation only, no shear/scale).
+// inv(M) = [R^T | -R^T*t;  0 | 1]
+static void m4inv_rigid(float* out, const float* M) {
+    for (int r=0;r<3;r++) for (int c=0;c<3;c++) out[c*4+r]=M[r*4+c]; // transpose R
+    for (int c=0;c<4;c++) out[c*4+3]=(c==3)?1.f:0.f;
+    float tx=M[12],ty=M[13],tz=M[14];
+    out[12]=-(out[0]*tx+out[4]*ty+out[8]*tz);
+    out[13]=-(out[1]*tx+out[5]*ty+out[9]*tz);
+    out[14]=-(out[2]*tx+out[6]*ty+out[10]*tz);
+    out[15]=1.f;
+}
 
 static SDL_GPUTexture* s_color = nullptr;
 static SDL_GPUTexture* s_depth = nullptr;
@@ -223,6 +247,22 @@ static bool Init(const char* glb_path, const char* tex_path) {
     }
     s_morphs_dirty = false;
 
+    // ── Inverse bind matrices — load before cgltf_free ──────────────────────
+    // Identity fallback for all bones
+    for (int i=0;i<30;i++){
+        memset(s_inv_bind[i],0,64); s_inv_bind[i][0]=s_inv_bind[i][5]=s_inv_bind[i][10]=s_inv_bind[i][15]=1.f;
+        memcpy(s_bind[i],s_inv_bind[i],64);
+    }
+    if (d->skins_count>0 && d->skins[0].inverse_bind_matrices) {
+        cgltf_accessor* ibm=d->skins[0].inverse_bind_matrices;
+        int n=(int)ibm->count; if(n>30)n=30;
+        for (int i=0;i<n;i++) {
+            cgltf_accessor_read_float(ibm,(size_t)i,s_inv_bind[i],16);
+            m4inv_rigid(s_bind[i], s_inv_bind[i]);
+        }
+        fprintf(stdout,"[CharPreview] %d inverse bind matrices loaded\n", n);
+    }
+
     s_ni=(int)pr.indices->count;
     uint32_t* ib=new uint32_t[s_ni];
     for (int i=0;i<s_ni;i++) ib[i]=(uint32_t)cgltf_accessor_read_index(pr.indices,(size_t)i);
@@ -253,7 +293,7 @@ static bool Init(const char* glb_path, const char* tex_path) {
     // Bone matrix texture: 120×1 RGBA32F — 30 bones × 4 columns per mat4
     // Each bone i occupies texels [i*4 .. i*4+3] = columns 0-3 of the 4×4 Ws matrix.
     {
-        for (int i=0;i<30;i++){ s_boneScales[i][0]=1;s_boneScales[i][1]=1;s_boneScales[i][2]=1;s_boneScales[i][3]=0; }
+        for (int i=0;i<30;i++){ s_boneScales[i][0]=1;s_boneScales[i][1]=1;s_boneScales[i][2]=1; }
         // Build initial identity Ws matrices before first upload
         for (int i=0;i<30;i++){
             memset(s_ws_mat[i],0,64);
@@ -493,7 +533,7 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
 // comp(x,k) = (x-1)*k+1  compresses deviation toward neutral (reduces rubber-tube).
 // H=Height*0.01, Fr=Frame*0.01  — H scales Y chain, Fr scales all XZ.
 static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
-    for(int i=0;i<30;i++){ s_boneScales[i][0]=1;s_boneScales[i][1]=1;s_boneScales[i][2]=1;s_boneScales[i][3]=0; }
+    for(int i=0;i<30;i++){ s_boneScales[i][0]=1;s_boneScales[i][1]=1;s_boneScales[i][2]=1; }
 
     auto clamp=[](float x) -> float { return x<0.1f?0.1f:(x>4.f?4.f:x); };
     // comp(x,k): compress deviation — (x-1)*k+1. Matches Kenshi's fVar=(fVar-1)*k+1.
@@ -580,67 +620,16 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     float jaw = clamp(face[17] / 100.f);
     s_boneScales[23][0]=jaw*FrH*Hd*Hsp; s_boneScales[23][1]=Hd; s_boneScales[23][2]=FrH*Hd;
 
-    // ── Pivot Y: PARENT joint world-Y (not bone center). Scaling from the ─
-    // joint keeps the mesh connected — shrinking a thigh pulls the knee up,
-    // not toward the bone center.
-    static const float kPivY[30]={
-        0.95f,  // 0  Bip01       — pelvis/root
-        0.95f,  // 1  Pelvis      — hip height
-        0.95f,  // 2  L Thigh    — hip joint (was 0.80 — wrong: scaled from center)
-        0.50f,  // 3  L Calf     — knee joint
-        0.08f,  // 4  L Foot     — ankle joint
-        0.02f,  // 5  L Toe0     — ball of foot
-        0.00f,  // 6  L Toe0Nub
-        0.95f,  // 7  R Thigh    — hip joint
-        0.50f,  // 8  R Calf     — knee joint
-        0.08f,  // 9  R Foot     — ankle joint
-        0.02f,  // 10 R Toe0
-        0.00f,  // 11 R Toe0Nub
-        0.97f,  // 12 Spine      — pelvis top
-        1.08f,  // 13 Spine1     — lower spine top
-        1.20f,  // 14 Spine2     — mid spine top
-        1.38f,  // 15 L Clavicle — shoulder girdle
-        1.42f,  // 16 L UpperArm — shoulder joint
-        1.18f,  // 17 L Forearm  — elbow joint (arm hangs)
-        0.90f,  // 18 L Hand     — wrist joint
-        1.00f,  // 19 Prop1
-        1.48f,  // 20 Neck       — collar top
-        1.60f,  // 21 Head       — neck-head junction
-        1.78f,  // 22 HeadNub
-        1.62f,  // 23 Jaw        — jaw hinge
-        1.65f,  // 24 JawNub
-        1.38f,  // 25 R Clavicle
-        1.42f,  // 26 R UpperArm
-        1.18f,  // 27 R Forearm
-        0.90f,  // 28 R Hand
-        1.00f,  // 29 Prop2
-    };
-    for(int i=0;i<30;i++) s_boneScales[i][3]=kPivY[i];
-
-    // Build 4×4 world-space scale matrices from s_boneScales[i] = (sx,sy,sz,pivotY).
-    // Ws = T(0,py+offsetY,0) * Scale(sx,sy,sz) * T(0,-py,0)  stored column-major.
-    // At default (1,1,1,pivotY): Ws = Identity (offset=0).
-    //
-    // setBonePositionalSize approximation (Kenshi RE):
-    //   Thighs [2,7]: Y offset = (Fr*(2-H)*comp(Ch,0.45) - 1) * rest_Y
-    //                 → taller chars lift leg attachment point on pelvis
-    //   UpperArm [16,26]: X offset = ±(Sh*Fr - 1) * rest_X
-    //                 → wider shoulders push arms outward
-    float thigh_off_y = (Fr*(2.f-H)*comp(Ch, 0.45f) - 1.f) * 0.95f; // 0.95 = thigh rest Y
-    float arm_off_x   = (Sh*Fr - 1.f) * 0.17f;  // 0.17 = half shoulder width in rest pose
-
+    // Build ws_mat[i] = bind[i] * diag(sx,sy,sz) * inv_bind[i]
+    // Scale is applied in BONE LOCAL space (correct for arms/legs with 90-180° rotations).
+    // At neutral (sx=sy=sz=1): bind*I*inv_bind = I → no deformation.
     for (int i = 0; i < 30; i++) {
-        float sx=s_boneScales[i][0], sy=s_boneScales[i][1];
-        float sz=s_boneScales[i][2], py=s_boneScales[i][3];
-        float oy = 0.f, ox = 0.f;
-        if (i==2||i==7) oy = thigh_off_y;             // L/R Thigh: leg attachment Y
-        if (i==16)      ox =  arm_off_x;              // L UpperArm: push left (+X)
-        if (i==26)      ox = -arm_off_x;              // R UpperArm: push right (-X)
-        float* M=s_ws_mat[i];
-        M[ 0]=sx; M[ 1]=0.f; M[ 2]=0.f; M[ 3]=0.f;  // col 0
-        M[ 4]=0.f; M[ 5]=sy; M[ 6]=0.f; M[ 7]=0.f;  // col 1
-        M[ 8]=0.f; M[ 9]=0.f; M[10]=sz; M[11]=0.f;  // col 2
-        M[12]=ox;  M[13]=py*(1.f-sy)+oy; M[14]=0.f; M[15]=1.f;  // col 3
+        float sx=s_boneScales[i][0], sy=s_boneScales[i][1], sz=s_boneScales[i][2];
+        // Scale matrix in bone local space (col-major: sx,0,0,0, 0,sy,0,0, ...)
+        float S[16] = { sx,0,0,0, 0,sy,0,0, 0,0,sz,0, 0,0,0,1 };
+        float tmp[16];
+        m4mul(tmp, S, s_inv_bind[i]);          // S * inv_bind
+        m4mul(s_ws_mat[i], s_bind[i], tmp);    // bind * (S * inv_bind)
     }
 }
 
