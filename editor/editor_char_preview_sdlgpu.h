@@ -46,15 +46,17 @@ static bool            s_ok  = false;
 
 // Per-bone scale (xyz) — 30 bones, updated each frame
 static float s_boneScales[30][3]; // [bone_idx][xyz]
-// World-space deformation matrices — hierarchical:
-//   ws_local[i] = bind[i] * S[i] * inv_bind[i]
-//   ws_mat[i]   = ws_mat[parent[i]] * ws_local[i]
-// At neutral S=I: ws_local[i]=I, ws_mat[i]=I.
-// Spine scale propagates to Spine1/Head/Arms through the product chain.
+// World-space deformation matrices — OGRE-style hierarchical:
+//   new_world[i] = new_world[parent] * (bind_local[i] with translation scaled by parent S)
+//   ws_mat[i]    = new_world[i] * S[i] * inv_bind[i]
+// Parent scale moves child bones (scales local translation), but does NOT cascade into
+// child vertex scaling — only this bone's own S[i] affects its vertices.
+// At neutral S=I: new_world[i]=bind[i], ws_mat[i]=I.
 static float s_ws_mat[30][16];
-static float s_inv_bind[30][16]; // inverseBindMatrices from GLB (world→bone local)
-static float s_bind[30][16];     // bind matrices = inv(inv_bind) (bone local→world)
-static int8_t s_bone_parent[30]; // parent joint index, -1 for root
+static float s_inv_bind[30][16];   // inverseBindMatrices from GLB (world→bone local)
+static float s_bind[30][16];       // bind matrices = inv(inv_bind)
+static float s_bind_local[30][16]; // bind_local[i] = inv_bind[parent] * bind[i]
+static int8_t s_bone_parent[30];   // parent joint index, -1 for root
 
 // col-major mat4 multiply: C = A * B
 static void m4mul(float* C, const float* A, const float* B) {
@@ -281,6 +283,13 @@ static bool Init(const char* glb_path, const char* tex_path) {
             }
         }
         fprintf(stdout,"[CharPreview] hierarchy loaded for %d bones\n",jn);
+    }
+    // Precompute bind_local[i] = inv_bind[parent] * bind[i] (local bind TRS in parent space)
+    for (int i=0;i<30;i++) {
+        if (s_bone_parent[i]<0)
+            memcpy(s_bind_local[i], s_bind[i], 64);
+        else
+            m4mul(s_bind_local[i], s_inv_bind[(int)s_bone_parent[i]], s_bind[i]);
     }
 
     s_ni=(int)pr.indices->count;
@@ -642,22 +651,31 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     float jaw = clamp(face[17] / 100.f);
     s_boneScales[23][0]=jaw*FrH*Hd*Hsp; s_boneScales[23][1]=Hd; s_boneScales[23][2]=FrH*Hd;
 
-    // Hierarchical world transform accumulation:
-    //   world[i] = world[parent[i]] * TRS_scaled[i]
-    //   ws_mat[i] = world[i] * inv_bind[i]
-    // Hierarchical: ws_local[i]=bind[i]*S[i]*inv_bind[i], ws_mat[i]=ws_mat[parent]*ws_local[i]
-    // Propagates parent scale to children. At neutral S=I: ws_mat[i]=I.
-    // GLB bone order 0→29 is parent-before-child → one forward pass.
+    // OGRE-style hierarchical scale:
+    //   Parent S moves children (scales bind_local translation), children scale own vertices only.
+    //   new_world[i] = new_world[parent] * bind_local_with_scaled_translation[i]
+    //   ws_mat[i]    = new_world[i] * S[i] * inv_bind[i]
+    // No scale cascade — each bone's vertices only scale by its own S[i].
+    float new_world[30][16];
     for (int i = 0; i < 30; i++) {
+        // Copy bind_local, then scale its translation by parent's bone scale
+        float sl[16]; memcpy(sl, s_bind_local[i], 64);
+        if (s_bone_parent[i] >= 0) {
+            int p = s_bone_parent[i];
+            sl[12] *= s_boneScales[p][0];
+            sl[13] *= s_boneScales[p][1];
+            sl[14] *= s_boneScales[p][2];
+        }
+        if (s_bone_parent[i] < 0)
+            memcpy(new_world[i], sl, 64);
+        else
+            m4mul(new_world[i], new_world[(int)s_bone_parent[i]], sl);
+
         float sx=s_boneScales[i][0], sy=s_boneScales[i][1], sz=s_boneScales[i][2];
         float S[16]={sx,0,0,0, 0,sy,0,0, 0,0,sz,0, 0,0,0,1};
-        float tmp[16], ws_local[16];
+        float tmp[16];
         m4mul(tmp, S, s_inv_bind[i]);
-        m4mul(ws_local, s_bind[i], tmp);
-        if (s_bone_parent[i] < 0)
-            memcpy(s_ws_mat[i], ws_local, 64);
-        else
-            m4mul(s_ws_mat[i], s_ws_mat[(int)s_bone_parent[i]], ws_local);
+        m4mul(s_ws_mat[i], new_world[i], tmp);
     }
 }
 
