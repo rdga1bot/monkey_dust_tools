@@ -46,14 +46,14 @@ static bool            s_ok  = false;
 
 // Per-bone scale (xyz) — 30 bones, updated each frame
 static float s_boneScales[30][3]; // [bone_idx][xyz]
-// World-space deformation matrices — col-major mat4 per bone.
-// Computed hierarchically: world[i] = world[parent]*TRS_scaled[i], ws_mat[i]=world[i]*inv_bind[i]
-// At neutral (sx=sy=sz=1): world[i] = bind[i], ws_mat[i] = Identity.
+// World-space deformation matrices — hierarchical:
+//   ws_local[i] = bind[i] * S[i] * inv_bind[i]
+//   ws_mat[i]   = ws_mat[parent[i]] * ws_local[i]
+// At neutral S=I: ws_local[i]=I, ws_mat[i]=I.
+// Spine scale propagates to Spine1/Head/Arms through the product chain.
 static float s_ws_mat[30][16];
-static float s_inv_bind[30][16];  // inverseBindMatrices from GLB
-// Local rest-pose TRS per joint (loaded from GLB nodes)
-static float s_local_T[30][3];   // local translation
-static float s_local_R[30][4];   // local rotation quaternion (xyzw)
+static float s_inv_bind[30][16]; // inverseBindMatrices from GLB (world→bone local)
+static float s_bind[30][16];     // bind matrices = inv(inv_bind) (bone local→world)
 static int8_t s_bone_parent[30]; // parent joint index, -1 for root
 
 // col-major mat4 multiply: C = A * B
@@ -64,17 +64,15 @@ static void m4mul(float* C, const float* A, const float* B) {
     }
     memcpy(C,T,64);
 }
-// Build col-major mat4 from TRS: T * R(quat) * Scale(S)
-static void m4_trs(float* M, const float T[3], const float R[4], const float S[3]) {
-    float qx=R[0],qy=R[1],qz=R[2],qw=R[3];
-    float x2=2*qx*qx,y2=2*qy*qy,z2=2*qz*qz;
-    float xy=2*qx*qy,xz=2*qx*qz,yz=2*qy*qz;
-    float wx=2*qw*qx,wy=2*qw*qy,wz=2*qw*qz;
-    float sx=S[0],sy=S[1],sz=S[2];
-    M[ 0]=(1-y2-z2)*sx; M[ 1]=(xy+wz)*sx; M[ 2]=(xz-wy)*sx; M[ 3]=0.f;
-    M[ 4]=(xy-wz)*sy;   M[ 5]=(1-x2-z2)*sy; M[ 6]=(yz+wx)*sy; M[ 7]=0.f;
-    M[ 8]=(xz+wy)*sz;   M[ 9]=(yz-wx)*sz;   M[10]=(1-x2-y2)*sz; M[11]=0.f;
-    M[12]=T[0]; M[13]=T[1]; M[14]=T[2]; M[15]=1.f;
+// Invert a rigid-body matrix (rotation+translation only).
+static void m4inv_rigid(float* out, const float* M) {
+    for (int r=0;r<3;r++) for (int c=0;c<3;c++) out[c*4+r]=M[r*4+c];
+    for (int c=0;c<4;c++) out[c*4+3]=(c==3)?1.f:0.f;
+    float tx=M[12],ty=M[13],tz=M[14];
+    out[12]=-(out[0]*tx+out[4]*ty+out[8]*tz);
+    out[13]=-(out[1]*tx+out[5]*ty+out[9]*tz);
+    out[14]=-(out[2]*tx+out[6]*ty+out[10]*tz);
+    out[15]=1.f;
 }
 
 static SDL_GPUTexture* s_color = nullptr;
@@ -251,41 +249,38 @@ static bool Init(const char* glb_path, const char* tex_path) {
     }
     s_morphs_dirty = false;
 
-    // ── Inverse bind matrices + local TRS + parent hierarchy ────────────────
+    // ── Inverse bind matrices + parent hierarchy ─────────────────────────────
     for (int i=0;i<30;i++){
         memset(s_inv_bind[i],0,64);
         s_inv_bind[i][0]=s_inv_bind[i][5]=s_inv_bind[i][10]=s_inv_bind[i][15]=1.f;
-        s_local_T[i][0]=s_local_T[i][1]=s_local_T[i][2]=0.f;
-        s_local_R[i][0]=s_local_R[i][1]=s_local_R[i][2]=0.f; s_local_R[i][3]=1.f;
+        memcpy(s_bind[i],s_inv_bind[i],64);
         s_bone_parent[i]=-1;
     }
     if (d->skins_count>0) {
         cgltf_skin& sk=d->skins[0];
         if (sk.inverse_bind_matrices) {
             int n=(int)sk.inverse_bind_matrices->count; if(n>30)n=30;
-            for (int i=0;i<n;i++)
+            for (int i=0;i<n;i++) {
                 cgltf_accessor_read_float(sk.inverse_bind_matrices,(size_t)i,s_inv_bind[i],16);
-            fprintf(stdout,"[CharPreview] %d inv_bind loaded\n",n);
+                m4inv_rigid(s_bind[i], s_inv_bind[i]);
+            }
+            fprintf(stdout,"[CharPreview] %d inv_bind+bind loaded\n",n);
         }
-        // Build joint→node map and load TRS + parents
+        // Build parent hierarchy from joint node tree
         int jn=(int)sk.joints_count; if(jn>30)jn=30;
-        // node_index → joint_index (for parent lookup)
-        static int node_to_ji[2048]={}; memset(node_to_ji,-1,sizeof(node_to_ji));
+        static int node_to_ji[2048]; memset(node_to_ji,-1,sizeof(node_to_ji));
         for (int ji=0;ji<jn;ji++) {
             int ni=(int)(sk.joints[ji]-d->nodes);
             if(ni>=0&&ni<2048) node_to_ji[ni]=ji;
         }
         for (int ji=0;ji<jn;ji++) {
             cgltf_node* n=sk.joints[ji];
-            if (n->has_translation){ s_local_T[ji][0]=n->translation[0]; s_local_T[ji][1]=n->translation[1]; s_local_T[ji][2]=n->translation[2]; }
-            if (n->has_rotation)   { s_local_R[ji][0]=n->rotation[0]; s_local_R[ji][1]=n->rotation[1]; s_local_R[ji][2]=n->rotation[2]; s_local_R[ji][3]=n->rotation[3]; }
-            // Find parent: scan all nodes for one that has this node as child
             if (n->parent) {
                 int pni=(int)(n->parent-d->nodes);
                 if(pni>=0&&pni<2048&&node_to_ji[pni]>=0) s_bone_parent[ji]=(int8_t)node_to_ji[pni];
             }
         }
-        fprintf(stdout,"[CharPreview] TRS + hierarchy loaded for %d bones\n",jn);
+        fprintf(stdout,"[CharPreview] hierarchy loaded for %d bones\n",jn);
     }
 
     s_ni=(int)pr.indices->count;
@@ -650,18 +645,19 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     // Hierarchical world transform accumulation:
     //   world[i] = world[parent[i]] * TRS_scaled[i]
     //   ws_mat[i] = world[i] * inv_bind[i]
-    // Propagates parent scale to children (spine scale moves Spine1+Head up, etc.).
-    // At neutral (sx=sy=sz=1 for all): world[i] = bind[i], ws_mat[i] = Identity.
-    // Bone order 0→29 is parent-before-child in this GLB, so one pass is sufficient.
-    float world[30][16];
+    // Hierarchical: ws_local[i]=bind[i]*S[i]*inv_bind[i], ws_mat[i]=ws_mat[parent]*ws_local[i]
+    // Propagates parent scale to children. At neutral S=I: ws_mat[i]=I.
+    // GLB bone order 0→29 is parent-before-child → one forward pass.
     for (int i = 0; i < 30; i++) {
-        float local[16];
-        m4_trs(local, s_local_T[i], s_local_R[i], s_boneScales[i]);
+        float sx=s_boneScales[i][0], sy=s_boneScales[i][1], sz=s_boneScales[i][2];
+        float S[16]={sx,0,0,0, 0,sy,0,0, 0,0,sz,0, 0,0,0,1};
+        float tmp[16], ws_local[16];
+        m4mul(tmp, S, s_inv_bind[i]);
+        m4mul(ws_local, s_bind[i], tmp);
         if (s_bone_parent[i] < 0)
-            memcpy(world[i], local, 64);
+            memcpy(s_ws_mat[i], ws_local, 64);
         else
-            m4mul(world[i], world[(int)s_bone_parent[i]], local);
-        m4mul(s_ws_mat[i], world[i], s_inv_bind[i]);
+            m4mul(s_ws_mat[i], s_ws_mat[(int)s_bone_parent[i]], ws_local);
     }
 }
 
