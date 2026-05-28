@@ -470,10 +470,10 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
         SDL_ReleaseGPUTransferBuffer(dev,tr);
     }
 
-    // Model: translate feet to origin only — bones handle all height/bulk proportions.
-    // Do NOT apply s_height/s_bulk scale here: SetBoneScalesFromDef already embeds H and Fr
-    // in ws_mat, so a non-uniform model-matrix scale would compound those values (1.76^2 = 3.1x).
-    M4 model = m4_translate(0.f, -0.95f, 0.f);
+    // Hierarchical bone propagation (sl[12] *= parent[0]) already moves origins —
+    // per-bone H in setSpine([0]=H) IS setMovementScale. No separate model Y-scale.
+    // Translate: put feet (bind-pose Y ≈ -0.95) at ground (Y=0); offset scales with H.
+    M4 model = m4_translate(0.f, -s_height*0.95f, 0.f);
 
     // Orbit view + perspective
     M4 view = m4_mul(m4_translate(0.f,0.f,-s_dist), m4_mul(m4_rotX(s_pit), m4_rotY(s_yaw)));
