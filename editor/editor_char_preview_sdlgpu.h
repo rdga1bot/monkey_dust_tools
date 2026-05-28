@@ -557,14 +557,13 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
 //   Chest    → Bip01 Spine2 XZ
 //   Arm bulk → UpperArm+Forearm XZ
 //   Frame    → global body-width multiplier on torso XZ
-// Kenshi RE (kenshi_x64.exe.c lines 263517-264450):
-// FUN_140015b63(p,base,scale) = lerp(base,scale,p) — verified 2026-05-29
-// Greenlander male (both race params=1.0):
-//   fStack_198=0.70, fStack_188=1.27, fStack_1a0=1.13, fStack_1b8=0.86, fStack_180=0.60
-// At slider=100: legs_bulk_adj = 1.0*0.70*1.27 = 0.889 — NOT 1.0!
-// The Kenshi mesh is NOT raw T-pose; neutral sliders give these race-adjusted scales.
-// Bone axes (GLB analysis): Spine/Leg localX=+worldY(height), Arm localY=+worldX(length).
-// setSpine(i, localX, localY, localZ) = (height, lateral, depth).
+// Kenshi RE (kenshi_x64.exe.c FUN_140015b63 = lerp, verified 2026-05-29).
+// IMPORTANT: md_human.glb mesh was exported at Kenshi slider=100 proportions —
+// NOT raw T-pose. So slider=100 → ws_mat=I (no deformation) is CORRECT.
+// Race multipliers (0.70/1.27/etc.) apply to raw T-pose only; our mesh already
+// bakes slider=100 state → do NOT apply race multipliers here.
+// Bone axes: Spine/Leg localX=+worldY(height), Arm localY=+worldX(length).
+// setSpine(i, height_localX, lateral_localY, depth_localZ)
 static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     for(int i=0;i<30;i++){ s_boneScales[i][0]=1;s_boneScales[i][1]=1;s_boneScales[i][2]=1; }
 
@@ -574,83 +573,57 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
         s_boneScales[i][0]=wy; s_boneScales[i][1]=wx; s_boneScales[i][2]=wz;
     };
 
-    float H   = cl(body[2]  / 100.f);
-    float Fr  = cl(body[3]  / 100.f);
-    float LL  = cl(body[7]  / 100.f);
-    float Hips= cl(body[15] / 100.f);               // no race mult (Kenshi RE)
-    float Hn  = cl(body[11] / 100.f);               // Hands — no race mult
+    float H   = cl(body[2]  / 100.f);  // Height
+    float Fr  = cl(body[3]  / 100.f);  // Frame
+    float LL  = cl(body[7]  / 100.f);  // Leg length
+    float Wa  = cl(body[10] / 100.f);  // Waist
+    float St  = cl(body[13] / 100.f);  // Stomach
+    float Ch  = cl(body[12] / 100.f);  // Chest
+    float Ab  = cl(body[9]  / 100.f);  // Arm bulk
+    float Sh  = cl(body[8]  / 100.f);  // Shoulders
+    float Hips= cl(body[15] / 100.f);  // Hips
+    float LgB = cl(body[16] / 100.f);  // Legs bulk
+    float Hn  = cl(body[11] / 100.f);  // Hands
+    float Ft  = cl(body[17] / 100.f);  // Feet
 
-    // Race-adjusted factors (Greenlander male): multiply raw slider/100 by race constants
-    // matches Kenshi's actual scale values at each slider position
-    float Wa  = cl(body[10] / 100.f * 0.70f);       // Waist  * fStack_198
-    float St  = cl(body[13] / 100.f * 0.60f);       // Stomach * fStack_180
-    float Ch  = cl(body[12] / 100.f * 1.13f * 0.86f); // Chest * fStack_1a0 * fStack_1b8
-    float Ab  = cl(body[9]  / 100.f * 0.70f * 1.27f); // ArmBulk * fStack_198 * fStack_188
-    float Sh  = cl(body[8]  / 100.f * 1.13f);       // Shoulders * fStack_1a0
-    float LgB = cl(body[16] / 100.f * 0.70f * 1.27f); // LegsBulk * 0.889 at neutral
+    // All =1.0 at slider=100 → ws_mat=I → mesh shows at its designed proportions. ✓
+    // Kenshi formula structure preserved; race mults omitted (baked into mesh).
 
-    // overall_XZ (kenshi line 263670): (LgShape * LgBulk + (Hips-1)/3) * Frame
-    // LgShape = 1.0 (no separate slider in our 18-slot body array)
-    float overall_XZ = cl((1.0f * LgB + (Hips - 1.f) / 3.f) * Fr);
-
-    // Leg length formula (kenshi line 263748): param+0x184 = (H + LL - 1)
-    float leg_Y = cl(H + LL - 1.f);   // combined height+leg scale
+    // overall_XZ: (LgBulk + (Hips-1)/3) * Frame — Kenshi line 263670
+    float overall_XZ = cl((LgB + (Hips - 1.f) / 3.f) * Fr);
 
     // ── Legs ──────────────────────────────────────────────────────────────────
-    // Pelvis [1]: Y=H, XZ=overall_XZ*Fr (from kenshi Pelvis setBoneSize)
-    setSpine(1, H, overall_XZ, overall_XZ);
-    // Thighs/Calves [2,3,7,8]: Y=leg_Y*0.95, XZ=overall_XZ (kenshi line 263686: 0.95 factor)
-    float thigh_Y = cl(leg_Y * 0.95f);
-    for(int ji:{2,3,7,8}) setSpine(ji, thigh_Y, overall_XZ, overall_XZ);
-    // Feet [4,9]: Y=LL (foot length), XZ=Feet*H (foot size)
-    float FtH = cl(body[17] / 100.f * H);
-    for(int ji:{4,9}) setSpine(ji, FtH, LL, FtH);
+    setSpine(1, H, overall_XZ, overall_XZ);  // Pelvis
+    float leg_Y = cl((H + LL - 1.f) * 0.95f);  // Kenshi: (H+LL-1)*0.95 for thigh length
+    for(int ji:{2,3,7,8}) setSpine(ji, leg_Y, overall_XZ, overall_XZ);
+    float FtH = cl(Ft * H);
+    for(int ji:{4,9})       setSpine(ji, FtH, LL, FtH);
     for(int ji:{5,6,10,11}){ s_boneScales[ji][0]=FtH; s_boneScales[ji][1]=FtH; s_boneScales[ji][2]=FtH; }
 
-    // ── Torso ─────────────────────────────────────────────────────────────────
-    // Spine [12]: X=comp(Wa,0.6)*Fr, Y=H, Z=comp(Wa,0.6)*St*Fr (kenshi lines 263808,263822)
+    // ── Torso (Kenshi lines 263822, 263835, 263851) ───────────────────────────
     float WaC = comp(Wa, 0.6f);
-    setSpine(12, H, WaC*Fr, WaC*St*Fr);
-    // Spine1 [13]: X=Ch*Fr, Y=H, Z=St*Fr (kenshi line 263835)
-    setSpine(13, H, Ch*Fr, St*Fr);
-    // Spine2 [14]: X=comp(Ch,0.45)*Fr, Y=H, Z=comp(Ch,0.9)*Fr (kenshi lines 263847-263851)
-    setSpine(14, H, comp(Ch,0.45f)*Fr, comp(Ch,0.9f)*Fr);
+    setSpine(12, H, WaC*Fr,           WaC*St*Fr);        // Spine
+    setSpine(13, H, Ch*Fr,            St*Fr);             // Spine1
+    setSpine(14, H, comp(Ch,0.45f)*Fr, comp(Ch,0.9f)*Fr); // Spine2
 
-    // ── Arms ──────────────────────────────────────────────────────────────────
-    // Clavicles [15,25]: X=Sh*Fr, Y=comp(Sh,0.3)*Fr, Z=Sh*Fr (kenshi lines 264039-264057)
+    // ── Arms (Kenshi lines 264001, 264022, 264041) ────────────────────────────
     float ShY = comp(Sh, 0.3f)*Fr;
     for(int ji:{15,25}){ s_boneScales[ji][0]=Sh*Fr; s_boneScales[ji][1]=ShY; s_boneScales[ji][2]=Sh*Fr; }
-    // UpperArm [16,26]: girth=(Ab*Fr)^2, length=H*(Ab*Fr), depth=comp(Ab,1.5)*(Ab*Fr)
     float AbFr = Ab*Fr;
     float AbZ  = comp(Ab, 1.5f)*Fr;
-    for(int ji:{16,26}){
-        s_boneScales[ji][0]=AbFr*AbFr;
-        s_boneScales[ji][1]=H*AbFr;
-        s_boneScales[ji][2]=AbZ*AbFr;
-    }
-    for(int ji:{17,27}){  // Forearm: no depth variation
-        s_boneScales[ji][0]=AbFr*AbFr;
-        s_boneScales[ji][1]=H*AbFr;
-        s_boneScales[ji][2]=AbFr*AbFr;
-    }
-    for(int ji:{18,28}){  // Hands: additional Hn scale
-        s_boneScales[ji][0]=AbFr*Hn*Hn;
-        s_boneScales[ji][1]=H*AbFr*Hn;
-        s_boneScales[ji][2]=AbFr*Hn*Hn;
-    }
+    for(int ji:{16,26}){ s_boneScales[ji][0]=AbFr*AbFr; s_boneScales[ji][1]=H*AbFr; s_boneScales[ji][2]=AbZ*AbFr; }
+    for(int ji:{17,27}){ s_boneScales[ji][0]=AbFr*AbFr; s_boneScales[ji][1]=H*AbFr; s_boneScales[ji][2]=AbFr*AbFr; }
+    for(int ji:{18,28}){ s_boneScales[ji][0]=AbFr*Hn*Hn; s_boneScales[ji][1]=H*AbFr*Hn; s_boneScales[ji][2]=AbFr*Hn*Hn; }
 
-    // ── Head/Neck ─────────────────────────────────────────────────────────────
-    // Neck [20]: X=NeckWidth*Fr, Y=NeckLength/100, Z=NeckWidth*Fr (kenshi line 264237)
-    float Nw = cl(face[3] / 100.f * 0.60f * 1.13f); // race-adjusted neck width
-    float Nl = cl(face[4] / 100.f);                   // neck length (raw*0.01 in Kenshi)
+    // ── Head/Neck (Kenshi lines 264237, 264251) ───────────────────────────────
+    float Nw = cl(face[3] / 100.f);  // Neck width — no race mult (mesh bakes it)
+    float Nl = cl(face[4] / 100.f);  // Neck length
     setSpine(20, Nl, Nw*Fr, Nw*Fr);
 
-    float Hd = cl(face[0] / 100.f);
-    // Head [21]: kenshi line 264251 — (frame_c*Hd*Hsp*0.01, Hd, frame_c*Hd)
+    float Hd  = cl(face[0] / 100.f);
     float FrH = comp(Fr, 0.25f);
     float Hsp = cl(face[1] / 100.f);
     setSpine(21, Hd, cl(FrH*Hd*Hsp), FrH*Hd);
-    // Jaw [23]
     float jaw = cl(face[17] / 100.f);
     s_boneScales[23][0]=jaw*FrH*Hd*Hsp; s_boneScales[23][1]=Hd; s_boneScales[23][2]=FrH*Hd;
 
