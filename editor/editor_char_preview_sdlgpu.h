@@ -23,7 +23,7 @@ namespace CharPreviewSDLGPU {
 struct Vtx { float px,py,pz, nx,ny,nz, u,v; uint8_t ji[4]; float wt[4]; };
 
 // ── Uniform structs ───────────────────────────────────────────────────────────
-struct VU { float mvp[16]; float normalMat[16]; };  // 128 bytes, set=1
+struct VU { float mvp[16]; };  // 64 bytes, set=1 — normalMat removed (LBS handles normals)
 struct FU {                                          // 48 bytes, set=3
     float skin[3]; float str;
     float sat; float bri; float muscle; float pad;
@@ -31,6 +31,7 @@ struct FU {                                          // 48 bytes, set=3
 };
 
 // ── State ─────────────────────────────────────────────────────────────────────
+static GpuPipeline     s_bg_pipeline;
 static GpuPipeline     s_pipeline;
 static GpuStaticBuffer s_vbo;
 static GpuStaticBuffer s_ibo;
@@ -45,6 +46,8 @@ static bool            s_ok  = false;
 
 // Per-bone scale (xyz) + pivot_y (w) — 30 bones, updated each frame
 static float s_boneScales[30][4]; // [bone_idx][xyzw]
+// World-space scale matrices built from s_boneScales → uploaded to 120×1 texture
+static float s_ws_mat[30][16];    // [bone_idx][col-major mat4]
 
 static SDL_GPUTexture* s_color = nullptr;
 static SDL_GPUTexture* s_depth = nullptr;
@@ -246,18 +249,24 @@ static bool Init(const char* glb_path, const char* tex_path) {
     { uint8_t p[4]={128,128,128,255}; GpuSamplerDesc sd; s_tex_muscle.InitFromMemory(p,1,1,sd); }
     // Blood overlay placeholder: fully transparent (no wounds)
     { uint8_t p[4]={0,0,0,0}; GpuSamplerDesc sd; s_tex_blood.InitFromMemory(p,1,1,sd); }
-    // Bone scale texture: 30×1 RGBA32F — GpuTexture only does RGBA8, so raw SDL_GPU
+    // Bone matrix texture: 120×1 RGBA32F — 30 bones × 4 columns per mat4
+    // Each bone i occupies texels [i*4 .. i*4+3] = columns 0-3 of the 4×4 Ws matrix.
     {
         for (int i=0;i<30;i++){ s_boneScales[i][0]=1;s_boneScales[i][1]=1;s_boneScales[i][2]=1;s_boneScales[i][3]=0; }
+        // Build initial identity Ws matrices before first upload
+        for (int i=0;i<30;i++){
+            memset(s_ws_mat[i],0,64);
+            s_ws_mat[i][0]=s_ws_mat[i][5]=s_ws_mat[i][10]=s_ws_mat[i][15]=1.f;
+        }
         SDL_GPUDevice* dev = md::GpuDevice::Get().SDLDevice();
         SDL_GPUTextureCreateInfo ti={};
         ti.type=SDL_GPU_TEXTURETYPE_2D;
         ti.format=SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;
         ti.usage=SDL_GPU_TEXTUREUSAGE_SAMPLER;
-        ti.width=30; ti.height=1; ti.layer_count_or_depth=1; ti.num_levels=1;
+        ti.width=120; ti.height=1; ti.layer_count_or_depth=1; ti.num_levels=1;
         s_bones_tex=SDL_CreateGPUTexture(dev,&ti);
         if (!s_bones_tex) {
-            fprintf(stderr,"[CharPreview] bones tex create failed: %s\n",SDL_GetError());
+            fprintf(stderr,"[CharPreview] bone mat tex create failed: %s\n",SDL_GetError());
         }
         SDL_GPUSamplerCreateInfo si={};
         si.min_filter=SDL_GPU_FILTER_NEAREST; si.mag_filter=SDL_GPU_FILTER_NEAREST;
@@ -266,20 +275,19 @@ static bool Init(const char* glb_path, const char* tex_path) {
         si.address_mode_v=SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
         si.address_mode_w=SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
         s_bones_sampler=SDL_CreateGPUSampler(dev,&si);
-        // Initial upload (only if texture was created)
         if (s_bones_tex) {
-            uint32_t up_sz=30*4*4; // 30 texels × 4 channels × 4 bytes
+            uint32_t up_sz=120*4*4; // 120 texels × 4 channels × 4 bytes
             SDL_GPUTransferBufferCreateInfo tb={};
             tb.usage=SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD; tb.size=up_sz;
             SDL_GPUTransferBuffer* tr=SDL_CreateGPUTransferBuffer(dev,&tb);
             if (tr) {
                 void* mp=SDL_MapGPUTransferBuffer(dev,tr,false);
-                if(mp){memcpy(mp,s_boneScales,up_sz);SDL_UnmapGPUTransferBuffer(dev,tr);}
+                if(mp){memcpy(mp,s_ws_mat,up_sz);SDL_UnmapGPUTransferBuffer(dev,tr);}
                 SDL_GPUCommandBuffer* uc=SDL_AcquireGPUCommandBuffer(dev);
                 if (uc) {
                     SDL_GPUCopyPass* cp=SDL_BeginGPUCopyPass(uc);
-                    SDL_GPUTextureTransferInfo src={tr,0,(uint32_t)30,(uint32_t)1};
-                    SDL_GPUTextureRegion dst={s_bones_tex,0,0,0,0,0,30,1,1};
+                    SDL_GPUTextureTransferInfo src={tr,0,(uint32_t)120,(uint32_t)1};
+                    SDL_GPUTextureRegion dst={s_bones_tex,0,0,0,0,0,120,1,1};
                     SDL_UploadToGPUTexture(cp,&src,&dst,false);
                     SDL_EndGPUCopyPass(cp);
                     SDL_SubmitGPUCommandBuffer(uc);
@@ -313,6 +321,27 @@ static bool Init(const char* glb_path, const char* tex_path) {
     if (!s_pipeline.Create(pd)) {
         fprintf(stderr,"[CharPreview] pipeline create failed\n"); return false;
     }
+
+    // Background gradient pipeline — fullscreen tri, no VBO, no depth test/write
+    {
+        GpuPipeline::Desc bgpd;
+        bgpd.vert_path = "shaders/char_bg.vert";
+        bgpd.frag_path = "shaders/char_bg.frag";
+        bgpd.layout.count  = 0;
+        bgpd.layout.stride = 0;
+        bgpd.raster.depth_test  = false;
+        bgpd.raster.depth_write = false;
+        bgpd.raster.cull_back   = false;
+        bgpd.vert_uniform_bufs  = 0;
+        bgpd.vert_samplers      = 0;
+        bgpd.frag_samplers      = 0;
+        bgpd.frag_uniform_bufs  = 0;
+        bgpd.color_format       = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+        bgpd.has_depth_target   = true;
+        if (!s_bg_pipeline.Create(bgpd))
+            fprintf(stderr,"[CharPreview] bg pipeline create failed\n");
+    }
+
     s_ok=true;
     return true;
 }
@@ -354,18 +383,18 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
         s_morphs_dirty = false;
     }
 
-    // Upload bone scales via copy pass (before render pass)
+    // Upload bone world-scale matrices (120×1 texture) via copy pass
     if (s_bones_tex) {
         SDL_GPUDevice* dev=md::GpuDevice::Get().SDLDevice();
-        uint32_t up_sz=30*4*4;
+        uint32_t up_sz=120*4*4;
         SDL_GPUTransferBufferCreateInfo tb={};
         tb.usage=SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD; tb.size=up_sz;
         SDL_GPUTransferBuffer* tr=SDL_CreateGPUTransferBuffer(dev,&tb);
         void* mp=SDL_MapGPUTransferBuffer(dev,tr,false);
-        if(mp){memcpy(mp,s_boneScales,up_sz);SDL_UnmapGPUTransferBuffer(dev,tr);}
+        if(mp){memcpy(mp,s_ws_mat,up_sz);SDL_UnmapGPUTransferBuffer(dev,tr);}
         SDL_GPUCopyPass* cp=SDL_BeginGPUCopyPass(cmd);
-        SDL_GPUTextureTransferInfo src={tr,0,(uint32_t)30,(uint32_t)1};
-        SDL_GPUTextureRegion dst={s_bones_tex,0,0,0,0,0,30,1,1};
+        SDL_GPUTextureTransferInfo src={tr,0,(uint32_t)120,(uint32_t)1};
+        SDL_GPUTextureRegion dst={s_bones_tex,0,0,0,0,0,120,1,1};
         SDL_UploadToGPUTexture(cp,&src,&dst,false);
         SDL_EndGPUCopyPass(cp);
         SDL_ReleaseGPUTransferBuffer(dev,tr);
@@ -375,8 +404,6 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
     M4 ms; ms.m[0]=s_bulk; ms.m[5]=s_height; ms.m[10]=s_bulk;
     M4 mt = m4_translate(0.f, -0.95f*s_height, 0.f);
     M4 model = m4_mul(ms, mt);
-    // Normal matrix: inverse of scale = scale(1/bulk, 1/height, 1/bulk)
-    M4 norm; norm.m[0]=1.f/s_bulk; norm.m[5]=1.f/s_height; norm.m[10]=1.f/s_bulk;
 
     // Orbit view + perspective
     M4 view = m4_mul(m4_translate(0.f,0.f,-s_dist), m4_mul(m4_rotX(s_pit), m4_rotY(s_yaw)));
@@ -388,7 +415,7 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
     SDL_GPUColorTargetInfo ct={};
     ct.texture=s_color; ct.load_op=SDL_GPU_LOADOP_CLEAR;
     ct.store_op=SDL_GPU_STOREOP_STORE;
-    ct.clear_color={0.10f,0.10f,0.13f,1.f};
+    ct.clear_color={0.0f,0.0f,0.0f,1.f};  // bg pipeline overwrites this
 
     SDL_GPUDepthStencilTargetInfo di={};
     di.texture=s_depth; di.clear_depth=1.f;
@@ -398,6 +425,12 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
 
     SDL_GPURenderPass* rp=SDL_BeginGPURenderPass(cmd,&ct,1,&di);
     if (!rp) return;
+
+    // ── Background gradient (fullscreen tri, no VBO) ─────────────────────────
+    if (s_bg_pipeline.SDLPipeline()) {
+        SDL_BindGPUGraphicsPipeline(rp, s_bg_pipeline.SDLPipeline());
+        SDL_DrawGPUPrimitives(rp, 3, 1, 0, 0);
+    }
 
     if (!s_pipeline.SDLPipeline() || !s_vbo.SDLBuffer() || !s_ibo.SDLBuffer() ||
         !s_tex.SDLTexture()        || !s_tex.SDLSampler()        ||
@@ -419,7 +452,7 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
     SDL_GPUTextureSamplerBinding bsb{s_bones_tex, s_bones_sampler};
     SDL_BindGPUVertexSamplers(rp,0,&bsb,1);
 
-    VU vu; memcpy(vu.mvp, mvp.m,64); memcpy(vu.normalMat,norm.m,64);
+    VU vu; memcpy(vu.mvp, mvp.m, 64);
     SDL_PushGPUVertexUniformData(cmd,0,&vu,sizeof(vu));
 
     FU fu{};
@@ -443,66 +476,108 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
 // All body/face neutrals = Kenshi range midpoints (kBodyDef / kFaceDef).
 // scale = val/neutral → 1.0 at neutral. Clamped [0.1, 4].
 //
-// Body neutrals:  [2]Ht=100 [3]Fr=100 [7]LL=100 [8]Sho=100 [9]Arm=110
-//   [10]Wst=98 [11]Hnd=100 [12]Cst=110 [13]Stm=130 [15]Hip=95 [16]Leg=100 [17]Ft=100
-// Face neutrals:  [0]HdSz=100 [1]HdSh=100 [2]Nk=108 [3]NkW=110 [17]Jaw=100
-//   (face[4]=Neck length shifts Jaw from legacy face[16] → face[17])
+// Body neutrals (corrected per male_editor.cfg):
+//   [2]Ht=100 [3]Fr=100 [7]LL=100 [8]Sho=100 [9]Arm=107.5
+//   [10]Wst=100 [11]Hnd=100 [12]Cst=100 [13]Stm=100 [15]Hip=100 [16]Leg=100 [17]Ft=100
+// Face neutrals: [0]HdSz=100 [1]HdSh=100 [2]Nk=108 [3]NkW=110 [17]Jaw=100
+// RE-verified axis assignments (kenshi_x64.exe.c analysis):
+//   scale = slider_value / 100.0f  (direct linear, neutral=100)
+//   Stomach  → Bip01 Spine  Z only  (belly DEPTH, not width — prevents barrel-chest)
+//   Waist    → Bip01 Spine1 XZ
+//   Chest    → Bip01 Spine2 XZ
+//   Arm bulk → UpperArm+Forearm XZ
+//   Frame    → global body-width multiplier on torso XZ
+// RE-verified mapping from kenshi_x64.exe.c FUN_140015b63 (lines 263517-264450).
+// Kenshi uses bone scale ONLY — no blend shapes for body proportions.
+// comp(x,k) = (x-1)*k+1  compresses deviation toward neutral (reduces rubber-tube).
+// H=Height*0.01, Fr=Frame*0.01  — H scales Y chain, Fr scales all XZ.
 static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     for(int i=0;i<30;i++){ s_boneScales[i][0]=1;s_boneScales[i][1]=1;s_boneScales[i][2]=1;s_boneScales[i][3]=0; }
 
     auto clamp=[](float x) -> float { return x<0.1f?0.1f:(x>4.f?4.f:x); };
+    // comp(x,k): compress deviation — (x-1)*k+1. Matches Kenshi's fVar=(fVar-1)*k+1.
+    auto comp=[&](float x, float k) -> float { return clamp(1.f + (x - 1.f)*k); };
 
-    // ── Frame / Height ────────────────────────────────────────────────────
-    float fr = clamp(body[3] / 100.f);   // Frame, neutral=100
-    float ht = clamp(body[2] / 100.f);   // Height, neutral=100
+    // body[2]=Height(80-120, neu=100), body[3]=Frame(80-120), body[7]=Leg length,
+    // body[8]=Shoulders, body[9]=Arm bulk, body[10]=Waist, body[11]=Hands,
+    // body[12]=Chest, body[13]=Stomach, body[15]=Hips, body[16]=Legs bulk, body[17]=Feet
 
-    // ── Legs ──────────────────────────────────────────────────────────────
-    float ly  = clamp(body[7]  / 100.f * ht);   // Leg length × height, neutral=100
-    float lxz = clamp(body[16] / 100.f * fr);   // Legs bulk  × frame,  neutral=100
-    for(int ji:{2,3,7,8}){ s_boneScales[ji][0]=lxz; s_boneScales[ji][1]=ly; s_boneScales[ji][2]=lxz; }
+    float H  = clamp(body[2]  / 100.f);   // Height factor
+    float Fr = clamp(body[3]  / 100.f);   // Frame factor (global XZ scale)
+    float LL = clamp(body[7]  / 100.f);   // Leg length (no race mult for humans)
+    float Wa = clamp(body[10] / 100.f);   // Waist
+    float St = clamp(body[13] / 100.f);   // Stomach
+    float Ch = clamp(body[12] / 100.f);   // Chest
+    float Ab = clamp(body[9]  / 100.f);   // Arm bulk
+    float Sh = clamp(body[8]  / 100.f);   // Shoulders
+    float Hd = clamp(face[0]  / 100.f);   // Head size
+    float Nl = clamp(face[2]  / 108.f);   // Neck length (neutral≈108)
+    float Nw = clamp(face[3]  / 110.f);   // Neck width  (neutral≈110)
+    float Ft = clamp(body[17] / 100.f * H); // Foot scale * Height
 
-    float ft = clamp(body[17] / 100.f * fr);    // Feet, neutral=100
-    for(int ji:{4,5,6,9,10,11}){ s_boneScales[ji][0]=ft; s_boneScales[ji][1]=ft; s_boneScales[ji][2]=ft; }
+    // ── Bip01 Pelvis [1]: legs determine XZ, Height determines Y ──────────
+    s_boneScales[1][0]=LL*Fr; s_boneScales[1][1]=H; s_boneScales[1][2]=LL*Fr;
 
-    // ── Pelvis ────────────────────────────────────────────────────────────
-    float hps = clamp(body[15] / 95.f * fr);    // Hips × frame, neutral=95
-    float wst = clamp(body[10] / 98.f);         // Waist,        neutral=98
-    s_boneScales[1][0]=clamp(hps*wst); s_boneScales[1][2]=clamp(hps*wst);
+    // ── Thighs + Calves [2,3,7,8]: leg length (Y) + legs bulk (XZ) ───────
+    float LgBulk = clamp(body[16] / 100.f * Fr);
+    for(int ji:{2,3,7,8}){ s_boneScales[ji][0]=LgBulk; s_boneScales[ji][1]=LL*H; s_boneScales[ji][2]=LgBulk; }
 
-    // ── Spine ─────────────────────────────────────────────────────────────
-    float stm = clamp(body[13] / 130.f * fr);   // Stomach → Spine XZ, neutral=130
-    float cst = clamp(body[12] / 110.f * fr);   // Chest   → Spine2 XZ, neutral=110
-    s_boneScales[12][0]=stm; s_boneScales[12][1]=ht; s_boneScales[12][2]=stm;
-    s_boneScales[13][0]=fr;  s_boneScales[13][1]=ht; s_boneScales[13][2]=fr;   // Spine1
-    s_boneScales[14][0]=cst; s_boneScales[14][1]=ht; s_boneScales[14][2]=cst;
+    // ── Feet [4,5,6,9,10,11] ──────────────────────────────────────────────
+    for(int ji:{4,9}){ s_boneScales[ji][0]=Ft*Ft; s_boneScales[ji][1]=LL; s_boneScales[ji][2]=Ft*Ft; }
+    for(int ji:{5,6,10,11}){ s_boneScales[ji][0]=Ft*Ft; s_boneScales[ji][1]=Ft*Ft; s_boneScales[ji][2]=Ft*Ft; }
 
-    // ── Shoulders / arms ──────────────────────────────────────────────────
-    float shou_r = clamp(body[8] / 100.f);                       // Shoulders, neutral=100
-    float shou   = clamp(shou_r * fr);
-    float shou_y = clamp((shou_r-1.f)*0.3f + 1.f);
-    for(int ji:{15,25}){ s_boneScales[ji][0]=shou; s_boneScales[ji][1]=shou_y; s_boneScales[ji][2]=shou; }
+    // ── Bip01 Spine [12]: waist compressed + stomach depth ────────────────
+    // RE: Vector3(comp(Wa,0.6)*Fr, H, comp(Wa,0.6)*St*Fr)
+    float WaC = comp(Wa, 0.6f);
+    s_boneScales[12][0]=WaC*Fr; s_boneScales[12][1]=H; s_boneScales[12][2]=WaC*St*Fr;
 
-    float arm_r = clamp(body[9] / 110.f);                        // Arm bulk, neutral=110
-    float arm   = clamp(arm_r * fr);
-    float arm_z = clamp(((arm_r-1.f)*1.5f + 1.f) * fr);
-    for(int ji:{16,26}){ s_boneScales[ji][0]=clamp(arm*shou_r); s_boneScales[ji][2]=clamp(arm_z*shou_r); }
-    for(int ji:{17,27}){ s_boneScales[ji][0]=arm; s_boneScales[ji][2]=arm_z; }
+    // ── Bip01 Spine1 [13]: chest width, stomach depth ────────────────────
+    // RE: Vector3(Ch*Fr, H, St*Fr)
+    s_boneScales[13][0]=Ch*Fr; s_boneScales[13][1]=H; s_boneScales[13][2]=St*Fr;
 
-    float hnd = clamp(body[11] / 100.f);                         // Hands, neutral=100
-    for(int ji:{18,28}){ s_boneScales[ji][0]=hnd; s_boneScales[ji][1]=hnd; s_boneScales[ji][2]=hnd; }
+    // ── Bip01 Spine2 [14]: chest compressed (0.45 X, 0.9 Z) ──────────────
+    // RE: Vector3(comp(Ch,0.45)*Fr, H, comp(Ch,0.9)*Fr)
+    s_boneScales[14][0]=comp(Ch,0.45f)*Fr; s_boneScales[14][1]=H; s_boneScales[14][2]=comp(Ch,0.9f)*Fr;
 
-    // ── Head / neck ────────────────────────────────────────────────────────
-    float hdsz = clamp(face[0] / 100.f);                         // Head size, neutral=100
-    float hdsh = clamp(1.f + (face[1] / 100.f - 1.f) * 1.f);    // Head shape ±10%, neutral=100
-    s_boneScales[21][0]=clamp(hdsz*hdsh); s_boneScales[21][1]=hdsz; s_boneScales[21][2]=hdsz;
+    // ── Clavicles [15,25]: shoulders XZ, compressed Y ────────────────────
+    // RE: Vector3(Sh*Fr, comp(Sh,0.3)*Fr, Sh*Fr)
+    float ShY = comp(Sh, 0.3f)*Fr;
+    for(int ji:{15,25}){ s_boneScales[ji][0]=Sh*Fr; s_boneScales[ji][1]=ShY; s_boneScales[ji][2]=Sh*Fr; }
 
-    // face[17]=Jaw (Neck length at face[4] shifted Jaw from legacy face[16] → face[17])
+    // ── UpperArm [16,26]: quadratic bulk scaling (RE-verified) ───────────
+    // RE base=(Ab*Fr, H, comp(Ab,1.5)*Fr); final = base * Ab*Fr
+    float AbFr = Ab*Fr;
+    float AbZ  = comp(Ab, 1.5f)*Fr;
+    for(int ji:{16,26}){
+        s_boneScales[ji][0]=AbFr*AbFr;
+        s_boneScales[ji][1]=H*AbFr;
+        s_boneScales[ji][2]=AbZ*AbFr;
+    }
+    // ── Forearm [17,27]: simpler bulk (base * Ab*Fr) ──────────────────────
+    for(int ji:{17,27}){
+        s_boneScales[ji][0]=AbFr*AbFr;
+        s_boneScales[ji][1]=H*AbFr;
+        s_boneScales[ji][2]=AbFr*AbFr;
+    }
+
+    // ── Hands [18,28]: hands slider squared (RE: base*hands twice) ────────
+    float Hn = clamp(body[11] / 100.f);
+    for(int ji:{18,28}){ s_boneScales[ji][0]=AbFr*Hn*Hn; s_boneScales[ji][1]=H*AbFr*Hn; s_boneScales[ji][2]=AbFr*Hn*Hn; }
+
+    // ── Neck [20]: width, length, depth ───────────────────────────────────
+    // RE: Vector3(Nw*Fr, Nl*0.01, NeckDepth*Fr)
+    s_boneScales[20][0]=Nw*Fr; s_boneScales[20][1]=Nl; s_boneScales[20][2]=Nw*Fr;
+
+    // ── Head [21]: frame-compressed + head size + shape ───────────────────
+    // RE: Vector3(comp(Fr,0.25)*Hd*Hshape*0.01, Hd, comp(Fr,0.25)*Hd)
+    float FrH = comp(Fr, 0.25f);
+    float Hsp = clamp(face[1] / 100.f);
+    s_boneScales[21][0]=clamp(FrH*Hd*Hsp); s_boneScales[21][1]=Hd; s_boneScales[21][2]=FrH*Hd;
+
+    // ── Jaw [23]: jaw slider scales on top of Head scale ──────────────────
+    // RE: Vector3(Jaw*0.01,1,1) * Head_scale_vector
     float jaw = clamp(face[17] / 100.f);
-    s_boneScales[23][0]=clamp(jaw*hdsz); s_boneScales[23][1]=hdsz; s_boneScales[23][2]=hdsz;
-
-    float ny  = clamp(face[2] / 108.f);                          // Neck Y, neutral=108
-    float nxz = clamp(face[3] / 110.f * shou_r);                 // Neck XZ × shoulders, neutral=110
-    s_boneScales[20][0]=nxz; s_boneScales[20][1]=ny; s_boneScales[20][2]=nxz;
+    s_boneScales[23][0]=jaw*FrH*Hd*Hsp; s_boneScales[23][1]=Hd; s_boneScales[23][2]=FrH*Hd;
 
     // ── Pivot Y: PARENT joint world-Y (not bone center). Scaling from the ─
     // joint keeps the mesh connected — shrinking a thigh pulls the knee up,
@@ -540,34 +615,87 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
         1.00f,  // 29 Prop2
     };
     for(int i=0;i<30;i++) s_boneScales[i][3]=kPivY[i];
+
+    // Build 4×4 world-space scale matrices from s_boneScales[i] = (sx,sy,sz,pivotY).
+    // Ws = T(0,py,0) * Scale(sx,sy,sz) * T(0,-py,0)  stored column-major.
+    // At default (1,1,1,pivotY): Ws = Identity.
+    for (int i = 0; i < 30; i++) {
+        float sx=s_boneScales[i][0], sy=s_boneScales[i][1];
+        float sz=s_boneScales[i][2], py=s_boneScales[i][3];
+        float* M=s_ws_mat[i];
+        M[ 0]=sx; M[ 1]=0.f; M[ 2]=0.f; M[ 3]=0.f;  // col 0
+        M[ 4]=0.f; M[ 5]=sy; M[ 6]=0.f; M[ 7]=0.f;  // col 1
+        M[ 8]=0.f; M[ 9]=0.f; M[10]=sz; M[11]=0.f;  // col 2
+        M[12]=0.f; M[13]=py*(1.f-sy); M[14]=0.f; M[15]=1.f;  // col 3
+    }
 }
 
 // ── Face morph target wiring ─────────────────────────────────────────────────
 // face[i] → (positive morph name, negative morph name).
 // Weight at neutral (def): 0.  Above def → pos weight.  Below def → neg weight.
 struct FME { int idx; const char* pos; const char* neg; };
+// face[] index → (pos morph name, neg morph name)
+// All indices map to kFaceLbl[] in character_editor.h.
+// face[14]="Eyes depth"  → shallow_eyes   (was unused "Cheekbone ht.")
+// face[22]="Eyes tilt"   → tiltup/tiltdown_eyes (was unused "Chin width")
+// face[23]="Nose pos."   → high_nose      (was unused "Chin protrusion")
+// face[10]="Nose length" → long_nose      (corrected from high_nose)
 static const FME kFaceMorphMap[] = {
-    {  5, "big_eyes",           nullptr            },
-    {  6, "narrow_eyes",        nullptr            },
-    {  7, "close_eyes",         nullptr            },
-    {  8, "high_eyes",          nullptr            },
-    {  9, "wide_nose",          nullptr            },
-    { 10, "high_nose",          nullptr            },
-    { 11, "arch_nose",          nullptr            },
-    { 12, "tiltup_nose",        "tiltdown_nose"    },
-    { 13, "wide_cheekbones",    "narrow_cheekbones"},
-    { 15, "tiltup_brow",        "tiltdown_brow"    },
-    { 16, "high_brow",          "low_brow"         },
-    { 18, "wide_mouth",         nullptr            },
-    { 20, "big_mouth",          nullptr            },
-    { 21, "overbite",           "underbite"        },
+    {  5, "big_eyes",           nullptr            },  // Eye size
+    {  6, "narrow_eyes",        nullptr            },  // Eye shape
+    {  7, "close_eyes",         nullptr            },  // Eye spacing
+    {  8, "high_eyes",          nullptr            },  // Eye height
+    {  9, "wide_nose",          nullptr            },  // Nose width
+    { 10, "long_nose",          nullptr            },  // Nose length  ← fixed (was high_nose)
+    { 11, "arch_nose",          nullptr            },  // Nose depth
+    { 12, "tiltup_nose",        "tiltdown_nose"    },  // Nose tip
+    { 13, "wide_cheekbones",    "narrow_cheekbones"},  // Cheekbone
+    { 14, "shallow_eyes",       nullptr            },  // Eyes depth   ← new
+    { 15, "tiltup_brow",        "tiltdown_brow"    },  // Brow
+    { 16, "high_brow",          "low_brow"         },  // Brow height
+    { 18, "wide_mouth",         nullptr            },  // Mouth width
+    { 20, "big_mouth",          nullptr            },  // Lips
+    { 21, "overbite",           "underbite"        },  // Chin
+    { 22, "tiltup_eyes",        "tiltdown_eyes"    },  // Eyes tilt    ← new
+    { 23, "high_nose",          nullptr            },  // Nose pos.    ← new
 };
-static constexpr int kFaceMorphMapN = 14;
+static constexpr int kFaceMorphMapN = 17;
 
 static int s_morph_idx_by_name(const char* name) {
     for (int i = 0; i < s_morph_count; ++i)
         if (strcmp(s_morph_names[i], name) == 0) return i;
     return -1;
+}
+
+// Body morph weights — SECONDARY organic layer (bone scale is primary, matches Kenshi RE).
+// Kenshi uses bone-only; morphs here add soft-tissue deformation on top.
+// Weights are reduced (0.3x) to avoid fighting with bone scale.
+// Negative deviations → no morph (bone scale handles the "thin" side).
+static void SetBodyMorphWeights(const float body[18], const float face[24]) {
+    auto set = [](const char* n, float w) {
+        int mi=s_morph_idx_by_name(n);
+        if(mi>=0) s_morph_weights[mi]=w<0.f?0.f:(w>1.f?1.f:w);
+    };
+    auto pd = [](float v, float neu, float rng) -> float {
+        float d=(v-neu)/rng; return d<0.f?0.f:(d>1.f?1.f:d);
+    };
+    set("fat",      (pd(body[13],100.f,90.f)*0.65f
+                   + pd(body[15],100.f,45.f)*0.20f
+                   + pd(body[12],100.f,40.f)*0.15f) * 0.3f);
+
+    set("muscular", (pd(body[9], 100.f,45.f)*0.65f
+                   + pd(body[8], 100.f,10.f)*0.15f
+                   + pd(body[12],100.f,40.f)*0.20f) * 0.3f);
+
+    set("longlegs", pd(body[7], 100.f,15.f) * 0.3f);
+    set("bighead",  pd(face[0], 100.f,10.f) * 0.3f);
+
+    set("broadshdr",(pd(body[3], 100.f,20.f)*0.55f
+                   + pd(body[8], 100.f,10.f)*0.45f) * 0.3f);
+
+    set("tall",     pd(body[2], 100.f,20.f) * 0.15f);
+
+    s_morphs_dirty = true;
 }
 
 // Call once per frame with current face[], def[], lo[], hi[] arrays.
