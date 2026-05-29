@@ -342,6 +342,8 @@ static bool Init(const char* glb_path, const char* tex_path) {
         for (int ai=0;ai<(int)d->animations_count;++ai){
             cgltf_animation& anim=d->animations[ai];
             if (!anim.name||strcmp(anim.name,"idle_stand_normal")!=0) continue;
+            // idle_stand_normal has 2 keyframes: t=0 (T-pose) and t=0.033 (natural stand).
+            // Use last frame = natural standing pose with arms at sides.
             for (int ci=0;ci<(int)anim.channels_count;++ci){
                 cgltf_animation_channel& ch=anim.channels[ci];
                 if (!ch.target_node||!ch.sampler) continue;
@@ -351,12 +353,13 @@ static bool Init(const char* glb_path, const char* tex_path) {
                 int ji=node_to_ji[ni];
                 if (ji<0||ji>=30) continue;
                 if (ch.sampler->output&&ch.sampler->output->count>0) {
-                    cgltf_accessor_read_float(ch.sampler->output, 0, s_idle_rot[ji], 4);
+                    size_t last = ch.sampler->output->count - 1;
+                    cgltf_accessor_read_float(ch.sampler->output, last, s_idle_rot[ji], 4);
                     s_idle_has_rot[ji]=true;
                 }
             }
             s_idle_loaded=true;
-            fprintf(stdout,"[CharPreview] idle_stand_normal: %d rot channels loaded\n",(int)anim.channels_count);
+            fprintf(stdout,"[CharPreview] idle_stand_normal: %d rot channels loaded (last frame)\n",(int)anim.channels_count);
             break;
         }
     }
