@@ -87,6 +87,7 @@ static SDL_GPUTexture* s_depth = nullptr;
 static int             s_rtt_w = 0, s_rtt_h = 0;
 
 static float  s_yaw = 0.18f, s_pit = -0.06f, s_dist = 2.6f;
+static float  s_lookat_y = 0.f;   // vertical pivot offset (0=full body, ~0.85=face)
 static bool   s_drag = false;
 static ImVec2 s_d0;
 static float  s_y0;
@@ -408,7 +409,7 @@ static bool Init(const char* glb_path, const char* tex_path) {
     pd.layout.attribs[4] = { 4, 36, GpuAttribFmt::F4 };    // aWeights
     pd.raster.depth_test = true;
     pd.raster.depth_write = true;
-    pd.raster.cull_back = true;
+    pd.raster.cull_back = false;  // shorts inner faces need rendering; body inner faces ambient-dark (OK)
     pd.vert_uniform_bufs = 1;   // set=1 binding=0: VU
     pd.vert_samplers = 1;       // set=1 binding=1: uBoneScales (bone scale texture)
     pd.frag_samplers = 4;       // set=2: body_diffuse, head_diffuse, muscle_mask, blood_overlay
@@ -504,7 +505,7 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
     M4 model = m4_translate(0.f, -s_height*0.95f, 0.f);
 
     // Orbit view + perspective
-    M4 view = m4_mul(m4_translate(0.f,0.f,-s_dist), m4_mul(m4_rotX(s_pit), m4_rotY(s_yaw)));
+    M4 view = m4_mul(m4_translate(0.f, -s_lookat_y, -s_dist), m4_mul(m4_rotX(s_pit), m4_rotY(s_yaw)));
     float asp=(float)s_rtt_w/(float)s_rtt_h;
     M4 proj = m4_persp(0.78f, asp, 0.05f, 10.f);
     M4 mvp  = m4_mul(proj, m4_mul(view, model));
@@ -839,6 +840,23 @@ static void SetMorphWeightsFromFace(const float face[], const float def[],
     s_morphs_dirty = true;
 }
 
+// ── Camera preset per active tab (call when tab changes) ─────────────────────
+// tab: 0=BODY (full body), 1=FACE (face close-up), 2=HAIR (same as FACE)
+static void SetCameraForTab(int tab) {
+    if (tab == 0) {
+        s_dist     = 2.6f;
+        s_pit      = -0.06f;
+        s_lookat_y = 0.f;
+    } else {
+        // FACE / HAIR: zoom to head (model-space head Y ≈ 1.7-1.9, feet at -s_height*0.95)
+        // After model transform head is at worldY ≈ 1.85 - s_height*0.95 ≈ 0.9.
+        // lookat_y shifts view so camera aims at face centre.
+        s_dist     = 1.0f;
+        s_pit      = 0.04f;
+        s_lookat_y = -(0.90f - s_height * 0.95f);  // face world-Y in camera space
+    }
+}
+
 // ── DrawInImGui: orbit input + show RTT ──────────────────────────────────────
 static void DrawInImGui(float W, float H,
                         float height_scale, float bulk_scale,
@@ -899,7 +917,7 @@ static void DrawInImGui(float W, float H,
     // ── Height ruler overlay (right edge) ────────────────────────────────────
     // project (0, world_y, 0) → screen_y using the same view+proj as RenderFrame
     {
-        M4 view = m4_mul(m4_translate(0.f,0.f,-s_dist), m4_mul(m4_rotX(s_pit), m4_rotY(s_yaw)));
+        M4 view = m4_mul(m4_translate(0.f,-s_lookat_y,-s_dist), m4_mul(m4_rotX(s_pit), m4_rotY(s_yaw)));
         M4 proj = m4_persp(0.78f, (float)iw/(float)ih, 0.05f, 10.f);
         M4 vp   = m4_mul(proj, view);
 
