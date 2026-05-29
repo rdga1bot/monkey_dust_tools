@@ -747,7 +747,14 @@ static void Draw() {
             bool active = (s_tab == t);
             if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.549f,0.431f,0.251f,1.f});
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {2.f, 4.f});
-            if (ImGui::Button(kTabLbl[t], {bw3, 0.f})) s_tab = t;
+            if (ImGui::Button(kTabLbl[t], {bw3, 0.f})) {
+                if (s_tab != t) {
+                    s_tab = t;
+#ifdef MD_SDL_GPU
+                    CharPreviewSDLGPU::SetCameraForTab(t);
+#endif
+                }
+            }
             ImGui::PopStyleVar();
             if (active) ImGui::PopStyleColor();
         }
