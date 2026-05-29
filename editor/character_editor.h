@@ -832,6 +832,9 @@ static void Draw() {
             if (s_tab == 0) { for (int i = 2; i < BODY_N; ++i) s_def.body[i] = randDef(kBodyLo[i], kBodyHi[i], kBodyDef[i]); }
             if (s_tab == 1) { for (int i = 0; i < FACE_N; ++i) s_def.face[i] = randDef(kFaceLo[i], kFaceHi[i], kFaceDef[i]); }
             if (s_tab == 2) { for (int i = 0; i < 3; ++i) s_def.hair_f[i] = randDef(0.f, 100.f, kHairDef[i]); }
+#ifdef MD_SDL_GPU
+            CharPreviewSDLGPU::ResetAnimPhase();
+#endif
         }
         ImGui::SameLine(0.f, spc);
         if (ImGui::Button("RAND ALL##cc", {bw3, 0.f})) {
@@ -840,9 +843,17 @@ static void Draw() {
             s_def.skin_rgb[0] = 0.35f + (rand()%100)/100.f * 0.55f;
             s_def.skin_rgb[1] = 0.25f + (rand()%100)/100.f * 0.45f;
             s_def.skin_rgb[2] = 0.15f + (rand()%100)/100.f * 0.35f;
+#ifdef MD_SDL_GPU
+            CharPreviewSDLGPU::ResetAnimPhase();
+#endif
         }
         ImGui::SameLine(0.f, spc);
-        if (ImGui::Button("RESET##cc", {bw3, 0.f})) { s_def = Def{}; }
+        if (ImGui::Button("RESET##cc", {bw3, 0.f})) {
+            s_def = Def{};
+#ifdef MD_SDL_GPU
+            CharPreviewSDLGPU::ResetAnimPhase();
+#endif
+        }
 
         ImGui::PopStyleVar();
     }

@@ -179,11 +179,15 @@ static SDL_GPUTexture* s_color = nullptr;
 static SDL_GPUTexture* s_depth = nullptr;
 static int             s_rtt_w = 0, s_rtt_h = 0;
 
-static float  s_yaw = 0.18f, s_pit = -0.06f, s_dist = 2.6f;
-static float  s_lookat_y = 0.f;   // vertical pivot offset (0=full body, ~0.85=face)
-static bool   s_drag = false;
-static ImVec2 s_d0;
-static float  s_y0;
+static float    s_yaw = 0.18f, s_pit = -0.06f, s_dist = 2.6f;
+static float    s_lookat_y = 0.f;   // vertical pivot offset (0=full body, ~0.88=face)
+static bool     s_drag = false;
+static ImVec2   s_d0;
+static float    s_y0;
+static uint64_t s_anim_epoch_ms = 0; // breathing phase reset epoch
+
+// Reset breathing animation to t=0 (natural rest) — call on RAND/RESET.
+static void ResetAnimPhase() { s_anim_epoch_ms = SDL_GetTicks(); }
 
 // ── Morph target (blend shape) state ─────────────────────────────────────────
 static Vtx*   s_base_verts_cpu  = nullptr;   // persistent base mesh (not freed after GPU upload)
@@ -983,7 +987,7 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     static float s_pose_rot[30][4];
     static float s_pose_tra[30][3];
     if (s_breath_loaded && s_breath_len > 0.f) {
-        float t = fmodf((float)(SDL_GetTicks() * 0.001), s_breath_len);
+        float t = fmodf((float)((SDL_GetTicks() - s_anim_epoch_ms) * 0.001), s_breath_len);
         SampleBreathing(t, s_pose_rot, s_pose_tra);
     } else {
         // Fallback: copy idle pose
@@ -1255,10 +1259,12 @@ static void SetCameraForTab(int tab) {
         // FACE / HAIR: face close-up — reset yaw to face straight-on, zoom in.
         // Face world-Y ≈ head_bind_Y(~1.80) - model_offset(s_height*0.95)
         // With idle lean the effective face Y is slightly lower (~0.78 of height).
-        s_dist     = 0.80f;
+        s_dist     = 0.72f;
         s_pit      = 0.f;
         s_yaw      = 0.f;   // reset to front view
-        s_lookat_y = s_height * 0.78f;
+        // Mesh Y max=1.946, face center ≈1.80. World Y = mesh_y - s_height*0.95.
+        // At neutral height: world_face = 1.80-0.95 = 0.85 → coefficient 0.88 gives slight headroom.
+        s_lookat_y = s_height * 0.88f;
     }
 }
 
@@ -1289,15 +1295,15 @@ static void DrawInImGui(float W, float H,
 
     ImVec2 origin=ImGui::GetCursorScreenPos();
 
-    // Invisible button captures mouse input
-    ImGui::InvisibleButton("##cpv",{W,H}, ImGuiButtonFlags_MouseButtonLeft);
+    // Invisible button captures mouse input (RMB for orbit)
+    ImGui::InvisibleButton("##cpv",{W,H}, ImGuiButtonFlags_MouseButtonRight);
     bool hov=ImGui::IsItemHovered();
     ImGuiIO& io=ImGui::GetIO();
 
-    // LMB drag = yaw only (no pitch)
-    if (hov && io.MouseClicked[0]) { s_drag=true; s_d0=io.MousePos; s_y0=s_yaw; }
+    // RMB drag = yaw only (no pitch)
+    if (hov && io.MouseClicked[1]) { s_drag=true; s_d0=io.MousePos; s_y0=s_yaw; }
     if (s_drag) {
-        if (io.MouseDown[0]) s_yaw = s_y0 + (io.MousePos.x - s_d0.x) * 0.007f;
+        if (io.MouseDown[1]) s_yaw = s_y0 + (io.MousePos.x - s_d0.x) * 0.007f;
         else s_drag = false;
     }
     // Scroll = zoom
@@ -1383,7 +1389,7 @@ static void DrawInImGui(float W, float H,
     // Hint
     ImGui::SetCursorScreenPos({origin.x+4, origin.y+H-20});
     ImGui::PushStyleColor(ImGuiCol_Text,IM_COL32(160,160,180,160));
-    ImGui::TextUnformatted("LMB=rotate  Scroll=zoom");
+    ImGui::TextUnformatted("RMB=rotate  Scroll=zoom");
     ImGui::PopStyleColor();
 }
 
