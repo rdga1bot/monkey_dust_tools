@@ -62,6 +62,8 @@ static float s_inv_bind[30][16];   // inverseBindMatrices from GLB (world→bone
 static float s_bind[30][16];       // bind matrices = inv(inv_bind)
 static float s_bind_local[30][16]; // bind_local[i] = inv_bind[parent] * bind[i]
 static int8_t s_bone_parent[30];   // parent joint index, -1 for root
+static float s_idle_rot[30][4];    // idle_stand_normal frame-0 quaternion (xyzw) per bone
+static bool  s_idle_loaded = false;
 
 // col-major mat4 multiply: C = A * B
 static void m4mul(float* C, const float* A, const float* B) {
@@ -70,6 +72,16 @@ static void m4mul(float* C, const float* A, const float* B) {
         float s=0.f; for (int k=0;k<4;k++) s+=A[k*4+i]*B[j*4+k]; T[j*4+i]=s;
     }
     memcpy(C,T,64);
+}
+// Build col-major mat4 from unit quaternion q=(xyzw) + translation t.
+static void m4_from_quat_t(float* M, const float q[4], const float t[3]) {
+    float x=q[0],y=q[1],z=q[2],w=q[3];
+    float x2=x+x,y2=y+y,z2=z+z;
+    float xx=x*x2,xy=x*y2,xz=x*z2,yy=y*y2,yz=y*z2,zz=z*z2,wx=w*x2,wy=w*y2,wz=w*z2;
+    M[0]=1-(yy+zz); M[1]=xy+wz;     M[2]=xz-wy;      M[3]=0;
+    M[4]=xy-wz;     M[5]=1-(xx+zz); M[6]=yz+wx;      M[7]=0;
+    M[8]=xz+wy;     M[9]=yz-wx;     M[10]=1-(xx+yy); M[11]=0;
+    M[12]=t[0];     M[13]=t[1];     M[14]=t[2];      M[15]=1;
 }
 // Invert a rigid-body matrix (rotation+translation only).
 static void m4inv_rigid(float* out, const float* M) {
@@ -289,6 +301,30 @@ static bool Init(const char* glb_path, const char* tex_path) {
             }
         }
         fprintf(stdout,"[CharPreview] hierarchy loaded for %d bones\n",jn);
+
+        // Load idle_stand_normal — extract per-bone rotation at frame 0
+        s_idle_loaded = false;
+        for (int bi=0;bi<30;bi++){
+            s_idle_rot[bi][0]=0;s_idle_rot[bi][1]=0;s_idle_rot[bi][2]=0;s_idle_rot[bi][3]=1;
+        }
+        for (int ai=0;ai<(int)d->animations_count;++ai){
+            cgltf_animation& anim=d->animations[ai];
+            if (!anim.name||strcmp(anim.name,"idle_stand_normal")!=0) continue;
+            for (int ci=0;ci<(int)anim.channels_count;++ci){
+                cgltf_animation_channel& ch=anim.channels[ci];
+                if (!ch.target_node||!ch.sampler) continue;
+                if (ch.target_path!=cgltf_animation_path_type_rotation) continue;
+                int ni=(int)(ch.target_node-d->nodes);
+                if (ni<0||ni>=2048) continue;
+                int ji=node_to_ji[ni];
+                if (ji<0||ji>=30) continue;
+                if (ch.sampler->output&&ch.sampler->output->count>0)
+                    cgltf_accessor_read_float(ch.sampler->output,0,s_idle_rot[ji],4);
+            }
+            s_idle_loaded=true;
+            fprintf(stdout,"[CharPreview] idle_stand_normal: %d rot channels loaded\n",(int)anim.channels_count);
+            break;
+        }
     }
     // Precompute bind_local[i] = inv_bind[parent] * bind[i] (local bind TRS in parent space)
     for (int i=0;i<30;i++) {
@@ -434,7 +470,7 @@ static bool Init(const char* glb_path, const char* tex_path) {
         bgpd.vert_uniform_bufs  = 0;
         bgpd.vert_samplers      = 0;
         bgpd.frag_samplers      = 0;
-        bgpd.frag_uniform_bufs  = 0;
+        bgpd.frag_uniform_bufs  = 1;   // set=3 binding=0: BgUU (ray-ground uniforms)
         bgpd.color_format       = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
         bgpd.has_depth_target   = true;
         if (!s_bg_pipeline.Create(bgpd))
@@ -525,9 +561,28 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
     SDL_GPURenderPass* rp=SDL_BeginGPURenderPass(cmd,&ct,1,&di);
     if (!rp) return;
 
-    // ── Background gradient (fullscreen tri, no VBO) ─────────────────────────
+    // ── Background: sky + perspective ground plane ───────────────────────────
     if (s_bg_pipeline.SDLPipeline()) {
         SDL_BindGPUGraphicsPipeline(rp, s_bg_pipeline.SDLPipeline());
+
+        // Compute camera world-space vectors from view matrix inverse
+        float inv_view[16]; m4inv_rigid(inv_view, view.m);
+        // inv_view col-major: col0=right, col1=up, col2=-fwd, col3=eye_pos
+        float tan_vfov = tanf(0.39f);   // half of 0.78 fov
+        float tan_hfov = tan_vfov * asp;
+        struct BgUU {
+            float right[4];   // xyz=cam_right,   w=tan_hfov
+            float up[4];      // xyz=cam_up,       w=tan_vfov
+            float fwd[4];     // xyz=cam_fwd,      w=ground_y in world
+            float eye[4];     // xyz=cam_pos world, w=0
+        } bgu;
+        bgu.right[0]=inv_view[0]; bgu.right[1]=inv_view[1]; bgu.right[2]=inv_view[2]; bgu.right[3]=tan_hfov;
+        bgu.up[0]=inv_view[4];    bgu.up[1]=inv_view[5];    bgu.up[2]=inv_view[6];    bgu.up[3]=tan_vfov;
+        // Camera forward = -col2 of inv_view (camera looks along -Z in view space)
+        bgu.fwd[0]=-inv_view[8];  bgu.fwd[1]=-inv_view[9];  bgu.fwd[2]=-inv_view[10];
+        bgu.fwd[3] = -(s_height*0.95f);  // ground_y in world = model offset (feet at Y=0)
+        bgu.eye[0]=inv_view[12];  bgu.eye[1]=inv_view[13];  bgu.eye[2]=inv_view[14];  bgu.eye[3]=0;
+        SDL_PushGPUFragmentUniformData(cmd, 0, &bgu, sizeof(bgu));
         SDL_DrawGPUPrimitives(rp, 3, 1, 0, 0);
     }
 
@@ -726,11 +781,23 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     //   ws_mat[i]    = new_world[i] * diag(s_boneScales[i]) * inv_bind[i]
     float new_world[30][16];
     for (int i = 0; i < 30; i++) {
-        float sl[16]; memcpy(sl, s_bind_local[i], 64);
-        // Scale this bone's translation from parent by its own positional scale
-        sl[12] *= s_posScale[i][0];
-        sl[13] *= s_posScale[i][1];
-        sl[14] *= s_posScale[i][2];
+        float sl[16];
+        if (s_idle_loaded) {
+            // Idle pose: animation rotation + bind_local translation scaled by posScale.
+            // Keeps body proportions (posScale) while showing natural standing pose.
+            float tp[3] = {
+                s_bind_local[i][12] * s_posScale[i][0],
+                s_bind_local[i][13] * s_posScale[i][1],
+                s_bind_local[i][14] * s_posScale[i][2]
+            };
+            m4_from_quat_t(sl, s_idle_rot[i], tp);
+        } else {
+            memcpy(sl, s_bind_local[i], 64);
+            // Scale this bone's translation from parent by its own positional scale
+            sl[12] *= s_posScale[i][0];
+            sl[13] *= s_posScale[i][1];
+            sl[14] *= s_posScale[i][2];
+        }
         if (s_bone_parent[i] < 0)
             memcpy(new_world[i], sl, 64);
         else
