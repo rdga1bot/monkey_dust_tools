@@ -1065,18 +1065,11 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
         s_posScale[i][0]=1;s_posScale[i][1]=1;s_posScale[i][2]=1;
     }
 
-    // ── Kenshi ANIMBLEND_AVERAGE (RE-verified from kenshi_x64.exe.c) ────────────
-    // Character editor blends 4 animations with equal weight=1.0:
-    //   1. idle_stand_normal  (always, base)
-    //   2. postures           (frozen at length * body[4] * 0.01)
-    //   3. shoulder set       (frozen at length * body[6] * 0.01, controls neck pos slider)
-    //   4. neck set           (frozen at length * body[5] * 0.01, controls shoulder slider)
-    // Note: slider→animation mapping is crossed (Kenshi naming quirk, RE-verified).
-    // Running NLERP: add each anim at fraction 1/(n+1) → final = avg of all 4.
-    // All 30 bones have tracks in all 4 animations — no per-bone filtering needed.
-    // Translation: always bind_local (no translation animations in character editor).
-
-    // Step 1: idle_stand_normal as base
+    // ── Pose computation ──────────────────────────────────────────────────────
+    // Base: idle_stand_normal for all bones + bind_local translation.
+    // ANIMBLEND_AVERAGE for shoulder_set/neck_set requires delta-based approach
+    // (direct NLERP between absolute GLB quats causes hemisphere flips on clavicles).
+    // For now: idle base + postures overlay for bones that actually change.
     for (int i = 0; i < 30; i++) {
         memcpy(s_pose_rot[i], s_idle_rot[i], 16);
         s_pose_tra[i][0]=s_bind_local[i][12];
@@ -1084,32 +1077,20 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
         s_pose_tra[i][2]=s_bind_local[i][14];
     }
 
-    // Step 2: blend postures (weight=1 → blend factor 1/2)
+    // Postures overlay: only bones with delta>2° in postures animation.
+    // RE data: postures changes legs(2-4,7-9), Spine1(13), Spine2(14), UpperArm(16,26), Head(21).
+    // Applied as ANIMBLEND_AVERAGE contribution (50% blend with idle).
+    static const bool kPostureActive[30] = {
+        false,false, true,true,true,false,false, true,true,true,false,false, // 0-11
+        false,true,true, false,true,false,false,false, false,true,false,false,false, // 12-24
+        false,true,false,false,false                                          // 25-29
+    };
     if (s_anim_postures.loaded) {
         float pa = body[4] * 0.01f;
         for (int i = 0; i < 30; i++) {
+            if (!kPostureActive[i]) continue;
             float q[4]; quat_nlerp(q, s_anim_postures.rot0[i], s_anim_postures.rot1[i], pa);
             quat_nlerp(s_pose_rot[i], s_pose_rot[i], q, 0.5f);
-        }
-    }
-
-    // Step 3: blend shoulder set (weight=1 → blend factor 1/3)
-    // body[6] = Neck position slider controls "shoulder set" animation (Kenshi naming quirk)
-    if (s_anim_shoulder_set.loaded) {
-        float sa = body[6] * 0.01f;
-        for (int i = 0; i < 30; i++) {
-            float q[4]; quat_nlerp(q, s_anim_shoulder_set.rot0[i], s_anim_shoulder_set.rot1[i], sa);
-            quat_nlerp(s_pose_rot[i], s_pose_rot[i], q, 1.f/3.f);
-        }
-    }
-
-    // Step 4: blend neck set (weight=1 → blend factor 1/4)
-    // body[5] = Shoulder set slider controls "neck set" animation (Kenshi naming quirk)
-    if (s_anim_neck_set.loaded) {
-        float na = body[5] * 0.01f;
-        for (int i = 0; i < 30; i++) {
-            float q[4]; quat_nlerp(q, s_anim_neck_set.rot0[i], s_anim_neck_set.rot1[i], na);
-            quat_nlerp(s_pose_rot[i], s_pose_rot[i], q, 0.25f);
         }
     }
 
