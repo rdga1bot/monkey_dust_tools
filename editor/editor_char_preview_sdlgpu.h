@@ -806,12 +806,22 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     //   s_boneScales[i] scales vertices around bone i (does NOT affect child positions).
     //   new_world[i] = new_world[parent] * (bind_local[i] with translation * s_posScale[i])
     //   ws_mat[i]    = new_world[i] * diag(s_boneScales[i]) * inv_bind[i]
+    // Only apply idle animation to spine/neck/head — arms/legs stay at bind pose.
+    // Arms at frame-0 of idle_stand_normal are mid-cycle → deformed; spine lean looks natural.
+    static const bool kIdleWhitelist[30] = {
+        false, false,                    // [0]=ROOT [1]=Pelvis
+        false,false,false,false,false,   // [2-6]  L Thigh..ToeNub
+        false,false,false,false,false,   // [7-11] R Thigh..ToeNub
+        true, true, true,                // [12-14] Spine Spine1 Spine2
+        false,false,false,false,false,   // [15-19] L Clav UpperArm Forearm Hand Prop1
+        true,  true,  false, true,false, // [20-24] Neck Head HeadNub Jaw JawNub
+        false,false,false,false,false    // [25-29] R Clav UpperArm Forearm Hand Prop2
+    };
     float new_world[30][16];
     for (int i = 0; i < 30; i++) {
         float sl[16];
-        if (s_idle_loaded) {
-            // Idle pose: animation rotation + bind_local translation scaled by posScale.
-            // Keeps body proportions (posScale) while showing natural standing pose.
+        if (s_idle_loaded && s_idle_has_rot[i] && kIdleWhitelist[i]) {
+            // Idle pose: animation rotation for spine/neck/head only.
             float tp[3] = {
                 s_bind_local[i][12] * s_posScale[i][0],
                 s_bind_local[i][13] * s_posScale[i][1],
@@ -820,7 +830,6 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
             m4_from_quat_t(sl, s_idle_rot[i], tp);
         } else {
             memcpy(sl, s_bind_local[i], 64);
-            // Scale this bone's translation from parent by its own positional scale
             sl[12] *= s_posScale[i][0];
             sl[13] *= s_posScale[i][1];
             sl[14] *= s_posScale[i][2];
@@ -942,13 +951,13 @@ static void SetCameraForTab(int tab) {
         s_pit      = -0.06f;
         s_lookat_y = 0.f;
     } else {
-        // FACE / HAIR: zoom to head (model-space head Y ≈ 1.7-1.9, feet at -s_height*0.95)
-        // After model transform head is at worldY ≈ 1.85 - s_height*0.95 ≈ 0.9.
-        // lookat_y shifts view so camera aims at face centre.
-        s_dist     = 1.0f;
-        s_pit      = 0.04f;
-        // Face world-Y = head_bind_Y(≈1.85) * s_height - s_height*0.95 = s_height * 0.90
-        s_lookat_y = s_height * 0.90f;
+        // FACE / HAIR: face close-up — reset yaw to face straight-on, zoom in.
+        // Face world-Y ≈ head_bind_Y(~1.80) - model_offset(s_height*0.95)
+        // With idle lean the effective face Y is slightly lower (~0.78 of height).
+        s_dist     = 0.80f;
+        s_pit      = 0.f;
+        s_yaw      = 0.f;   // reset to front view
+        s_lookat_y = s_height * 0.78f;
     }
 }
 

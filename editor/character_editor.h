@@ -785,7 +785,9 @@ static void Draw() {
         for (int i = 0; i < FACE_N; ++i)
             KenshiSlider(kFaceLbl[i], &s_def.face[i], kFaceLo[i], kFaceHi[i]);
     } else {
-        // HAIR tab: colour params + extra sliders
+        // HAIR tab: colour params (hair mesh not yet rendered — sliders are placeholders)
+        ImGui::TextDisabled("(hair mesh not implemented)");
+        ImGui::Spacing();
         for (int i = 0; i < 3; ++i)
             KenshiSlider(kHairLbl[i], &s_def.hair_f[i], 0.f, 100.f);
         ImGui::Spacing();
