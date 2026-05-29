@@ -36,6 +36,7 @@ static GpuPipeline     s_pipeline;
 static GpuStaticBuffer s_vbo;
 static GpuStaticBuffer s_ibo;
 static GpuTexture      s_tex;
+static GpuTexture      s_tex_head;    // head/face diffuse (V<0 UV island)
 static GpuTexture      s_tex_muscle;  // 1×1 neutral muscle mask
 static GpuTexture      s_tex_blood;   // 1×1 clear blood overlay
 // Bone scale texture: 30×1 RGBA32F — raw SDL_GPU (GpuTexture only supports RGBA8)
@@ -319,6 +320,26 @@ static bool Init(const char* glb_path, const char* tex_path) {
             s_tex.InitFromMemory(fb,1,1,sd);
         }
     }
+    // Head/face texture (Kenshi: separate human_male_head_diffuse_HI atlas, UV V<0)
+    {
+        // Derive head tex path: same dir as body tex, replace filename
+        char head_path[512]; strncpy(head_path, tex_path, 511);
+        char* last_slash = strrchr(head_path, '/');
+        if (!last_slash) last_slash = strrchr(head_path, '\\');
+        if (last_slash) strcpy(last_slash + 1, "md_human_head.png");
+        stbi_set_flip_vertically_on_load(0);
+        int hw,hh,hc; unsigned char* hd=stbi_load(head_path,&hw,&hh,&hc,4);
+        GpuSamplerDesc hsd; hsd.min_filter=GpuSamplerDesc::Filter::LINEAR_MIPMAP;
+        hsd.mag_filter=GpuSamplerDesc::Filter::LINEAR;
+        if (hd) {
+            s_tex_head.InitFromMemory(hd,hw,hh,hsd);
+            stbi_image_free(hd);
+        } else {
+            uint8_t fb[4]={200,162,122,255};  // fallback: skin tone 1×1
+            s_tex_head.InitFromMemory(fb,1,1,hsd);
+            fprintf(stderr,"[CharPreview] head tex not found: %s\n", head_path);
+        }
+    }
     // Muscle mask placeholder: mid-grey (r=0.5 → neutral muscle detail)
     { uint8_t p[4]={128,128,128,255}; GpuSamplerDesc sd; s_tex_muscle.InitFromMemory(p,1,1,sd); }
     // Blood overlay placeholder: fully transparent (no wounds)
@@ -390,7 +411,7 @@ static bool Init(const char* glb_path, const char* tex_path) {
     pd.raster.cull_back = true;
     pd.vert_uniform_bufs = 1;   // set=1 binding=0: VU
     pd.vert_samplers = 1;       // set=1 binding=1: uBoneScales (bone scale texture)
-    pd.frag_samplers = 3;       // set=2: body_diffuse, muscle_mask, blood_overlay
+    pd.frag_samplers = 4;       // set=2: body_diffuse, head_diffuse, muscle_mask, blood_overlay
     pd.frag_uniform_bufs = 1;   // set=3
     pd.color_format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
     pd.has_depth_target = true;
@@ -511,6 +532,7 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
 
     if (!s_pipeline.SDLPipeline() || !s_vbo.SDLBuffer() || !s_ibo.SDLBuffer() ||
         !s_tex.SDLTexture()        || !s_tex.SDLSampler()        ||
+        !s_tex_head.SDLTexture()   || !s_tex_head.SDLSampler()   ||
         !s_tex_muscle.SDLTexture() || !s_tex_muscle.SDLSampler() ||
         !s_tex_blood.SDLTexture()  || !s_tex_blood.SDLSampler()  ||
         !s_bones_tex               || !s_bones_sampler) {
@@ -538,12 +560,13 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
     fu.hair[0]=s_hair[0]; fu.hair[1]=s_hair[1]; fu.hair[2]=s_hair[2];
     SDL_PushGPUFragmentUniformData(cmd,0,&fu,sizeof(fu));
 
-    SDL_GPUTextureSamplerBinding ftb[3] = {
+    SDL_GPUTextureSamplerBinding ftb[4] = {
         { s_tex.SDLTexture(),        s_tex.SDLSampler()        },
+        { s_tex_head.SDLTexture(),   s_tex_head.SDLSampler()   },
         { s_tex_muscle.SDLTexture(), s_tex_muscle.SDLSampler() },
         { s_tex_blood.SDLTexture(),  s_tex_blood.SDLSampler()  },
     };
-    SDL_BindGPUFragmentSamplers(rp,0,ftb,3);
+    SDL_BindGPUFragmentSamplers(rp,0,ftb,4);
 
     SDL_DrawGPUIndexedPrimitives(rp,(uint32_t)s_ni,1,0,0,0);
     SDL_EndGPURenderPass(rp);
