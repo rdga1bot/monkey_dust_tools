@@ -502,23 +502,10 @@ static bool Init(const char* glb_path, const char* tex_path) {
         for (int ai=0;ai<(int)d->animations_count;++ai){
             cgltf_animation& anim=d->animations[ai];
             if (!anim.name||strcmp(anim.name,"idle_stand_normal")!=0) continue;
-            // Mixed frame strategy:
-            //   UpperArm(16,26) only: last frame → arms lower (102°)
-            //   Clavicle(15,25): frame 0 — last frame rotates arm INTO torso mesh (wrong direction)
-            //   All other bones: frame 0 → head upright, no mesh intersection
-            //   Forearm(17,27) + Hand(18,28): NOT loaded → use bind pose (straight arm)
-            static const bool kUseLastFrame[30] = {
-                0,0, 0,0,0,0,0, 0,0,0,0,0, 0,0,0,
-                0,1,0,0,0, // 15=L Clav stays frame0, 16=L UpperArm uses last
-                0,0,0,0,0,
-                0,1,0,0,0  // 25=R Clav stays frame0, 26=R UpperArm uses last
-            };
-            static const bool kSkipIdle[30] = {
-                0,0, 0,0,0,0,0, 0,0,0,0,0, 0,0,0,
-                0,0,1,1,0, // skip Forearm(17) Hand(18) → use bind
-                0,0,0,0,0,
-                0,0,1,1,0  // skip Forearm(27) Hand(28) → use bind
-            };
+            // Frame 0 for all bones: stable state, no mesh intersections.
+            // Clavicle+UpperArm must be consistent — mixed frames cause arms to go
+            // into torso (last Clav) or behind body (frame0 Clav + last UpperArm).
+            // Frame 0: head 21.4° (upright), UpperArm ~87° (slightly raised), no clipping.
             for (int ci=0;ci<(int)anim.channels_count;++ci){
                 cgltf_animation_channel& ch=anim.channels[ci];
                 if (!ch.target_node||!ch.sampler) continue;
@@ -527,10 +514,8 @@ static bool Init(const char* glb_path, const char* tex_path) {
                 if (ni<0||ni>=2048) continue;
                 int ji=node_to_ji[ni];
                 if (ji<0||ji>=30) continue;
-                if (kSkipIdle[ji]) continue; // use bind pose for these
                 if (ch.sampler->output&&ch.sampler->output->count>0) {
-                    size_t frame = kUseLastFrame[ji] ? ch.sampler->output->count-1 : 0;
-                    cgltf_accessor_read_float(ch.sampler->output, frame, s_idle_rot[ji], 4);
+                    cgltf_accessor_read_float(ch.sampler->output, 0, s_idle_rot[ji], 4);
                     s_idle_has_rot[ji]=true;
                 }
             }
