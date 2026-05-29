@@ -1113,26 +1113,46 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     //   s_boneScales[i] scales vertices around bone i (does NOT affect child positions).
     //   new_world[i] = new_world[parent] * (bind_local[i] with translation * s_posScale[i])
     //   ws_mat[i]    = new_world[i] * diag(s_boneScales[i]) * inv_bind[i]
-    // Pose: sampled breathing anim (or idle fallback). Legs at bind pose.
-    static const bool kPoseWhitelist[30] = {
+    // Three-tier pose system (matches Kenshi "breathing noarms" design):
+    //   kBreathList  — spine/root/neck: breathing animation (torso sway)
+    //   kIdleArmList — arm chain: idle_stand_normal last frame (natural rest, no float)
+    //   neither      — legs: bind pose (T-pose, no ground issues)
+    static const bool kBreathList[30] = {
         true,  true,                    // [0]=ROOT [1]=Pelvis
-        false,false,false,false,false,  // [2-6]  L Thigh..ToeNub  (bind pose)
-        false,false,false,false,false,  // [7-11] R Thigh..ToeNub  (bind pose)
+        false,false,false,false,false,  // [2-6]  legs — bind pose
+        false,false,false,false,false,  // [7-11] legs — bind pose
         true,  true,  true,             // [12-14] Spine Spine1 Spine2
+        false, false, false, false, false, // [15-19] L arm — idle pose
+        true,  true,  false, true, false,  // [20-24] Neck Head Jaw
+        false, false, false, false, false  // [25-29] R arm — idle pose
+    };
+    static const bool kIdleArmList[30] = {
+        false, false,
+        false,false,false,false,false,
+        false,false,false,false,false,
+        false, false, false,
         true,  true,  true,  true, false,  // [15-19] L Clav UpperArm Forearm Hand
-        true,  true,  false, true, false,  // [20-24] Neck Head HeadNub Jaw
+        false, false, false, false, false,
         true,  true,  true,  true, false   // [25-29] R Clav UpperArm Forearm Hand
     };
     float new_world[30][16];
     for (int i = 0; i < 30; i++) {
         float sl[16];
-        if (kPoseWhitelist[i]) {
+        if (kBreathList[i]) {
             float tp[3] = {
                 s_pose_tra[i][0] * s_posScale[i][0],
                 s_pose_tra[i][1] * s_posScale[i][1],
                 s_pose_tra[i][2] * s_posScale[i][2]
             };
             m4_from_quat_t(sl, s_pose_rot[i], tp);
+        } else if (kIdleArmList[i]) {
+            // Arms: idle_stand_normal last frame (natural rest pose, away from shorts)
+            float tp[3] = {
+                s_bind_local[i][12] * s_posScale[i][0],
+                s_bind_local[i][13] * s_posScale[i][1],
+                s_bind_local[i][14] * s_posScale[i][2]
+            };
+            m4_from_quat_t(sl, s_idle_rot[i], tp);
         } else {
             memcpy(sl, s_bind_local[i], 64);
             sl[12] *= s_posScale[i][0];
@@ -1300,7 +1320,23 @@ static void DrawInImGui(float W, float H,
     bool hov=ImGui::IsItemHovered();
     ImGuiIO& io=ImGui::GetIO();
 
-    // RMB drag = yaw only (no pitch)
+    // Portrait auto-rotation (Kenshi RE: yaw oscillates slowly when not dragging)
+    // yaw = ((frame%500)/1000 - 0.25) * PI  → ±0.785 rad (±45°) at ~30fps
+    static bool s_portrait_mode = false;
+    // Switch portrait mode on tab change (set by SetCameraForTab)
+    static int  s_last_tab_for_portrait = 0;
+    if (s_last_tab_for_portrait != (s_lookat_y > 0.5f ? 1 : 0)) {
+        s_last_tab_for_portrait = (s_lookat_y > 0.5f ? 1 : 0);
+        s_portrait_mode = (s_lookat_y > 0.5f);
+    }
+    if (s_portrait_mode && !s_drag) {
+        uint64_t ms = SDL_GetTicks() - s_anim_epoch_ms;
+        uint32_t fr = (uint32_t)(ms / 33);
+        s_yaw = ((float)(fr % 500) / 1000.f - 0.25f) * 3.14159f * 0.6f;
+        s_pit = ((float)(fr % 252) / 1000.f - 0.083f) * 3.14159f * 0.25f;
+    }
+
+    // RMB drag = yaw only (no pitch) — interrupts auto-rotation
     if (hov && io.MouseClicked[1]) { s_drag=true; s_d0=io.MousePos; s_y0=s_yaw; }
     if (s_drag) {
         if (io.MouseDown[1]) s_yaw = s_y0 + (io.MousePos.x - s_d0.x) * 0.007f;
