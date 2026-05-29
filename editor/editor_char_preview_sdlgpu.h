@@ -825,17 +825,16 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     //   s_boneScales[i] scales vertices around bone i (does NOT affect child positions).
     //   new_world[i] = new_world[parent] * (bind_local[i] with translation * s_posScale[i])
     //   ws_mat[i]    = new_world[i] * diag(s_boneScales[i]) * inv_bind[i]
-    // Arms-only idle pose from idle_stand_normal last frame.
-    // OGRE bind pose already has spine/neck/head in natural forward position.
-    // idle_stand_normal frame 1 rotates neck ~41deg and head ~33deg sideways — looks wrong
-    // for a static preview. Arms only: frame 1 puts hands naturally at sides (away from shorts).
+    // Apply idle_stand_normal last frame to all bones.
+    // This is a complete pose — partial application (arms only) breaks the chain
+    // since arm rotations were authored relative to the same frame's spine position.
     static const bool kIdleWhitelist[30] = {
-        false, false,                   // [0]=ROOT [1]=Pelvis
-        false,false,false,false,false,  // [2-6]  L Thigh..ToeNub  (bind pose)
-        false,false,false,false,false,  // [7-11] R Thigh..ToeNub  (bind pose)
-        false, false, false,            // [12-14] Spine Spine1 Spine2  (bind pose = natural lean)
+        true,  true,                    // [0]=ROOT [1]=Pelvis
+        false,false,false,false,false,  // [2-6]  L Thigh..ToeNub  (legs at bind pose)
+        false,false,false,false,false,  // [7-11] R Thigh..ToeNub  (legs at bind pose)
+        true,  true,  true,             // [12-14] Spine Spine1 Spine2
         true,  true,  true,  true, false,  // [15-19] L Clav UpperArm Forearm Hand
-        false, false, false, false, false, // [20-24] Neck Head — bind pose = forward-facing
+        true,  true,  false, true, false,  // [20-24] Neck Head HeadNub Jaw
         true,  true,  true,  true, false   // [25-29] R Clav UpperArm Forearm Hand
     };
     float new_world[30][16];
