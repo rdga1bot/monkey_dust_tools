@@ -108,13 +108,52 @@ static void quat_nlerp(float out[4], const float a[4], const float b[4], float t
     else {out[0]=0;out[1]=0;out[2]=0;out[3]=1;}
 }
 
+// Bones that receive rotation from breathing noarms. Others use idle_stand_normal.
+// GLB data analysis: breathing noarms stores ALL 60 channels, but most non-spine bones
+// have bind-pose or identity rotations (not idle-stand rotations). Applying those to
+// clavicles/Spine1/Spine2 moves them away from the natural idle pose → raised shoulders.
+// Only Spine(12)/Neck(20)/Head(21) have genuine breathing-specific rotations.
+static const bool kBreathRotList[30] = {
+    false, // 0  ROOT       — use idle (vertical sway is translation, handled separately)
+    false, // 1  Pelvis
+    false, // 2  L Thigh
+    false, // 3  L Calf
+    false, // 4  L Foot
+    false, // 5  L Toe0
+    false, // 6  L Toe0Nub
+    false, // 7  R Thigh
+    false, // 8  R Calf
+    false, // 9  R Foot
+    false, // 10 R Toe0
+    false, // 11 R Toe0Nub
+    true,  // 12 Spine      — primary torso breathing sway
+    false, // 13 Spine1     — identity in animation → T-pose, use idle
+    false, // 14 Spine2     — identity in animation → T-pose, use idle
+    false, // 15 L Clavicle — bind-pose in animation, use idle (arms-at-sides)
+    false, // 16 L UpperArm
+    false, // 17 L Forearm
+    false, // 18 L Hand
+    false, // 19 Prop1
+    true,  // 20 Neck       — head nod during breathing
+    true,  // 21 Head       — head nod during breathing
+    false, // 22 HeadNub
+    false, // 23 Jaw
+    false, // 24 JawNub
+    false, // 25 R Clavicle — different from idle in anim, use idle
+    false, // 26 R UpperArm
+    false, // 27 R Forearm
+    false, // 28 R Hand
+    false, // 29 Prop2
+};
+
 // Sample breathing animation at time t (seconds). Fills pose_rot[30][4] and pose_tra[30][3].
-// For bones without a breathing channel, falls back to s_idle_rot[].
+// Rotations: only kBreathRotList bones use breathing; others use idle_stand_normal.
+// Translations: ROOT uses breathing (vertical sway); others use bind_local.
 static void SampleBreathing(float t, float pose_rot[30][4], float pose_tra[30][3]) {
     for (int i = 0; i < 30; i++) {
         // ── rotation ──────────────────────────────────────────────────────
         BreathChan& bc = s_breath[i];
-        if (bc.rcount >= 2) {
+        if (kBreathRotList[i] && bc.rcount >= 2) {
             // binary search for left bracket
             int lo=0, hi=bc.rcount-2;
             while (lo<hi) { int mid=(lo+hi+1)/2; if(bc.times[mid]<=t) lo=mid; else hi=mid-1; }
@@ -123,7 +162,7 @@ static void SampleBreathing(float t, float pose_rot[30][4], float pose_tra[30][3
             float alpha = (dt>1e-7f) ? (t-bc.times[k])/dt : 0.f;
             alpha = alpha<0.f?0.f:(alpha>1.f?1.f:alpha);
             quat_nlerp(pose_rot[i], bc.quats+k*4, bc.quats+(k+1)*4, alpha);
-        } else if (bc.rcount==1) {
+        } else if (kBreathRotList[i] && bc.rcount==1) {
             memcpy(pose_rot[i], bc.quats, 16);
         } else {
             memcpy(pose_rot[i], s_idle_rot[i], 16);
