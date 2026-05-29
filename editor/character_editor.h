@@ -695,15 +695,19 @@ static void Draw() {
     ImGui::PopStyleColor();
 
     {
-        static bool s_prev_init = false;
-        if (!s_prev_init) {
-            s_prev_init = true;
+        static int s_prev_sex = -1;
+        if (s_prev_sex != (int)s_def.sex) {
+            s_prev_sex = (int)s_def.sex;
+            const char* glb = (s_def.sex == 0)
+                ? "game/data/props/md_human_t.glb"
+                : "game/data/props/md_human_female_t.glb";
+            const char* tex = (s_def.sex == 0)
+                ? "game/data/textures/md_human_body.png"
+                : "game/data/textures/md_human_female_body.png";
 #ifdef MD_SDL_GPU
-            CharPreviewSDLGPU::Init("game/data/props/md_human_t.glb",
-                                    "game/data/textures/md_human_body.png");
+            CharPreviewSDLGPU::Init(glb, tex);
 #else
-            CharPreviewGL::Init("game/data/props/md_human_t.glb",
-                                "game/data/textures/md_human_body.png");
+            CharPreviewGL::Init(glb, tex);
 #endif
         }
     }
