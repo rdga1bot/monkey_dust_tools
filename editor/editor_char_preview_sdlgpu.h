@@ -822,18 +822,20 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     //   s_boneScales[i] scales vertices around bone i (does NOT affect child positions).
     //   new_world[i] = new_world[parent] * (bind_local[i] with translation * s_posScale[i])
     //   ws_mat[i]    = new_world[i] * diag(s_boneScales[i]) * inv_bind[i]
-    // Idle animation applied to spine/neck/head only. Arms stay at bind pose (T-pose).
-    // Arms were added earlier to fix hand-shorts clipping, but the real fix was
-    // cull_back=true + shorts normal-bias. Mid-frame arm rotation causes floating arms
-    // with extreme RAND shoulder/arm values.
+    // Idle animation frame 0 applied to full upper body (spine + arms).
+    // Frame 0 = start of idle_stand_normal loop = natural standing rest pose with
+    // arms slightly forward/inward — hands clear of the shorts geometry.
+    // Legs stay at bind pose to avoid foot/ground issues.
+    // NOTE: do NOT use mid-frame for arms — mid-cycle breathing lifts/extends arms,
+    // which combined with extreme RAND bone scales causes visual disconnection.
     static const bool kIdleWhitelist[30] = {
         false, false,                   // [0]=ROOT [1]=Pelvis
         false,false,false,false,false,  // [2-6]  L Thigh..ToeNub  (bind pose)
         false,false,false,false,false,  // [7-11] R Thigh..ToeNub  (bind pose)
         true,  true,  true,             // [12-14] Spine Spine1 Spine2
-        false, false, false, false, false, // [15-19] L Clav UpperArm Forearm Hand Prop1
+        true,  true,  true,  true, false,  // [15-19] L Clav UpperArm Forearm Hand Prop1
         true,  true,  false, true, false,  // [20-24] Neck Head HeadNub Jaw JawNub
-        false, false, false, false, false  // [25-29] R Clav UpperArm Forearm Hand Prop2
+        true,  true,  true,  true, false   // [25-29] R Clav UpperArm Forearm Hand Prop2
     };
     float new_world[30][16];
     for (int i = 0; i < 30; i++) {
