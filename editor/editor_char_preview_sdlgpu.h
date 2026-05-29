@@ -193,13 +193,23 @@ static void LoadSliderAnim(cgltf_data* d, int* node_to_ji, SliderAnim& out, cons
     }
 }
 
-// Sample a SliderAnim at alpha=slider_value*0.01, apply to pose_rot bones where has[i]=true
+// Sample a SliderAnim and blend with existing pose_rot (ANIMBLEND_AVERAGE).
+// Kenshi RE: breathing weight=0.95, slider weight=1.0
+//   blend_factor = w_slider / (w_breath + w_slider) = 1.0/1.95 ≈ 0.513
+// At alpha=0: slider contributes frame 0 (bind reference) blended 51% with breathing.
+// At alpha>0: slider contributes the posed frame blended 51% with breathing.
+// NOTE: We skip when alpha<0.01 so default Posture=0 doesn't dampen breathing.
 static void ApplySliderAnim(const SliderAnim& sa, float alpha, float pose_rot[30][4]) {
     if (!sa.loaded) return;
-    float a = alpha < 0.f ? 0.f : (alpha > 1.f ? 1.f : alpha);
+    if (alpha < 0.01f) return;   // skip at default-zero — keep full breathing
+    float a = alpha > 1.f ? 1.f : alpha;
+    static constexpr float BLEND = 1.0f / (0.95f + 1.0f);  // ≈ 0.513
     for(int i=0;i<30;i++){
         if (!sa.has[i]) continue;
-        quat_nlerp(pose_rot[i], sa.rot0[i], sa.rot1[i], a);
+        float slr[4];
+        quat_nlerp(slr, sa.rot0[i], sa.rot1[i], a);
+        // ANIMBLEND_AVERAGE: mix current breathing pose with slider pose
+        quat_nlerp(pose_rot[i], pose_rot[i], slr, BLEND);
     }
 }
 
@@ -502,7 +512,8 @@ static bool Init(const char* glb_path, const char* tex_path) {
         memset(s_breath, 0, sizeof(s_breath));
         for (int ai=0;ai<(int)d->animations_count;++ai){
             cgltf_animation& anim=d->animations[ai];
-            if (!anim.name||strcmp(anim.name,"breathing")!=0) continue;
+            // "breathing noarms" = same torso sway without arm channels (Kenshi RE)
+            if (!anim.name||strcmp(anim.name,"breathing noarms")!=0) continue;
             for (int ci=0;ci<(int)anim.channels_count&&s_breath_len==0.f;++ci){
                 cgltf_animation_channel& ch2=anim.channels[ci];
                 if (!ch2.sampler||!ch2.sampler->input||ch2.sampler->input->count==0) continue;
