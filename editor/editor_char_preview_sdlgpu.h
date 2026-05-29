@@ -88,9 +88,10 @@ static bool       s_breath_loaded = false;
 // Each has 2 keyframes. Sampled at t = anim_length * slider_value * 0.01
 // to freeze the skeleton in the slider's posed position.
 struct SliderAnim {
-    float rot0[30][4]; // frame 0 quaternions (xyzw)
-    float rot1[30][4]; // frame 1 quaternions
-    bool  has[30];     // bone has this channel
+    float rot0[30][4];   // keyframe 0 (slider=0)
+    float rot_mid[30][4];// keyframe at slider=50 (middle frame)
+    float rot1[30][4];   // last keyframe (slider=100)
+    bool  has[30];
     float length = 0.f;
     bool  loaded = false;
 };
@@ -169,16 +170,21 @@ static void m4mul(float* C, const float* A, const float* B) {
     }
     memcpy(C,T,64);
 }
-// Load a 2-keyframe SliderAnim from GLB animation by name.
-// Alpha = slider_value * 0.01  (Kenshi formula: time = length * value * 0.01)
+// Load SliderAnim from GLB animation by name.
+// Kenshi RE (line 19458): setTimePosition(length * slider_value * 0.01)
+// → alpha=slider*0.01 maps linearly to animation time.
+// rot0 = first keyframe, rot1 = LAST keyframe.
+// For 3-keyframe anims (shoulder set, neck set), setTimePosition at alpha=0.5
+// hits EXACTLY the middle keyframe — stored in rot_mid for direct use.
 static void LoadSliderAnim(cgltf_data* d, int* node_to_ji, SliderAnim& out, const char* name) {
     out.loaded = false; out.length = 0.f;
     memset(out.has, 0, sizeof(out.has));
-    for(int i=0;i<30;i++){out.rot0[i][3]=1;out.rot1[i][3]=1;}
+    for(int i=0;i<30;i++){
+        out.rot0[i][3]=1; out.rot_mid[i][3]=1; out.rot1[i][3]=1;
+    }
     for(int ai=0;ai<(int)d->animations_count;++ai){
         cgltf_animation& anim=d->animations[ai];
         if (!anim.name||strcmp(anim.name,name)!=0) continue;
-        // Get length from first input accessor
         for(int ci=0;ci<(int)anim.channels_count&&out.length==0.f;++ci){
             cgltf_animation_channel& ch=anim.channels[ci];
             if (!ch.sampler||!ch.sampler->input||ch.sampler->input->count==0) continue;
@@ -197,11 +203,17 @@ static void LoadSliderAnim(cgltf_data* d, int* node_to_ji, SliderAnim& out, cons
             int cnt=(int)ch.sampler->output->count;
             if (cnt>=1) cgltf_accessor_read_float(ch.sampler->output, 0, out.rot0[ji], 4);
             if (cnt>=2) cgltf_accessor_read_float(ch.sampler->output, cnt-1, out.rot1[ji], 4);
-            else memcpy(out.rot1[ji], out.rot0[ji], 16);
+            else        memcpy(out.rot1[ji], out.rot0[ji], 16);
+            // Middle keyframe = Kenshi slider=50 exact position (RE line 19458).
+            // For 3-frame anims (shoulder/neck set), this is keyframe[1].
+            // For 6-frame anims (postures), this is keyframe[cnt/2].
+            { int mid = cnt/2; if(mid<0)mid=0; if(mid>=cnt)mid=cnt-1;
+              cgltf_accessor_read_float(ch.sampler->output, mid, out.rot_mid[ji], 4); }
             out.has[ji]=true;
         }
         out.loaded=true;
-        fprintf(stdout,"[CharPreview] slider anim '%s': length=%.4fs\n",name,out.length);
+        fprintf(stdout,"[CharPreview] slider anim '%s': %d keyframes, length=%.4fs\n",
+                name, (int)d->animations[ai].channels[0].sampler->output->count, out.length);
         break;
     }
 }
@@ -420,9 +432,22 @@ static bool Init(const char* glb_path, const char* tex_path) {
     int n_mt = (int)pr.targets_count;
     if (n_mt > 32) n_mt = 32;
     if (n_mt > 0) {
-        // Parse targetNames from mesh extras JSON
-        const char* ej = d->meshes[0].extras.data;
+        // Hard-coded morph order for md_human_t.glb / md_human_female_t.glb.
+        // cgltf extras.data is unreliable across platforms; order matches Python audit.
+        // md_human_t.glb: 29 morphs in this exact order (verified 2026-05-30).
+        static const char* kKnownMorphs[] = {
+            "wide_cheekbones","narrow_cheekbones","big_mouth","wide_mouth",
+            "wide_nose","long_nose","arch_nose","high_nose",
+            "high_brow","low_brow","shallow_eyes","narrow_eyes","close_eyes",
+            "tiltdown_eyes","tiltup_eyes","high_eyes","big_eyes",
+            "tiltup_nose","tiltdown_nose","tiltdown_brow","tiltup_brow",
+            "overbite","underbite",
+            "tall","fat","muscular","longlegs","bighead","broadshdr"
+        };
+        static constexpr int kKnownN = (int)(sizeof(kKnownMorphs)/sizeof(kKnownMorphs[0]));
         int names_found = 0;
+        // Try extras JSON first (works when cgltf populates it)
+        const char* ej = d->meshes[0].extras.data;
         if (ej) {
             const char* p = strstr(ej, "\"targetNames\"");
             if (p) { p = strchr(p, '['); if (p) { ++p;
@@ -436,6 +461,13 @@ static bool Init(const char* glb_path, const char* tex_path) {
                     ++names_found;
                 }
             }}
+        }
+        // Fallback: use hard-coded order if extras failed or count mismatch
+        if (names_found == 0 && n_mt == kKnownN) {
+            for (int i = 0; i < kKnownN; ++i)
+                snprintf(s_morph_names[i], 48, "%s", kKnownMorphs[i]);
+            names_found = kKnownN;
+            fprintf(stdout,"[CharPreview] morph names: using hard-coded order (%d)\n", kKnownN);
         }
         s_morph_deltas = (float*)calloc((size_t)n_mt * vc * 3, sizeof(float));
         if (s_morph_deltas) {
@@ -1096,28 +1128,15 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
         s_posScale[i][0]=1;s_posScale[i][1]=1;s_posScale[i][2]=1;
     }
 
-    // ── Pose: idle frame 0 base; Clavicle+UpperArm → shoulder_set direct ────
-    // Idle frame 0 = stable: head upright, spine/legs correct.
-    // ANIMBLEND_AVERAGE for shoulder_set gives only ~7° arm movement (quat averaging
-    // dilutes the 35° shoulder_set range). Direct replacement gives the full range.
-    // Clavicle[15,25] + UpperArm[16,26] are replaced, not blended — they form one
-    // kinematic chain and must come from the same source to avoid arm distortion.
+    // ── Pose: idle frame 0 (stable base, no arm rotation override) ──────────
+    // shoulder_set REPLACEMENT causes flat-panel artifacts at high Frame+ArmBulk:
+    // bone scaling (AbFr²=3x) is in bind-local T-pose space, but shoulder_set
+    // rotates the arm away from T-pose. Skin vertices in the Clavicle→UpperArm
+    // transition zone stretch horizontally → visible panel at extreme slider values.
+    // Kenshi avoids this via vertex morph targets (Ogre Poses). Without them,
+    // keeping arm in T-pose (idle frame 0) keeps scaling axes consistent.
     for (int i = 0; i < 30; i++) {
         memcpy(s_pose_rot[i], s_idle_rot[i], 16);
-    }
-    if (s_anim_shoulder_set.loaded) {
-        static const bool kReplace[30] = {
-            0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-            1,1,0,0,0,  // 15=L Clav, 16=L UpperArm
-            0,0,0,0,0,
-            1,1,0,0,0   // 25=R Clav, 26=R UpperArm
-        };
-        float sa = body[6] * 0.01f;
-        for (int i = 0; i < 30; i++) {
-            if (!kReplace[i] || !s_anim_shoulder_set.has[i]) continue;
-            quat_nlerp(s_pose_rot[i],
-                s_anim_shoulder_set.rot0[i], s_anim_shoulder_set.rot1[i], sa);
-        }
     }
 
     auto cl=[](float x) -> float { return x<0.1f?0.1f:(x>4.f?4.f:x); };
@@ -1197,21 +1216,28 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     float ShY = comp(Sh, 0.3f)*Fr;
     for(int ji:{15,25}){ s_boneScales[ji][0]=Sh*Fr; s_boneScales[ji][1]=ShY; s_boneScales[ji][2]=Sh*Fr; }
 
-    // UpperArms [16,26]: setBoneSize(Ab²Fr², H*Ab*Fr, comp(Ab,1.5)*Ab*Fr²)  [line 264001/011]
-    //   setBonePositionalSize(Sh*comp(Ch,0.45), 1, 1) — scales X (arm direction) offset
+    // Arm bone axis mapping (verified from inverseBindMatrices, md_human_t.glb):
+    //   UpperArm/Forearm [16,17,26,27]: localX=world-Y(vertical), localY=world+X(along arm), localZ=world+Z(depth)
+    //   Hand [18,28]:                  localX=world-Y(vertical), localY=world±Z(depth),    localZ=world±X(along arm)
+    //
+    // Kenshi setBoneSize for UpperArm: Vector3(OGRE_X=AbFr², OGRE_Y=H*AbFr, OGRE_Z=comp(Ab,1.5)*Fr*AbFr)
+    //   → GLB [0]=H*AbFr (vertical=OGRE_Y), [1]=AbFr² (along arm=OGRE_X), [2]=comp*Fr*AbFr (depth=OGRE_Z)
+    //
+    // WITHOUT vertex morph targets, [1]=AbFr² (3x at Ab=1.45,Fr=1.2) stretches arm 3x along its axis
+    // → forearm/hand detach from body mesh. Clamp along-arm scale to H only (height-proportional).
+    // Arm THICKNESS is preserved via [0] and [2]. This is bone-only limitation vs Kenshi morph system.
     float AbFr = Ab*Fr;
     float AbZ  = comp(Ab, 1.5f)*Fr;
-    for(int ji:{16,26}){ s_boneScales[ji][0]=AbFr*AbFr; s_boneScales[ji][1]=H*AbFr; s_boneScales[ji][2]=AbZ*AbFr; }
-    // bind_local[upperarm] = (+0.165, 0, 0) — X along clavicle/arm direction
-    float arm_pos = cl(Sh * H);  // Kenshi: Shoulders * Height (not comp(Ch,0.45))
+    for(int ji:{16,26}){ s_boneScales[ji][0]=H*AbFr; s_boneScales[ji][1]=H; s_boneScales[ji][2]=AbZ*AbFr; }
+    float arm_pos = cl(Sh * H);
     s_posScale[16][0] = arm_pos;
     s_posScale[26][0] = arm_pos;
 
-    // Forearms [17,27]: setBoneSize(Ab²Fr², H*Ab*Fr, Ab²Fr²)   [line 264024/034]
-    for(int ji:{17,27}){ s_boneScales[ji][0]=AbFr*AbFr; s_boneScales[ji][1]=H*AbFr; s_boneScales[ji][2]=AbFr*AbFr; }
+    // Forearm [17,27]: same axes as UpperArm; [1]=H (no Arm bulk along-arm stretch)
+    for(int ji:{17,27}){ s_boneScales[ji][0]=H*AbFr; s_boneScales[ji][1]=H; s_boneScales[ji][2]=AbFr*AbFr; }
 
-    // Hands [18,28]: setBoneSize(AbFr*Hn², H*Hn², AbFr*Hn²)   [line 264099/109]
-    for(int ji:{18,28}){ s_boneScales[ji][0]=AbFr*Hn*Hn; s_boneScales[ji][1]=H*Hn*Hn; s_boneScales[ji][2]=AbFr*Hn*Hn; }
+    // Hand [18,28]: localZ=along arm → [2]=AbFr*Hn² (modest: Hn≤1.15), [0]=H*Hn², [1]=AbFr*Hn²
+    for(int ji:{18,28}){ s_boneScales[ji][0]=H*Hn*Hn; s_boneScales[ji][1]=AbFr*Hn*Hn; s_boneScales[ji][2]=Hn*Hn; }
 
     // ── Head/Neck ─────────────────────────────────────────────────────────────
     float Nw  = cl(face[3]  / 100.f);  // Neck width
