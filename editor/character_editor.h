@@ -70,7 +70,7 @@ static const float kBodyHi[BODY_N] = {
    100.f,  // [1] skin param
    120.f,  // [2] Height
    120.f,  // [3] Frame
-    70.f,  // [4] Posture      (cfg: Posture=70 — was 99, now corrected)
+    99.f,  // [4] Posture      (cfg: Posture=99 — Kenshi male_editor.cfg all races)
     90.f,  // [5] Shoulder set
     80.f,  // [6] Neck position
    115.f,  // [7] Leg length
@@ -85,13 +85,13 @@ static const float kBodyHi[BODY_N] = {
    130.f,  // [16] Legs bulk
    120.f,  // [17] Feet
 };
-// Defaults: bone-scale neutrals at 100 (= no deformation). Posture = 0 (straight stance).
+// Defaults: bone-scale neutrals at 100 (= no deformation). Posture = 50 (natural S-curve lean).
 static const float kBodyDef[BODY_N] = {
     50.f,   // [0] skin param
     50.f,   // [1] skin param
    100.f,   // [2] Height
    100.f,   // [3] Frame
-     0.f,   // [4] Posture:      0 = straight T-pose (no hunch)
+    50.f,   // [4] Posture:      50/99 = mid-range, gives natural Kenshi S-curve lean
     68.f,   // [5] Shoulder set: mid(45,90)
     53.f,   // [6] Neck position:mid(25,80)
    100.f,   // [7] Leg length
