@@ -231,6 +231,23 @@ static bool Init(const char* glb_path, const char* tex_path) {
         vb[i].wt[2]=v[2]; vb[i].wt[3]=v[3];
     }
 
+    // ── Shorts anti-Z-fight bias ─────────────────────────────────────────────
+    // The shorts/underwear geometry is co-planar with the body skin in the same primitive.
+    // Vertices in the shorts UV zone (body_V ∈ [0.37, 0.92]) are pushed 1.5mm outward
+    // along their normals so shorts always win the depth test against body skin beneath.
+    // This is invisible at any render distance but eliminates the skin-bleed-through artifact.
+    if (an) {
+        for (size_t i = 0; i < vc; i++) {
+            float v = vb[i].v;
+            if (v >= 0.37f && v <= 0.92f) {
+                const float bias = 0.0015f;
+                vb[i].px += vb[i].nx * bias;
+                vb[i].py += vb[i].ny * bias;
+                vb[i].pz += vb[i].nz * bias;
+            }
+        }
+    }
+
     // ── Morph targets — load before cgltf_free ───────────────────────────────
     delete[] s_base_verts_cpu; s_base_verts_cpu = vb;  // take ownership (vb NOT freed below)
     s_base_vc = (int)vc;
