@@ -62,9 +62,71 @@ static float s_inv_bind[30][16];   // inverseBindMatrices from GLB (world→bone
 static float s_bind[30][16];       // bind matrices = inv(inv_bind)
 static float s_bind_local[30][16]; // bind_local[i] = inv_bind[parent] * bind[i]
 static int8_t s_bone_parent[30];   // parent joint index, -1 for root
-static float s_idle_rot[30][4];    // idle_stand_normal frame-0 quaternion (xyzw) per bone
-static bool  s_idle_has_rot[30];   // true if bone has explicit animation rotation channel
+static float s_idle_rot[30][4];    // idle_stand_normal last-frame quaternion (xyzw) per bone
+static bool  s_idle_has_rot[30];   // true if bone has explicit rotation channel in idle_stand_normal
 static bool  s_idle_loaded = false;
+
+// ── Breathing animation ───────────────────────────────────────────────────────
+struct BreathChan {
+    float* times = nullptr;  // keyframe times (seconds)
+    float* quats = nullptr;  // xyzw per keyframe (rotation)
+    float* trans = nullptr;  // xyz per keyframe (translation, optional)
+    int    rcount = 0;       // rotation keyframe count
+    int    tcount = 0;       // translation keyframe count
+};
+static BreathChan s_breath[30];
+static float      s_breath_len = 0.f;
+static bool       s_breath_loaded = false;
+
+// NLERP: normalised linear interpolation of two quaternions.
+static void quat_nlerp(float out[4], const float a[4], const float b[4], float t) {
+    float dot = a[0]*b[0]+a[1]*b[1]+a[2]*b[2]+a[3]*b[3];
+    float s = dot < 0.f ? -1.f : 1.f;
+    float r[4]; for(int i=0;i<4;i++) r[i]=a[i]+(b[i]*s-a[i])*t;
+    float len=sqrtf(r[0]*r[0]+r[1]*r[1]+r[2]*r[2]+r[3]*r[3]);
+    if(len>1e-6f){float il=1.f/len;for(int i=0;i<4;i++)out[i]=r[i]*il;}
+    else {out[0]=0;out[1]=0;out[2]=0;out[3]=1;}
+}
+
+// Sample breathing animation at time t (seconds). Fills pose_rot[30][4] and pose_tra[30][3].
+// For bones without a breathing channel, falls back to s_idle_rot[].
+static void SampleBreathing(float t, float pose_rot[30][4], float pose_tra[30][3]) {
+    for (int i = 0; i < 30; i++) {
+        // ── rotation ──────────────────────────────────────────────────────
+        BreathChan& bc = s_breath[i];
+        if (bc.rcount >= 2) {
+            // binary search for left bracket
+            int lo=0, hi=bc.rcount-2;
+            while (lo<hi) { int mid=(lo+hi+1)/2; if(bc.times[mid]<=t) lo=mid; else hi=mid-1; }
+            int k = lo;
+            float dt = bc.times[k+1]-bc.times[k];
+            float alpha = (dt>1e-7f) ? (t-bc.times[k])/dt : 0.f;
+            alpha = alpha<0.f?0.f:(alpha>1.f?1.f:alpha);
+            quat_nlerp(pose_rot[i], bc.quats+k*4, bc.quats+(k+1)*4, alpha);
+        } else if (bc.rcount==1) {
+            memcpy(pose_rot[i], bc.quats, 16);
+        } else {
+            memcpy(pose_rot[i], s_idle_rot[i], 16);
+        }
+        // ── translation ───────────────────────────────────────────────────
+        if (bc.tcount >= 2) {
+            int lo=0, hi=bc.tcount-2;
+            while (lo<hi) { int mid=(lo+hi+1)/2; if(bc.times[mid]<=t) lo=mid; else hi=mid-1; }
+            int k = lo;
+            float dt = bc.times[k+1]-bc.times[k];
+            float alpha = (dt>1e-7f) ? (t-bc.times[k])/dt : 0.f;
+            alpha = alpha<0.f?0.f:(alpha>1.f?1.f:alpha);
+            float* p0=bc.trans+k*3; float* p1=bc.trans+(k+1)*3;
+            for(int j=0;j<3;j++) pose_tra[i][j]=p0[j]+alpha*(p1[j]-p0[j]);
+        } else if (bc.tcount==1) {
+            memcpy(pose_tra[i], bc.trans, 12);
+        } else {
+            pose_tra[i][0]=s_bind_local[i][12];
+            pose_tra[i][1]=s_bind_local[i][13];
+            pose_tra[i][2]=s_bind_local[i][14];
+        }
+    }
+}
 
 // col-major mat4 multiply: C = A * B
 static void m4mul(float* C, const float* A, const float* B) {
@@ -360,6 +422,55 @@ static bool Init(const char* glb_path, const char* tex_path) {
             }
             s_idle_loaded=true;
             fprintf(stdout,"[CharPreview] idle_stand_normal: %d rot channels loaded (last frame)\n",(int)anim.channels_count);
+            break;
+        }
+
+        // ── Load breathing animation ──────────────────────────────────────────
+        s_breath_loaded = false;
+        s_breath_len = 0.f;
+        memset(s_breath, 0, sizeof(s_breath));
+        for (int ai=0;ai<(int)d->animations_count;++ai){
+            cgltf_animation& anim=d->animations[ai];
+            if (!anim.name||strcmp(anim.name,"breathing")!=0) continue;
+            for (int ci=0;ci<(int)anim.channels_count&&s_breath_len==0.f;++ci){
+                cgltf_animation_channel& ch2=anim.channels[ci];
+                if (!ch2.sampler||!ch2.sampler->input||ch2.sampler->input->count==0) continue;
+                float lt=0.f;
+                cgltf_accessor_read_float(ch2.sampler->input, ch2.sampler->input->count-1, &lt, 1);
+                s_breath_len = lt;
+            }
+            for (int ci=0;ci<(int)anim.channels_count;++ci){
+                cgltf_animation_channel& bch=anim.channels[ci];
+                if (!bch.target_node||!bch.sampler||!bch.sampler->input||!bch.sampler->output) continue;
+                int bni=(int)(bch.target_node-d->nodes);
+                if (bni<0||bni>=2048) continue;
+                int bji=node_to_ji[bni];
+                if (bji<0||bji>=30) continue;
+                int cnt=(int)bch.sampler->output->count;
+                if (cnt<=0) continue;
+                float* tbuf=(float*)malloc((size_t)cnt*sizeof(float));
+                if (!tbuf) continue;
+                for(int k=0;k<cnt;k++) cgltf_accessor_read_float(bch.sampler->input,k,&tbuf[k],1);
+                if (bch.target_path==cgltf_animation_path_type_rotation) {
+                    float* qbuf=(float*)malloc((size_t)cnt*4*sizeof(float));
+                    if (!qbuf){free(tbuf);continue;}
+                    for(int k=0;k<cnt;k++) cgltf_accessor_read_float(bch.sampler->output,k,qbuf+k*4,4);
+                    free(s_breath[bji].quats); free(s_breath[bji].times);
+                    s_breath[bji].quats=qbuf; s_breath[bji].times=tbuf; s_breath[bji].rcount=cnt;
+                } else if (bch.target_path==cgltf_animation_path_type_translation) {
+                    float* pbuf=(float*)malloc((size_t)cnt*3*sizeof(float));
+                    if (!pbuf){free(tbuf);continue;}
+                    for(int k=0;k<cnt;k++) cgltf_accessor_read_float(bch.sampler->output,k,pbuf+k*3,3);
+                    if (s_breath[bji].rcount>0) free(tbuf);
+                    else { free(s_breath[bji].times); s_breath[bji].times=tbuf; }
+                    free(s_breath[bji].trans);
+                    s_breath[bji].trans=pbuf; s_breath[bji].tcount=cnt;
+                } else {
+                    free(tbuf);
+                }
+            }
+            s_breath_loaded=true;
+            fprintf(stdout,"[CharPreview] breathing: %.2fs loaded\n", s_breath_len);
             break;
         }
     }
@@ -711,6 +822,22 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
         s_posScale[i][0]=1;s_posScale[i][1]=1;s_posScale[i][2]=1;
     }
 
+    // ── Sample breathing animation at current time ─────────────────────────
+    static float s_pose_rot[30][4];
+    static float s_pose_tra[30][3];
+    if (s_breath_loaded && s_breath_len > 0.f) {
+        float t = fmodf((float)(SDL_GetTicks() * 0.001), s_breath_len);
+        SampleBreathing(t, s_pose_rot, s_pose_tra);
+    } else {
+        // Fallback: copy idle pose
+        for(int i=0;i<30;i++){
+            memcpy(s_pose_rot[i], s_idle_rot[i], 16);
+            s_pose_tra[i][0]=s_bind_local[i][12];
+            s_pose_tra[i][1]=s_bind_local[i][13];
+            s_pose_tra[i][2]=s_bind_local[i][14];
+        }
+    }
+
     auto cl=[](float x) -> float { return x<0.1f?0.1f:(x>4.f?4.f:x); };
     auto comp=[&](float x, float k) -> float { return cl(1.f + (x - 1.f)*k); };
     // setBS(i, wy, wx, wz): s_boneScales for bone i. wy=local-X scale (height/length axis),
@@ -825,13 +952,11 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     //   s_boneScales[i] scales vertices around bone i (does NOT affect child positions).
     //   new_world[i] = new_world[parent] * (bind_local[i] with translation * s_posScale[i])
     //   ws_mat[i]    = new_world[i] * diag(s_boneScales[i]) * inv_bind[i]
-    // Apply idle_stand_normal last frame to all bones.
-    // This is a complete pose — partial application (arms only) breaks the chain
-    // since arm rotations were authored relative to the same frame's spine position.
-    static const bool kIdleWhitelist[30] = {
+    // Pose: sampled breathing anim (or idle fallback). Legs at bind pose.
+    static const bool kPoseWhitelist[30] = {
         true,  true,                    // [0]=ROOT [1]=Pelvis
-        false,false,false,false,false,  // [2-6]  L Thigh..ToeNub  (legs at bind pose)
-        false,false,false,false,false,  // [7-11] R Thigh..ToeNub  (legs at bind pose)
+        false,false,false,false,false,  // [2-6]  L Thigh..ToeNub  (bind pose)
+        false,false,false,false,false,  // [7-11] R Thigh..ToeNub  (bind pose)
         true,  true,  true,             // [12-14] Spine Spine1 Spine2
         true,  true,  true,  true, false,  // [15-19] L Clav UpperArm Forearm Hand
         true,  true,  false, true, false,  // [20-24] Neck Head HeadNub Jaw
@@ -840,14 +965,13 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     float new_world[30][16];
     for (int i = 0; i < 30; i++) {
         float sl[16];
-        if (s_idle_loaded && s_idle_has_rot[i] && kIdleWhitelist[i]) {
-            // Idle pose: animation rotation for spine/neck/head only.
+        if (kPoseWhitelist[i]) {
             float tp[3] = {
-                s_bind_local[i][12] * s_posScale[i][0],
-                s_bind_local[i][13] * s_posScale[i][1],
-                s_bind_local[i][14] * s_posScale[i][2]
+                s_pose_tra[i][0] * s_posScale[i][0],
+                s_pose_tra[i][1] * s_posScale[i][1],
+                s_pose_tra[i][2] * s_posScale[i][2]
             };
-            m4_from_quat_t(sl, s_idle_rot[i], tp);
+            m4_from_quat_t(sl, s_pose_rot[i], tp);
         } else {
             memcpy(sl, s_bind_local[i], 64);
             sl[12] *= s_posScale[i][0];
