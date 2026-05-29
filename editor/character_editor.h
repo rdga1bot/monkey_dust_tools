@@ -85,15 +85,16 @@ static const float kBodyHi[BODY_N] = {
    130.f,  // [16] Legs bulk
    120.f,  // [17] Feet
 };
-// Defaults: bone-scale neutrals at 100 (= no deformation). Posture = 50 (natural S-curve lean).
+// Defaults: midpoints from editor_data_human.xml (Kenshi loadEditorXMLData).
+// Posture(0-70)→mid=35, ShoulderSet(45-90)→mid=68, NeckPos(25-80)→mid=53.
 static const float kBodyDef[BODY_N] = {
     50.f,   // [0] skin param
     50.f,   // [1] skin param
    100.f,   // [2] Height
    100.f,   // [3] Frame
-     0.f,   // [4] Posture:      0 = straight idle_stand_normal (matches in-game pose)
-    68.f,   // [5] Shoulder set: mid(45,90)
-    53.f,   // [6] Neck position:mid(25,80)
+    35.f,   // [4] Posture:      mid(0,70)=35 per editor_data_human.xml
+    68.f,   // [5] Shoulder set: mid(45,90)=68
+    53.f,   // [6] Neck position:mid(25,80)=53
    100.f,   // [7] Leg length
    100.f,   // [8] Shoulders
    100.f,   // [9] Arm bulk:     neutral=100 (RE verified: Kenshi inits all sliders to 100)
