@@ -307,6 +307,10 @@ static M4 m4_rotY(float a) { M4 r; r.m[0]=cosf(a);r.m[2]=sinf(a);r.m[8]=-sinf(a)
 static M4 m4_rotX(float a) { M4 r; r.m[5]=cosf(a);r.m[6]=-sinf(a);r.m[9]=sinf(a);r.m[10]=cosf(a); return r; }
 static M4 m4_translate(float x, float y, float z) { M4 r; r.m[12]=x; r.m[13]=y; r.m[14]=z; return r; }
 
+// Effective pose (filled by SetBoneScalesFromDef each frame, read by debug overlay)
+static float s_pose_rot[30][4];
+static float s_pose_tra[30][3];
+
 // ── RTT management ────────────────────────────────────────────────────────────
 static void ensure_rtt(int w, int h) {
     if (w==s_rtt_w && h==s_rtt_h && s_color) return;
@@ -1062,8 +1066,6 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     }
 
     // ── Sample breathing animation at current time ─────────────────────────
-    static float s_pose_rot[30][4];
-    static float s_pose_tra[30][3];
     if (s_breath_loaded && s_breath_len > 0.f) {
         float t = fmodf((float)((SDL_GetTicks() - s_anim_epoch_ms) * 0.001), s_breath_len);
         SampleBreathing(t, s_pose_rot, s_pose_tra);
@@ -1237,57 +1239,18 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     // Jaw [23]: wy=FrH*Hd, wx=FrH*Hd*Hsp*jaw, wz=FrH*Hd   [line 264290]
     s_boneScales[23][0]=FrH*Hd; s_boneScales[23][1]=FrH*Hd*Hsp*jaw; s_boneScales[23][2]=FrH*Hd;
 
-    // OGRE-style hierarchical: setBoneSize and setBonePositionalSize are INDEPENDENT.
-    //   s_posScale[i] scales bone i's bind translation from its parent (position only).
-    //   s_boneScales[i] scales vertices around bone i (does NOT affect child positions).
-    //   new_world[i] = new_world[parent] * (bind_local[i] with translation * s_posScale[i])
-    //   ws_mat[i]    = new_world[i] * diag(s_boneScales[i]) * inv_bind[i]
-    // Three-tier pose system (matches Kenshi "breathing noarms" design):
-    //   kBreathList  — spine/root/neck: breathing animation (torso sway)
-    //   kIdleArmList — arm chain: idle_stand_normal last frame (natural rest, no float)
-    //   neither      — legs: bind pose (T-pose, no ground issues)
-    static const bool kBreathList[30] = {
-        true,  true,                    // [0]=ROOT [1]=Pelvis
-        false,false,false,false,false,  // [2-6]  legs — bind pose
-        false,false,false,false,false,  // [7-11] legs — bind pose
-        true,  true,  true,             // [12-14] Spine Spine1 Spine2
-        false, false, false, false, false, // [15-19] L arm — idle pose
-        true,  true,  false, true, false,  // [20-24] Neck Head Jaw
-        false, false, false, false, false  // [25-29] R arm — idle pose
-    };
-    static const bool kIdleArmList[30] = {
-        false, false,
-        false,false,false,false,false,
-        false,false,false,false,false,
-        false, false, false,
-        true,  true,  true,  true, false,  // [15-19] L Clav UpperArm Forearm Hand
-        false, false, false, false, false,
-        true,  true,  true,  true, false   // [25-29] R Clav UpperArm Forearm Hand
-    };
+    // All bones: s_pose_rot (idle_stand_normal for all, since kBreathRotList=all-false)
+    // + bind_local translation. Consistent idle pose for entire skeleton = no lean.
+    // Previous 3-tier (kBreathList/kIdleArmList/bind) mixed idle+bind → forward lean.
     float new_world[30][16];
     for (int i = 0; i < 30; i++) {
         float sl[16];
-        if (kBreathList[i]) {
-            float tp[3] = {
-                s_pose_tra[i][0] * s_posScale[i][0],
-                s_pose_tra[i][1] * s_posScale[i][1],
-                s_pose_tra[i][2] * s_posScale[i][2]
-            };
-            m4_from_quat_t(sl, s_pose_rot[i], tp);
-        } else if (kIdleArmList[i]) {
-            // Arms: idle_stand_normal last frame (natural rest pose, away from shorts)
-            float tp[3] = {
-                s_bind_local[i][12] * s_posScale[i][0],
-                s_bind_local[i][13] * s_posScale[i][1],
-                s_bind_local[i][14] * s_posScale[i][2]
-            };
-            m4_from_quat_t(sl, s_idle_rot[i], tp);
-        } else {
-            memcpy(sl, s_bind_local[i], 64);
-            sl[12] *= s_posScale[i][0];
-            sl[13] *= s_posScale[i][1];
-            sl[14] *= s_posScale[i][2];
-        }
+        float tp[3] = {
+            s_bind_local[i][12] * s_posScale[i][0],
+            s_bind_local[i][13] * s_posScale[i][1],
+            s_bind_local[i][14] * s_posScale[i][2]
+        };
+        m4_from_quat_t(sl, s_pose_rot[i], tp);
         if (s_bone_parent[i] < 0)
             memcpy(new_world[i], sl, 64);
         else
@@ -1586,6 +1549,68 @@ static void DrawInImGui(float W, float H,
     ImGui::PushStyleColor(ImGuiCol_Text,IM_COL32(160,160,180,160));
     ImGui::TextUnformatted("RMB=rotate  Scroll=zoom");
     ImGui::PopStyleColor();
+
+#ifdef MONKEY_DUST_EDITOR
+    // ── Bone debug overlay ────────────────────────────────────────────────────
+    // Shows key bone angles, bind vs current, and data source.
+    // Toggle with static bool; ImGui collapsing header.
+    static bool s_dbg_bones = false;
+    ImGui::SetCursorScreenPos({origin.x+4, origin.y+4});
+    ImGui::PushStyleColor(ImGuiCol_Header,        IM_COL32(30,30,50,200));
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, IM_COL32(50,50,80,200));
+    ImGui::PushStyleColor(ImGuiCol_Text,          IM_COL32(200,220,255,255));
+    if (ImGui::CollapsingHeader("Bone Debug##cpv")) {
+        s_dbg_bones = true;
+        static const struct { int ji; const char* name; } kDBG[] = {
+            {0,"ROOT"},{1,"Pelvis"},
+            {12,"Spine"},{13,"Spine1"},{14,"Spine2"},
+            {15,"L Clav"},{16,"L Arm"},{20,"Neck"},{21,"Head"},
+            {25,"R Clav"},{26,"R Arm"},
+            {2,"L Thigh"},{3,"L Calf"},
+        };
+        auto q2deg=[](const float q[4]) -> float {
+            float w=q[3]<-1.f?-1.f:(q[3]>1.f?1.f:q[3]);
+            return 2.f*acosf(w)*57.2957795f;
+        };
+        auto bind_q=[](int i, float q[4]){
+            // extract quaternion from bind_local col-major mat4
+            float m[16]; memcpy(m, s_bind_local[i], 64);
+            float t=m[0]+m[5]+m[10];
+            if(t>0.f){float s=0.5f/sqrtf(t+1.f);
+                q[3]=0.25f/s;q[0]=(m[6]-m[9])*s;q[1]=(m[8]-m[2])*s;q[2]=(m[1]-m[4])*s;
+            } else if(m[0]>m[5]&&m[0]>m[10]){float s=2.f*sqrtf(1.f+m[0]-m[5]-m[10]);
+                q[3]=(m[6]-m[9])/s;q[0]=0.25f*s;q[1]=(m[4]+m[1])/s;q[2]=(m[8]+m[2])/s;
+            } else if(m[5]>m[10]){float s=2.f*sqrtf(1.f+m[5]-m[0]-m[10]);
+                q[3]=(m[8]-m[2])/s;q[0]=(m[4]+m[1])/s;q[1]=0.25f*s;q[2]=(m[9]+m[6])/s;
+            } else{float s=2.f*sqrtf(1.f+m[10]-m[0]-m[5]);
+                q[3]=(m[1]-m[4])/s;q[0]=(m[8]+m[2])/s;q[1]=(m[9]+m[6])/s;q[2]=0.25f*s;}
+        };
+        ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255,255,255,255));
+        ImGui::TextUnformatted("bone           cur°  bind°  diff°");
+        ImGui::Separator();
+        for (auto& d : kDBG) {
+            float bq[4]; bind_q(d.ji, bq);
+            float cur = q2deg(s_pose_rot[d.ji]);
+            float bnd = q2deg(bq);
+            float dif = cur - bnd;
+            ImU32 col = fabsf(dif) < 1.f ? IM_COL32(150,255,150,255) :
+                        fabsf(dif) < 5.f ? IM_COL32(255,255,100,255) :
+                                           IM_COL32(255,100,100,255);
+            ImGui::PushStyleColor(ImGuiCol_Text, col);
+            ImGui::Text("%-12s %6.1f %6.1f %+6.1f", d.name, cur, bnd, dif);
+            ImGui::PopStyleColor();
+        }
+        ImGui::Separator();
+        // Source info
+        bool postures_on = s_anim_postures.loaded;
+        bool idle_on     = s_idle_loaded;
+        bool breath_on   = s_breath_loaded;
+        ImGui::Text("idle:%s breath:%s postures:%s",
+            idle_on?"OK":"--", breath_on?"OK":"--", postures_on?"OK":"--");
+        ImGui::PopStyleColor();
+    }
+    ImGui::PopStyleColor(3);
+#endif
 }
 
 } // namespace CharPreviewSDLGPU
