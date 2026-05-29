@@ -726,7 +726,7 @@ static bool Init(const char* glb_path, const char* tex_path) {
         // Positioned X=+0.65 (viewer's right of character), Z=0
         float pole_x0=0.630f, pole_x1=0.658f;
         float pole_z0=-0.014f, pole_z1=0.014f;
-        float pole_y0=0.f,   pole_y1=2.20f;
+        float pole_y0=0.f,   pole_y1=2.10f;
         float pr2=0.30f, pg2=0.22f, pb2=0.15f;
         // Front face (+Z)
         quad({pole_x0,pole_y0,pole_z1,pr2,pg2,pb2},{pole_x1,pole_y0,pole_z1,pr2,pg2,pb2},
@@ -742,7 +742,7 @@ static bool Init(const char* glb_path, const char* tex_path) {
 
         // ── Tick marks (extending to the right of the pole) ───────────────
         float tick_r=0.55f, tick_g=0.45f, tick_b=0.32f;
-        for(int ti=1; ti<=21; ti++){
+        for(int ti=1; ti<=20; ti++){
             float ty = (float)ti * 0.10f;
             float th = 0.007f;      // half-height
             bool major = (ti % 10 == 0);
