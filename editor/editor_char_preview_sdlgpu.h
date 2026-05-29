@@ -1115,11 +1115,51 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
         }
     }
 
-    // Apply slider pose animations on top of breathing (Kenshi RE: setTimePosition formula)
-    // time = anim_length * slider_value * 0.01  → normalised alpha = slider_value * 0.01
-    // Slider animations (postures/shoulder_set/neck_set) need proper OGRE coordinate
-    // mapping before they can be applied. Disabled until coordinate space is verified.
-    // TODO: apply only when slider deviates from default; map to correct OGRE-space bones.
+    // Apply postures animation: gives the characteristic Kenshi S-curve lean.
+    // Only affects spine/leg/neck bones — arms/clavicle keep idle_stand_normal (arms-at-sides).
+    // shoulder_set/neck_set remain disabled (their bone channels conflict with idle arm pose).
+    // alpha = body[4] * 0.01 (Kenshi formula: time = length * slider * 0.01)
+    static const bool kPostureList[30] = {
+        false, // 0  ROOT
+        false, // 1  Pelvis
+        true,  // 2  L Thigh   — slight forward tilt
+        true,  // 3  L Calf    — slight knee bend
+        true,  // 4  L Foot    — foot angle
+        false, // 5  L Toe0
+        false, // 6  L Toe0Nub
+        true,  // 7  R Thigh
+        true,  // 8  R Calf
+        true,  // 9  R Foot
+        false, // 10 R Toe0
+        false, // 11 R Toe0Nub
+        true,  // 12 Spine     — backward lean component
+        true,  // 13 Spine1    — MAIN S-curve (frame0=13.2°, last=17.4° vs bind 5°)
+        true,  // 14 Spine2    — upper back component
+        false, // 15 L Clavicle — keep idle (arms-at-sides position)
+        false, // 16 L UpperArm — keep idle (postures pulls arm back to T-pose)
+        false, // 17 L Forearm
+        false, // 18 L Hand
+        false, // 19 Prop1
+        true,  // 20 Neck      — head position in stance
+        true,  // 21 Head      — head position in stance
+        false, // 22 HeadNub
+        false, // 23 Jaw
+        false, // 24 JawNub
+        false, // 25 R Clavicle — keep idle
+        false, // 26 R UpperArm — keep idle (postures pulls arm back to T-pose)
+        false, // 27 R Forearm
+        false, // 28 R Hand
+        false, // 29 Prop2
+    };
+    {
+        float posture_alpha = body[4] * 0.01f;
+        if (s_anim_postures.loaded && posture_alpha > 0.001f) {
+            for (int i = 0; i < 30; i++) {
+                if (!kPostureList[i] || !s_anim_postures.has[i]) continue;
+                quat_nlerp(s_pose_rot[i], s_anim_postures.rot0[i], s_anim_postures.rot1[i], posture_alpha);
+            }
+        }
+    }
 
     auto cl=[](float x) -> float { return x<0.1f?0.1f:(x>4.f?4.f:x); };
     auto comp=[&](float x, float k) -> float { return cl(1.f + (x - 1.f)*k); };
