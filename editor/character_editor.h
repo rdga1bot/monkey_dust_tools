@@ -91,7 +91,7 @@ static const float kBodyDef[BODY_N] = {
     50.f,   // [1] skin param
    100.f,   // [2] Height
    100.f,   // [3] Frame
-    50.f,   // [4] Posture:      50/99 = mid-range, gives natural Kenshi S-curve lean
+     0.f,   // [4] Posture:      0 = straight idle_stand_normal (matches in-game pose)
     68.f,   // [5] Shoulder set: mid(45,90)
     53.f,   // [6] Neck position:mid(25,80)
    100.f,   // [7] Leg length

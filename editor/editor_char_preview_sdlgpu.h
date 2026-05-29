@@ -108,42 +108,14 @@ static void quat_nlerp(float out[4], const float a[4], const float b[4], float t
     else {out[0]=0;out[1]=0;out[2]=0;out[3]=1;}
 }
 
-// Bones that receive rotation from breathing noarms. Others use idle_stand_normal.
-// GLB data analysis: breathing noarms stores ALL 60 channels, but most non-spine bones
-// have bind-pose or identity rotations (not idle-stand rotations). Applying those to
-// clavicles/Spine1/Spine2 moves them away from the natural idle pose → raised shoulders.
-// Only Spine(12)/Neck(20)/Head(21) have genuine breathing-specific rotations.
+// All rotations come from idle_stand_normal. Breathing contributes only translation (vertical sway).
+// Rationale: breathing noarms stores absolute rotations that differ from idle — applying them
+// directly diverges from the in-game idle_stand_normal pose. The game blends idle+breathing,
+// but we just use idle to exactly match the game's visual output.
 static const bool kBreathRotList[30] = {
-    false, // 0  ROOT       — use idle (vertical sway is translation, handled separately)
-    false, // 1  Pelvis
-    false, // 2  L Thigh
-    false, // 3  L Calf
-    false, // 4  L Foot
-    false, // 5  L Toe0
-    false, // 6  L Toe0Nub
-    false, // 7  R Thigh
-    false, // 8  R Calf
-    false, // 9  R Foot
-    false, // 10 R Toe0
-    false, // 11 R Toe0Nub
-    true,  // 12 Spine      — primary torso breathing sway
-    false, // 13 Spine1     — identity in animation → T-pose, use idle
-    false, // 14 Spine2     — identity in animation → T-pose, use idle
-    false, // 15 L Clavicle — bind-pose in animation, use idle (arms-at-sides)
-    false, // 16 L UpperArm
-    false, // 17 L Forearm
-    false, // 18 L Hand
-    false, // 19 Prop1
-    true,  // 20 Neck       — head nod during breathing
-    true,  // 21 Head       — head nod during breathing
-    false, // 22 HeadNub
-    false, // 23 Jaw
-    false, // 24 JawNub
-    false, // 25 R Clavicle — different from idle in anim, use idle
-    false, // 26 R UpperArm
-    false, // 27 R Forearm
-    false, // 28 R Hand
-    false, // 29 Prop2
+    false, false, false, false, false, false, false, false, false, false,
+    false, false, false, false, false, false, false, false, false, false,
+    false, false, false, false, false, false, false, false, false, false,
 };
 
 // Sample breathing animation at time t (seconds). Fills pose_rot[30][4] and pose_tra[30][3].
@@ -1154,9 +1126,14 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     {
         float posture_alpha = body[4] * 0.01f;
         if (s_anim_postures.loaded && posture_alpha > 0.001f) {
+            // ANIMBLEND_AVERAGE: blend postures with current pose (idle/breathing), not replace.
+            // Kenshi blends idle(w=1) + postures(w=1) + breathing(w=0.95) → postures blend = 1/2 ≈ 0.5
+            static constexpr float POSTURE_BLEND = 0.5f;
             for (int i = 0; i < 30; i++) {
                 if (!kPostureList[i] || !s_anim_postures.has[i]) continue;
-                quat_nlerp(s_pose_rot[i], s_anim_postures.rot0[i], s_anim_postures.rot1[i], posture_alpha);
+                float posRot[4];
+                quat_nlerp(posRot, s_anim_postures.rot0[i], s_anim_postures.rot1[i], posture_alpha);
+                quat_nlerp(s_pose_rot[i], s_pose_rot[i], posRot, POSTURE_BLEND);
             }
         }
     }
