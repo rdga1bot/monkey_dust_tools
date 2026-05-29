@@ -74,15 +74,29 @@ static bool  s_idle_loaded = false;
 
 // ── Breathing animation ───────────────────────────────────────────────────────
 struct BreathChan {
-    float* times = nullptr;  // keyframe times (seconds)
-    float* quats = nullptr;  // xyzw per keyframe (rotation)
-    float* trans = nullptr;  // xyz per keyframe (translation, optional)
-    int    rcount = 0;       // rotation keyframe count
-    int    tcount = 0;       // translation keyframe count
+    float* times = nullptr;
+    float* quats = nullptr;
+    float* trans = nullptr;
+    int    rcount = 0;
+    int    tcount = 0;
 };
 static BreathChan s_breath[30];
 static float      s_breath_len = 0.f;
 static bool       s_breath_loaded = false;
+
+// ── Slider pose animations (Kenshi RE: postures/neck_set/shoulder_set) ────────
+// Each has 2 keyframes. Sampled at t = anim_length * slider_value * 0.01
+// to freeze the skeleton in the slider's posed position.
+struct SliderAnim {
+    float rot0[30][4]; // frame 0 quaternions (xyzw)
+    float rot1[30][4]; // frame 1 quaternions
+    bool  has[30];     // bone has this channel
+    float length = 0.f;
+    bool  loaded = false;
+};
+static SliderAnim s_anim_postures;    // body[4]  Posture    → "postures"
+static SliderAnim s_anim_neck_set;    // body[5]  Shoulder set → "neck set" (Kenshi naming)
+static SliderAnim s_anim_shoulder_set;// body[6]  Neck pos   → "shoulder set"
 
 // NLERP: normalised linear interpolation of two quaternions.
 static void quat_nlerp(float out[4], const float a[4], const float b[4], float t) {
@@ -142,6 +156,53 @@ static void m4mul(float* C, const float* A, const float* B) {
     }
     memcpy(C,T,64);
 }
+// Load a 2-keyframe SliderAnim from GLB animation by name.
+// Alpha = slider_value * 0.01  (Kenshi formula: time = length * value * 0.01)
+static void LoadSliderAnim(cgltf_data* d, int* node_to_ji, SliderAnim& out, const char* name) {
+    out.loaded = false; out.length = 0.f;
+    memset(out.has, 0, sizeof(out.has));
+    for(int i=0;i<30;i++){out.rot0[i][3]=1;out.rot1[i][3]=1;}
+    for(int ai=0;ai<(int)d->animations_count;++ai){
+        cgltf_animation& anim=d->animations[ai];
+        if (!anim.name||strcmp(anim.name,name)!=0) continue;
+        // Get length from first input accessor
+        for(int ci=0;ci<(int)anim.channels_count&&out.length==0.f;++ci){
+            cgltf_animation_channel& ch=anim.channels[ci];
+            if (!ch.sampler||!ch.sampler->input||ch.sampler->input->count==0) continue;
+            float lt=0.f;
+            cgltf_accessor_read_float(ch.sampler->input, ch.sampler->input->count-1, &lt, 1);
+            out.length = lt;
+        }
+        for(int ci=0;ci<(int)anim.channels_count;++ci){
+            cgltf_animation_channel& ch=anim.channels[ci];
+            if (!ch.target_node||!ch.sampler||!ch.sampler->output) continue;
+            if (ch.target_path!=cgltf_animation_path_type_rotation) continue;
+            int ni=(int)(ch.target_node-d->nodes);
+            if (ni<0||ni>=2048) continue;
+            int ji=node_to_ji[ni];
+            if (ji<0||ji>=30) continue;
+            int cnt=(int)ch.sampler->output->count;
+            if (cnt>=1) cgltf_accessor_read_float(ch.sampler->output, 0, out.rot0[ji], 4);
+            if (cnt>=2) cgltf_accessor_read_float(ch.sampler->output, cnt-1, out.rot1[ji], 4);
+            else memcpy(out.rot1[ji], out.rot0[ji], 16);
+            out.has[ji]=true;
+        }
+        out.loaded=true;
+        fprintf(stdout,"[CharPreview] slider anim '%s': length=%.4fs\n",name,out.length);
+        break;
+    }
+}
+
+// Sample a SliderAnim at alpha=slider_value*0.01, apply to pose_rot bones where has[i]=true
+static void ApplySliderAnim(const SliderAnim& sa, float alpha, float pose_rot[30][4]) {
+    if (!sa.loaded) return;
+    float a = alpha < 0.f ? 0.f : (alpha > 1.f ? 1.f : alpha);
+    for(int i=0;i<30;i++){
+        if (!sa.has[i]) continue;
+        quat_nlerp(pose_rot[i], sa.rot0[i], sa.rot1[i], a);
+    }
+}
+
 // Extract unit quaternion (xyzw) from col-major 4×4 rotation matrix.
 static void mat3_to_quat(float q[4], const float M[16]) {
     float t = M[0]+M[5]+M[10];
@@ -483,6 +544,11 @@ static bool Init(const char* glb_path, const char* tex_path) {
             fprintf(stdout,"[CharPreview] breathing: %.2fs loaded\n", s_breath_len);
             break;
         }
+
+        // ── Slider pose animations (RE: Kenshi maps body sliders to OGRE anims) ──
+        LoadSliderAnim(d, node_to_ji, s_anim_postures,     "postures");
+        LoadSliderAnim(d, node_to_ji, s_anim_neck_set,     "neck set");
+        LoadSliderAnim(d, node_to_ji, s_anim_shoulder_set, "shoulder set");
     }
     // Precompute bind_local[i] = inv_bind[parent] * bind[i] (local bind TRS in parent space)
     for (int i=0;i<30;i++) {
@@ -999,6 +1065,12 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
         }
     }
 
+    // Apply slider pose animations on top of breathing (Kenshi RE: setTimePosition formula)
+    // time = anim_length * slider_value * 0.01  → normalised alpha = slider_value * 0.01
+    ApplySliderAnim(s_anim_postures,     body[4] * 0.01f, s_pose_rot);
+    ApplySliderAnim(s_anim_shoulder_set, body[5] * 0.01f, s_pose_rot); // Shoulder set → "shoulder set" anim
+    ApplySliderAnim(s_anim_neck_set,     body[6] * 0.01f, s_pose_rot); // Neck pos     → "neck set" anim
+
     auto cl=[](float x) -> float { return x<0.1f?0.1f:(x>4.f?4.f:x); };
     auto comp=[&](float x, float k) -> float { return cl(1.f + (x - 1.f)*k); };
     // setBS(i, wy, wx, wz): s_boneScales for bone i. wy=local-X scale (height/length axis),
@@ -1254,37 +1326,67 @@ static void SetMorphWeightsFromFace(const float face[], const float def[],
             int mi = s_morph_idx_by_name(m.pos);
             if (mi >= 0) {
                 float w = (val - d) / rhi;
-                s_morph_weights[mi] = w < 0.f ? 0.f : (w > 1.f ? 1.f : w);
+                w = w < 0.f ? 0.f : (w > 1.f ? 1.f : w);
+                // Kenshi RE: floorf(value * 10) → 10 discrete steps (0.0,0.1,...,1.0)
+                s_morph_weights[mi] = floorf(w * 10.f) / 10.f;
             }
         }
         if (m.neg && rlo > 1e-6f) {
             int mi = s_morph_idx_by_name(m.neg);
             if (mi >= 0) {
                 float w = (d - val) / rlo;
-                s_morph_weights[mi] = w < 0.f ? 0.f : (w > 1.f ? 1.f : w);
+                w = w < 0.f ? 0.f : (w > 1.f ? 1.f : w);
+                s_morph_weights[mi] = floorf(w * 10.f) / 10.f;
             }
         }
     }
     s_morphs_dirty = true;
 }
 
-// ── Camera preset per active tab (call when tab changes) ─────────────────────
-// tab: 0=BODY (full body), 1=FACE (face close-up), 2=HAIR (same as FACE)
+// ── Portrait config (game/data/chars/portrait.cfg) ───────────────────────────
+struct PortraitCfg {
+    float portrait_dist     = 0.72f;
+    float portrait_offset_y = 0.88f;
+    float portrait_fov      = 0.78f;
+    float body_dist         = 2.6f;
+    float body_pit          = -0.06f;
+};
+static PortraitCfg s_pcfg;
+static bool        s_pcfg_loaded = false;
+
+static void LoadPortraitCfg() {
+    FILE* f = fopen("game/data/chars/portrait.cfg", "r");
+    if (!f) return;
+    char line[128];
+    while (fgets(line, sizeof(line), f)) {
+        if (line[0]=='#'||line[0]=='\n') continue;
+        char key[64]; float val;
+        if (sscanf(line, "%63s = %f", key, &val) == 2) {
+            if (!strcmp(key,"portrait_dist"))     s_pcfg.portrait_dist     = val;
+            if (!strcmp(key,"portrait_offset_y")) s_pcfg.portrait_offset_y = val;
+            if (!strcmp(key,"portrait_fov"))      s_pcfg.portrait_fov      = val;
+            if (!strcmp(key,"body_dist"))         s_pcfg.body_dist         = val;
+            if (!strcmp(key,"body_pit"))          s_pcfg.body_pit          = val;
+        }
+    }
+    fclose(f);
+    s_pcfg_loaded = true;
+    fprintf(stdout,"[CharPreview] portrait.cfg: dist=%.2f offset_y=%.2f\n",
+            s_pcfg.portrait_dist, s_pcfg.portrait_offset_y);
+}
+
+// ── Camera preset per active tab ──────────────────────────────────────────────
 static void SetCameraForTab(int tab) {
+    if (!s_pcfg_loaded) LoadPortraitCfg();
     if (tab == 0) {
-        s_dist     = 2.6f;
-        s_pit      = -0.06f;
+        s_dist     = s_pcfg.body_dist;
+        s_pit      = s_pcfg.body_pit;
         s_lookat_y = 0.f;
     } else {
-        // FACE / HAIR: face close-up — reset yaw to face straight-on, zoom in.
-        // Face world-Y ≈ head_bind_Y(~1.80) - model_offset(s_height*0.95)
-        // With idle lean the effective face Y is slightly lower (~0.78 of height).
-        s_dist     = 0.72f;
+        s_dist     = s_pcfg.portrait_dist;
         s_pit      = 0.f;
-        s_yaw      = 0.f;   // reset to front view
-        // Mesh Y max=1.946, face center ≈1.80. World Y = mesh_y - s_height*0.95.
-        // At neutral height: world_face = 1.80-0.95 = 0.85 → coefficient 0.88 gives slight headroom.
-        s_lookat_y = s_height * 0.88f;
+        s_yaw      = 0.f;
+        s_lookat_y = s_height * s_pcfg.portrait_offset_y;
     }
 }
 
