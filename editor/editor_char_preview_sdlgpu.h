@@ -32,6 +32,10 @@ struct FU {                                          // 48 bytes, set=3
 
 // ── State ─────────────────────────────────────────────────────────────────────
 static GpuPipeline     s_bg_pipeline;
+static GpuPipeline     s_scene_pipeline;  // platform + pole flat-color
+static GpuStaticBuffer s_scene_vbo;
+static GpuStaticBuffer s_scene_ibo;
+static int             s_scene_ni = 0;
 static GpuPipeline     s_pipeline;
 static GpuStaticBuffer s_vbo;
 static GpuStaticBuffer s_ibo;
@@ -634,6 +638,119 @@ static bool Init(const char* glb_path, const char* tex_path) {
             fprintf(stderr,"[CharPreview] bg pipeline create failed\n");
     }
 
+    // ── Scene pipeline: platform planks + anthropometer pole ─────────────────
+    {
+        GpuPipeline::Desc spd;
+        spd.vert_path = "shaders/char_scene.vert";
+        spd.frag_path = "shaders/char_scene.frag";
+        spd.layout.count  = 2;
+        spd.layout.stride = 24;
+        spd.layout.attribs[0] = {0, 0,  GpuAttribFmt::F3};   // aPos   at offset 0
+        spd.layout.attribs[1] = {1, 12, GpuAttribFmt::F3};   // aColor at offset 12
+        spd.raster.depth_test  = true;
+        spd.raster.depth_write = true;
+        spd.raster.cull_back   = false;  // open geometry — no closed mesh, all faces needed
+        spd.vert_uniform_bufs  = 1;   // set=1 binding=0: MVP
+        spd.vert_samplers      = 0;
+        spd.frag_samplers      = 0;
+        spd.frag_uniform_bufs  = 0;
+        spd.color_format       = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+        spd.has_depth_target   = true;
+        if (!s_scene_pipeline.Create(spd))
+            fprintf(stderr,"[CharPreview] scene pipeline create failed\n");
+
+        // ── Procedural geometry: platform + anthropometer ───────────────────
+        // Coordinate system: Y=0 = character feet level.
+        // Platform: flat raised dock, planks run in Z, Y from -0.14 to 0.
+        // Pole: X=+0.65, Z=0, Y from 0 to 2.2m, with tick marks.
+
+        struct SV { float x,y,z, r,g,b; };
+        static SV verts[1024];
+        static uint16_t idxs[4096];
+        int vi=0, ii=0;
+
+        auto quad=[&](SV a,SV b,SV c,SV d){
+            // two triangles: abc + acd
+            uint16_t base=(uint16_t)vi;
+            verts[vi++]=a; verts[vi++]=b; verts[vi++]=c; verts[vi++]=d;
+            idxs[ii++]=base; idxs[ii++]=base+1; idxs[ii++]=base+2;
+            idxs[ii++]=base; idxs[ii++]=base+2; idxs[ii++]=base+3;
+        };
+        auto rgb=[](float r,float g,float b){ return SV{0,0,0,r,g,b}; };
+
+        // ── Platform planks ───────────────────────────────────────────────
+        // 7 planks, each 0.26m wide, 0.015m gap, running Z: -0.7 to +0.9
+        // Total width: 7*0.26 + 6*0.015 = 1.82 + 0.09 = 1.91m → x: -0.955..+0.955
+        float pz0=-0.7f, pz1=0.9f;
+        float px=-0.955f;
+        float plank_w=0.26f, gap=0.015f;
+        float py_top=0.01f, py_bot=-0.13f;  // +1cm above foot Y=0 to avoid Z-fight
+        for(int p=0;p<7;p++){
+            float px0=px, px1=px+plank_w;
+            float shade=(p%2==0)?0.f:0.06f;
+            float dr=0.32f+shade, dg=0.20f+shade*0.7f, db=0.11f+shade*0.4f;
+            float sr=0.38f+shade, sg=0.25f+shade*0.7f, sb=0.14f+shade*0.4f;
+            SV tl={px0,py_top,pz0,sr,sg,sb}, tr={px1,py_top,pz0,sr,sg,sb};
+            SV bl={px0,py_top,pz1,dr,dg,db}, br={px1,py_top,pz1,dr,dg,db};
+            quad(tl,tr,br,bl);   // top face
+            // Front edge face (Z=pz1, facing +Z)
+            SV fe0={px0,py_bot,pz1,0.18f,0.11f,0.06f};
+            SV fe1={px1,py_bot,pz1,0.18f,0.11f,0.06f};
+            SV fe2={px1,py_top,pz1,0.22f,0.14f,0.08f};
+            SV fe3={px0,py_top,pz1,0.22f,0.14f,0.08f};
+            quad(fe0,fe1,fe2,fe3);
+            px += plank_w + gap;
+        }
+
+        // ── Anthropometer pole ────────────────────────────────────────────
+        // Positioned X=+0.65 (viewer's right of character), Z=0
+        float pole_x0=0.630f, pole_x1=0.658f;
+        float pole_z0=-0.014f, pole_z1=0.014f;
+        float pole_y0=0.f,   pole_y1=2.20f;
+        float pr2=0.30f, pg2=0.22f, pb2=0.15f;
+        // Front face (+Z)
+        quad({pole_x0,pole_y0,pole_z1,pr2,pg2,pb2},{pole_x1,pole_y0,pole_z1,pr2,pg2,pb2},
+             {pole_x1,pole_y1,pole_z1,pr2,pg2,pb2},{pole_x0,pole_y1,pole_z1,pr2,pg2,pb2});
+        // Back face (-Z)
+        float pr3=0.22f,pg3=0.16f,pb3=0.10f;
+        quad({pole_x1,pole_y0,pole_z0,pr3,pg3,pb3},{pole_x0,pole_y0,pole_z0,pr3,pg3,pb3},
+             {pole_x0,pole_y1,pole_z0,pr3,pg3,pb3},{pole_x1,pole_y1,pole_z0,pr3,pg3,pb3});
+        // Right face (+X)
+        float pr4=0.26f,pg4=0.19f,pb4=0.12f;
+        quad({pole_x1,pole_y0,pole_z0,pr4,pg4,pb4},{pole_x1,pole_y0,pole_z1,pr4,pg4,pb4},
+             {pole_x1,pole_y1,pole_z1,pr4,pg4,pb4},{pole_x1,pole_y1,pole_z0,pr4,pg4,pb4});
+
+        // ── Tick marks (extending to the right of the pole) ───────────────
+        float tick_r=0.55f, tick_g=0.45f, tick_b=0.32f;
+        for(int ti=1; ti<=21; ti++){
+            float ty = (float)ti * 0.10f;
+            float th = 0.007f;      // half-height
+            bool major = (ti % 10 == 0);
+            bool medium= (ti % 5  == 0);
+            float tw = major ? 0.11f : (medium ? 0.07f : 0.04f);
+            float tx0=pole_x1, tx1=pole_x1+tw;
+            float tz0=pole_z0, tz1=pole_z1;
+            // Top face of tick
+            quad({tx0,ty+th,tz0,tick_r,tick_g,tick_b},{tx1,ty+th,tz0,tick_r,tick_g,tick_b},
+                 {tx1,ty+th,tz1,tick_r,tick_g,tick_b},{tx0,ty+th,tz1,tick_r,tick_g,tick_b});
+            // Front face of tick
+            quad({tx0,ty-th,tz1,tick_r*0.8f,tick_g*0.8f,tick_b*0.8f},
+                 {tx1,ty-th,tz1,tick_r*0.8f,tick_g*0.8f,tick_b*0.8f},
+                 {tx1,ty+th,tz1,tick_r,tick_g,tick_b},
+                 {tx0,ty+th,tz1,tick_r,tick_g,tick_b});
+        }
+
+        s_scene_ni = ii;
+        if (ii > 0) {
+            // Expand uint16 indices to uint32 for GpuStaticBuffer
+            uint32_t* idx32 = new uint32_t[ii];
+            for(int k=0;k<ii;k++) idx32[k]=(uint32_t)idxs[k];
+            s_scene_vbo.Init(0x8892u, verts, (uint32_t)(vi*sizeof(SV)));
+            s_scene_ibo.Init(0x8893u, idx32, (uint32_t)(ii*sizeof(uint32_t)));
+            delete[] idx32;
+        }
+    }
+
     s_ok=true;
     return true;
 }
@@ -741,6 +858,18 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
         bgu.eye[0]=inv_view[12];  bgu.eye[1]=inv_view[13];  bgu.eye[2]=inv_view[14];  bgu.eye[3]=0;
         SDL_PushGPUFragmentUniformData(cmd, 0, &bgu, sizeof(bgu));
         SDL_DrawGPUPrimitives(rp, 3, 1, 0, 0);
+    }
+
+    // ── Scene geometry: platform + pole ──────────────────────────────────────
+    if (s_scene_pipeline.SDLPipeline() && s_scene_vbo.SDLBuffer() && s_scene_ni > 0) {
+        SDL_BindGPUGraphicsPipeline(rp, s_scene_pipeline.SDLPipeline());
+        SDL_GPUBufferBinding svb{s_scene_vbo.SDLBuffer(),0u};
+        SDL_BindGPUVertexBuffers(rp,0,&svb,1);
+        SDL_GPUBufferBinding sib{s_scene_ibo.SDLBuffer(),0u};
+        SDL_BindGPUIndexBuffer(rp,&sib,SDL_GPU_INDEXELEMENTSIZE_32BIT);
+        VU svu; memcpy(svu.mvp, mvp.m, 64);
+        SDL_PushGPUVertexUniformData(cmd,0,&svu,sizeof(svu));
+        SDL_DrawGPUIndexedPrimitives(rp,s_scene_ni,1,0,0,0);
     }
 
     if (!s_pipeline.SDLPipeline() || !s_vbo.SDLBuffer() || !s_ibo.SDLBuffer() ||
