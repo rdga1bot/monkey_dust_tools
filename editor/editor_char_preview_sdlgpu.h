@@ -332,9 +332,8 @@ static bool Init(const char* glb_path, const char* tex_path) {
         }
         fprintf(stdout,"[CharPreview] hierarchy loaded for %d bones\n",jn);
 
-        // Load idle_stand_normal — sample at MID-POINT of animation, not frame 0.
-        // Frame 0 has arms in a mid-transition position (through torso / clipping shorts).
-        // The mid-cycle frame gives natural idle stance: arms slightly forward, away from body.
+        // Load idle_stand_normal — sample frame 0 for spine/neck/head lean.
+        // Arms are excluded from the whitelist, so their frame doesn't matter.
         s_idle_loaded = false;
         memset(s_idle_has_rot, 0, sizeof(s_idle_has_rot));
         for (int bi=0;bi<30;bi++){
@@ -352,14 +351,12 @@ static bool Init(const char* glb_path, const char* tex_path) {
                 int ji=node_to_ji[ni];
                 if (ji<0||ji>=30) continue;
                 if (ch.sampler->output&&ch.sampler->output->count>0) {
-                    // Sample at midpoint frame of each channel's own keyframe list.
-                    size_t mid = ch.sampler->output->count / 2;
-                    cgltf_accessor_read_float(ch.sampler->output, mid, s_idle_rot[ji], 4);
+                    cgltf_accessor_read_float(ch.sampler->output, 0, s_idle_rot[ji], 4);
                     s_idle_has_rot[ji]=true;
                 }
             }
             s_idle_loaded=true;
-            fprintf(stdout,"[CharPreview] idle_stand_normal: %d rot channels loaded (mid-frame)\n",(int)anim.channels_count);
+            fprintf(stdout,"[CharPreview] idle_stand_normal: %d rot channels loaded\n",(int)anim.channels_count);
             break;
         }
     }
@@ -825,17 +822,18 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     //   s_boneScales[i] scales vertices around bone i (does NOT affect child positions).
     //   new_world[i] = new_world[parent] * (bind_local[i] with translation * s_posScale[i])
     //   ws_mat[i]    = new_world[i] * diag(s_boneScales[i]) * inv_bind[i]
-    // Apply idle animation (mid-frame) to upper body + arms; legs at bind pose.
-    // Mid-frame arms are in natural idle position (slightly forward/away from body)
-    // so hands don't clip through shorts. Legs at bind pose avoids foot/ground issues.
+    // Idle animation applied to spine/neck/head only. Arms stay at bind pose (T-pose).
+    // Arms were added earlier to fix hand-shorts clipping, but the real fix was
+    // cull_back=true + shorts normal-bias. Mid-frame arm rotation causes floating arms
+    // with extreme RAND shoulder/arm values.
     static const bool kIdleWhitelist[30] = {
         false, false,                   // [0]=ROOT [1]=Pelvis
         false,false,false,false,false,  // [2-6]  L Thigh..ToeNub  (bind pose)
         false,false,false,false,false,  // [7-11] R Thigh..ToeNub  (bind pose)
         true,  true,  true,             // [12-14] Spine Spine1 Spine2
-        true,  true,  true,  true, false,  // [15-19] L Clav UpperArm Forearm Hand Prop1
+        false, false, false, false, false, // [15-19] L Clav UpperArm Forearm Hand Prop1
         true,  true,  false, true, false,  // [20-24] Neck Head HeadNub Jaw JawNub
-        true,  true,  true,  true, false   // [25-29] R Clav UpperArm Forearm Hand Prop2
+        false, false, false, false, false  // [25-29] R Clav UpperArm Forearm Hand Prop2
     };
     float new_world[30][16];
     for (int i = 0; i < 30; i++) {
