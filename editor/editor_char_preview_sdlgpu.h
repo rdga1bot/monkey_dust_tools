@@ -360,10 +360,12 @@ static bool Init(const char* glb_path, const char* tex_path) {
     // Head/face texture (Kenshi: separate human_male_head_diffuse_HI atlas, UV V<0)
     {
         // Derive head tex path: same dir as body tex, replace filename
+        // Derive head tex: replace "_body" with "_head" in filename.
+        // male:   md_human_body.png         → md_human_head.png
+        // female: md_human_female_body.png  → md_human_female_head.png
         char head_path[512]; strncpy(head_path, tex_path, 511);
-        char* last_slash = strrchr(head_path, '/');
-        if (!last_slash) last_slash = strrchr(head_path, '\\');
-        if (last_slash) strcpy(last_slash + 1, "md_human_head.png");
+        char* bp = strstr(head_path, "_body");
+        if (bp) memcpy(bp, "_head", 5);  // same length, safe in-place replace
         stbi_set_flip_vertically_on_load(0);
         int hw,hh,hc; unsigned char* hd=stbi_load(head_path,&hw,&hh,&hc,4);
         GpuSamplerDesc hsd; hsd.min_filter=GpuSamplerDesc::Filter::LINEAR_MIPMAP;
@@ -920,7 +922,8 @@ static void SetCameraForTab(int tab) {
         // lookat_y shifts view so camera aims at face centre.
         s_dist     = 1.0f;
         s_pit      = 0.04f;
-        s_lookat_y = -(0.90f - s_height * 0.95f);  // face world-Y in camera space
+        // Face world-Y = head_bind_Y(≈1.85) * s_height - s_height*0.95 = s_height * 0.90
+        s_lookat_y = s_height * 0.90f;
     }
 }
 
