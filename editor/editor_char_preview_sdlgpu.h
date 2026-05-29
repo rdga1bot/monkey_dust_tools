@@ -592,6 +592,25 @@ static bool Init(const char* glb_path, const char* tex_path) {
             if (!s_idle_has_rot[i])
                 mat3_to_quat(s_idle_rot[i], s_bind_local[i]);
     }
+    // Normalize slider animation quaternions to same hemisphere as idle.
+    // Some bones (e.g. Head, R Clavicle) store idle with negative w while slider
+    // animations store positive w — same rotation, opposite sign. Any blend between
+    // opposite-hemisphere quats gives wrong intermediate values.
+    // Fix: for each slider anim bone, if dot(idle, rot) < 0, negate rot (same rotation, safe hemisphere).
+    auto align_to_idle = [](SliderAnim& sa) {
+        if (!sa.loaded) return;
+        for (int i=0;i<30;i++) {
+            float dot0=sa.rot0[i][0]*s_idle_rot[i][0]+sa.rot0[i][1]*s_idle_rot[i][1]+
+                        sa.rot0[i][2]*s_idle_rot[i][2]+sa.rot0[i][3]*s_idle_rot[i][3];
+            if (dot0<0.f){sa.rot0[i][0]*=-1;sa.rot0[i][1]*=-1;sa.rot0[i][2]*=-1;sa.rot0[i][3]*=-1;}
+            float dot1=sa.rot1[i][0]*s_idle_rot[i][0]+sa.rot1[i][1]*s_idle_rot[i][1]+
+                        sa.rot1[i][2]*s_idle_rot[i][2]+sa.rot1[i][3]*s_idle_rot[i][3];
+            if (dot1<0.f){sa.rot1[i][0]*=-1;sa.rot1[i][1]*=-1;sa.rot1[i][2]*=-1;sa.rot1[i][3]*=-1;}
+        }
+    };
+    align_to_idle(s_anim_postures);
+    align_to_idle(s_anim_shoulder_set);
+    align_to_idle(s_anim_neck_set);
 
     s_ni=(int)pr.indices->count;
     uint32_t* ib=new uint32_t[s_ni];
@@ -1078,14 +1097,35 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     }
 
     // ── Pose: idle_stand_normal only ─────────────────────────────────────────
-    // postures/shoulder_set/neck_set blend requires delta-based approach
-    // (delta = anim@alpha * inverse(anim@frame0)) to avoid hemisphere flips.
-    // TODO: implement delta blend for slider animations.
+    // OGRE ANIMBLEND_AVERAGE: idle + postures + shoulder_set + neck_set (all w=1.0).
+    // Quaternions pre-aligned to idle hemisphere at load time → additive blend is stable.
+    // Kenshi RE: Hand(18,28)/Prop(19,29) tracks destroyed in slider anims → skip them.
+    static const bool kSkip[30]={
+        0,0, 0,0,0,0,0, 0,0,0,0,0, 0,0,0, 0,0,0,1,1, 0,0,0,0,0, 0,0,0,1,1};
     for (int i = 0; i < 30; i++) {
-        memcpy(s_pose_rot[i], s_idle_rot[i], 16);
+        float sum[4]; memcpy(sum, s_idle_rot[i], 16);
         s_pose_tra[i][0]=s_bind_local[i][12];
         s_pose_tra[i][1]=s_bind_local[i][13];
         s_pose_tra[i][2]=s_bind_local[i][14];
+        if (!kSkip[i]) {
+            if (s_anim_postures.loaded) {
+                float pa=body[4]*0.01f, q[4];
+                quat_nlerp(q,s_anim_postures.rot0[i],s_anim_postures.rot1[i],pa);
+                quat_blend_add(sum,q);
+            }
+            if (s_anim_shoulder_set.loaded) {
+                float sa=body[6]*0.01f, q[4];
+                quat_nlerp(q,s_anim_shoulder_set.rot0[i],s_anim_shoulder_set.rot1[i],sa);
+                quat_blend_add(sum,q);
+            }
+            if (s_anim_neck_set.loaded) {
+                float na=body[5]*0.01f, q[4];
+                quat_nlerp(q,s_anim_neck_set.rot0[i],s_anim_neck_set.rot1[i],na);
+                quat_blend_add(sum,q);
+            }
+        }
+        quat_blend_normalize(sum);
+        memcpy(s_pose_rot[i], sum, 16);
     }
 
     auto cl=[](float x) -> float { return x<0.1f?0.1f:(x>4.f?4.f:x); };
