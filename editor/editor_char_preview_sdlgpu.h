@@ -489,7 +489,7 @@ static bool Init(const char* glb_path, const char* tex_path) {
     pd.layout.attribs[4] = { 4, 36, GpuAttribFmt::F4 };    // aWeights
     pd.raster.depth_test = true;
     pd.raster.depth_write = true;
-    pd.raster.cull_back = false;  // shorts inner faces need rendering; body inner faces ambient-dark (OK)
+    pd.raster.cull_back = true;   // inner torso faces must be culled — cull_back=false caused arm/torso Z-fight
     pd.vert_uniform_bufs = 1;   // set=1 binding=0: VU
     pd.vert_samplers = 1;       // set=1 binding=1: uBoneScales (bone scale texture)
     pd.frag_samplers = 4;       // set=2: body_diffuse, head_diffuse, muscle_mask, blood_overlay
