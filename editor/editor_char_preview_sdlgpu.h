@@ -1128,15 +1128,38 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
         s_posScale[i][0]=1;s_posScale[i][1]=1;s_posScale[i][2]=1;
     }
 
-    // ── Pose: idle frame 0 (stable base, no arm rotation override) ──────────
-    // shoulder_set REPLACEMENT causes flat-panel artifacts at high Frame+ArmBulk:
-    // bone scaling (AbFr²=3x) is in bind-local T-pose space, but shoulder_set
-    // rotates the arm away from T-pose. Skin vertices in the Clavicle→UpperArm
-    // transition zone stretch horizontally → visible panel at extreme slider values.
-    // Kenshi avoids this via vertex morph targets (Ogre Poses). Without them,
-    // keeping arm in T-pose (idle frame 0) keeps scaling axes consistent.
+    // ── Pose: idle frame 0 + ANIMBLEND_AVERAGE for posture sliders ───────────
+    // Kenshi RE (line 19458): setTimePosition(length * slider * 0.01)
+    // RE slider→anim mapping (body[] indices in our array):
+    //   body[4] "Posture"       → "postures"     (6 keyframes 0/20/40/60/80/100%)
+    //   body[5] "Shoulder set"  → "neck set"     (3 keyframes 0/50/100%) [RE: ShoulderSet→neck_set]
+    //   body[6] "Neck position" → "shoulder set" (3 keyframes 0/50/100%) [RE: NeckPosition→shoulder_set]
+    // ANIMBLEND_AVERAGE: idle(base) + slider anims blended via quat_blend_add/normalize.
+    // Direct replacement was removed — causes flat-panel at high Ab+Fr without morphs.
+    auto sample3 = [](const float q0[4], const float qm[4], const float q1[4],
+                      float alpha, float out[4]) {
+        if (alpha <= 0.5f) quat_nlerp(out, q0, qm, alpha * 2.f);
+        else               quat_nlerp(out, qm, q1, (alpha - 0.5f) * 2.f);
+    };
     for (int i = 0; i < 30; i++) {
-        memcpy(s_pose_rot[i], s_idle_rot[i], 16);
+        float sum[4]; memcpy(sum, s_idle_rot[i], 16);
+        if (s_anim_postures.loaded && s_anim_postures.has[i]) {
+            float pa = body[4] * 0.01f;
+            float q[4]; quat_nlerp(q, s_anim_postures.rot0[i], s_anim_postures.rot1[i], pa);
+            quat_blend_add(sum, q);
+        }
+        if (s_anim_neck_set.loaded && s_anim_neck_set.has[i]) {  // body[5] Shoulder set → neck_set
+            float q[4]; sample3(s_anim_neck_set.rot0[i], s_anim_neck_set.rot_mid[i],
+                                s_anim_neck_set.rot1[i], body[5] * 0.01f, q);
+            quat_blend_add(sum, q);
+        }
+        if (s_anim_shoulder_set.loaded && s_anim_shoulder_set.has[i]) {  // body[6] Neck pos → shoulder_set
+            float q[4]; sample3(s_anim_shoulder_set.rot0[i], s_anim_shoulder_set.rot_mid[i],
+                                s_anim_shoulder_set.rot1[i], body[6] * 0.01f, q);
+            quat_blend_add(sum, q);
+        }
+        quat_blend_normalize(sum);
+        memcpy(s_pose_rot[i], sum, 16);
     }
 
     auto cl=[](float x) -> float { return x<0.1f?0.1f:(x>4.f?4.f:x); };
