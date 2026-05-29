@@ -1078,9 +1078,9 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
 
     // Apply slider pose animations on top of breathing (Kenshi RE: setTimePosition formula)
     // time = anim_length * slider_value * 0.01  → normalised alpha = slider_value * 0.01
-    ApplySliderAnim(s_anim_postures,     body[4] * 0.01f, s_pose_rot);
-    ApplySliderAnim(s_anim_shoulder_set, body[5] * 0.01f, s_pose_rot); // Shoulder set → "shoulder set" anim
-    ApplySliderAnim(s_anim_neck_set,     body[6] * 0.01f, s_pose_rot); // Neck pos     → "neck set" anim
+    // Slider animations (postures/shoulder_set/neck_set) need proper OGRE coordinate
+    // mapping before they can be applied. Disabled until coordinate space is verified.
+    // TODO: apply only when slider deviates from default; map to correct OGRE-space bones.
 
     auto cl=[](float x) -> float { return x<0.1f?0.1f:(x>4.f?4.f:x); };
     auto comp=[&](float x, float k) -> float { return cl(1.f + (x - 1.f)*k); };
