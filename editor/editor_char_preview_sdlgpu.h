@@ -502,15 +502,9 @@ static bool Init(const char* glb_path, const char* tex_path) {
         for (int ai=0;ai<(int)d->animations_count;++ai){
             cgltf_animation& anim=d->animations[ai];
             if (!anim.name||strcmp(anim.name,"idle_stand_normal")!=0) continue;
-            // Frame 0 for most bones. Forearm(17,27)/Hand(18,28) → bind pose (skip).
-            // Frame 0 Forearm=20.3° bends arm downward from T-pose → arms float at hip.
-            // Bind Forearm=0.3° (straight) keeps arm horizontal = connected T-pose look.
-            static const bool kSkipFromIdle[30] = {
-                0,0, 0,0,0,0,0, 0,0,0,0,0, 0,0,0,
-                0,0,1,1,0,  // skip Forearm(17) Hand(18)
-                0,0,0,0,0,
-                0,0,1,1,0   // skip Forearm(27) Hand(28)
-            };
+            // Always use frame 0: head upright (0°), spine/legs stable.
+            // Clavicle+UpperArm arm position is overridden in SetBoneScalesFromDef
+            // via shoulder_set direct replacement (body[6] slider), giving 35° real range.
             for (int ci=0;ci<(int)anim.channels_count;++ci){
                 cgltf_animation_channel& ch=anim.channels[ci];
                 if (!ch.target_node||!ch.sampler) continue;
@@ -519,14 +513,13 @@ static bool Init(const char* glb_path, const char* tex_path) {
                 if (ni<0||ni>=2048) continue;
                 int ji=node_to_ji[ni];
                 if (ji<0||ji>=30) continue;
-                if (kSkipFromIdle[ji]) continue;
                 if (ch.sampler->output&&ch.sampler->output->count>0) {
                     cgltf_accessor_read_float(ch.sampler->output, 0, s_idle_rot[ji], 4);
                     s_idle_has_rot[ji]=true;
                 }
             }
             s_idle_loaded=true;
-            fprintf(stdout,"[CharPreview] idle_stand_normal: mixed frame load\n");
+            fprintf(stdout,"[CharPreview] idle_stand_normal: frame 0 all bones\n");
             break;
         }
 
@@ -1103,14 +1096,28 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
         s_posScale[i][0]=1;s_posScale[i][1]=1;s_posScale[i][2]=1;
     }
 
-    // ── Pose: pure idle_stand_normal (mixed frames), no ANIMBLEND ────────────
-    // ANIMBLEND_AVERAGE with mixed idle frames causes body distortion.
-    // Sliders affect bone SCALE only (not rotation) until ANIMBLEND is fixed.
+    // ── Pose: idle frame 0 base; Clavicle+UpperArm → shoulder_set direct ────
+    // Idle frame 0 = stable: head upright, spine/legs correct.
+    // ANIMBLEND_AVERAGE for shoulder_set gives only ~7° arm movement (quat averaging
+    // dilutes the 35° shoulder_set range). Direct replacement gives the full range.
+    // Clavicle[15,25] + UpperArm[16,26] are replaced, not blended — they form one
+    // kinematic chain and must come from the same source to avoid arm distortion.
     for (int i = 0; i < 30; i++) {
         memcpy(s_pose_rot[i], s_idle_rot[i], 16);
-        s_pose_tra[i][0]=s_bind_local[i][12];
-        s_pose_tra[i][1]=s_bind_local[i][13];
-        s_pose_tra[i][2]=s_bind_local[i][14];
+    }
+    if (s_anim_shoulder_set.loaded) {
+        static const bool kReplace[30] = {
+            0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+            1,1,0,0,0,  // 15=L Clav, 16=L UpperArm
+            0,0,0,0,0,
+            1,1,0,0,0   // 25=R Clav, 26=R UpperArm
+        };
+        float sa = body[6] * 0.01f;
+        for (int i = 0; i < 30; i++) {
+            if (!kReplace[i] || !s_anim_shoulder_set.has[i]) continue;
+            quat_nlerp(s_pose_rot[i],
+                s_anim_shoulder_set.rot0[i], s_anim_shoulder_set.rot1[i], sa);
+        }
     }
 
     auto cl=[](float x) -> float { return x<0.1f?0.1f:(x>4.f?4.f:x); };
