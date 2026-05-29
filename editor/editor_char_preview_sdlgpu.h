@@ -503,15 +503,15 @@ static bool Init(const char* glb_path, const char* tex_path) {
             cgltf_animation& anim=d->animations[ai];
             if (!anim.name||strcmp(anim.name,"idle_stand_normal")!=0) continue;
             // Mixed frame strategy:
-            //   Clavicle(15,25) + UpperArm(16,26): last frame → arms at sides (102°)
-            //   All other bones: frame 0 → head upright (21.4°), no clipping
-            //   Forearm(17,27) + Hand(18,28): NOT loaded here → use bind pose (straight arm)
-            // This gives arms-at-sides without head-tilt or hand-into-shorts clipping.
+            //   UpperArm(16,26) only: last frame → arms lower (102°)
+            //   Clavicle(15,25): frame 0 — last frame rotates arm INTO torso mesh (wrong direction)
+            //   All other bones: frame 0 → head upright, no mesh intersection
+            //   Forearm(17,27) + Hand(18,28): NOT loaded → use bind pose (straight arm)
             static const bool kUseLastFrame[30] = {
                 0,0, 0,0,0,0,0, 0,0,0,0,0, 0,0,0,
-                1,1,0,0,0, // 15=L Clav, 16=L UpperArm, skip 17=Forearm, 18=Hand
+                0,1,0,0,0, // 15=L Clav stays frame0, 16=L UpperArm uses last
                 0,0,0,0,0,
-                1,1,0,0,0  // 25=R Clav, 26=R UpperArm, skip 27=Forearm, 28=Hand
+                0,1,0,0,0  // 25=R Clav stays frame0, 26=R UpperArm uses last
             };
             static const bool kSkipIdle[30] = {
                 0,0, 0,0,0,0,0, 0,0,0,0,0, 0,0,0,
