@@ -32,6 +32,8 @@ struct FU {                                          // 48 bytes, set=3
 
 // ── State ─────────────────────────────────────────────────────────────────────
 static GpuPipeline     s_bg_pipeline;
+static GpuTexture      s_bg_sand;   // desert_sand.jpg — ground texture
+static GpuTexture      s_bg_dune;   // desert_dune.jpg — large-scale dune pattern
 static GpuPipeline     s_scene_pipeline;  // platform + pole flat-color
 static GpuStaticBuffer s_scene_vbo;
 static GpuStaticBuffer s_scene_ibo;
@@ -630,12 +632,30 @@ static bool Init(const char* glb_path, const char* tex_path) {
         bgpd.raster.cull_back   = false;
         bgpd.vert_uniform_bufs  = 0;
         bgpd.vert_samplers      = 0;
-        bgpd.frag_samplers      = 0;
+        bgpd.frag_samplers      = 2;   // set=2 binding=0: uSand, binding=1: uDune
         bgpd.frag_uniform_bufs  = 1;   // set=3 binding=0: BgUU (ray-ground uniforms)
         bgpd.color_format       = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
         bgpd.has_depth_target   = true;
         if (!s_bg_pipeline.Create(bgpd))
             fprintf(stderr,"[CharPreview] bg pipeline create failed\n");
+
+        // Load desert ground textures
+        GpuSamplerDesc rep; rep.min_filter=GpuSamplerDesc::Filter::LINEAR_MIPMAP;
+        rep.mag_filter=GpuSamplerDesc::Filter::LINEAR;
+        rep.wrap_s=rep.wrap_t=GpuSamplerDesc::Wrap::REPEAT;
+        auto load_bg=[&](GpuTexture& tex, const char* path){
+            stbi_set_flip_vertically_on_load(0);
+            int tw,th,tc;
+            unsigned char* td=stbi_load(path,&tw,&th,&tc,4);
+            if (td){ tex.InitFromMemory(td,tw,th,rep); stbi_image_free(td); }
+            else {
+                uint8_t fb[4]={160,130,80,255};
+                tex.InitFromMemory(fb,1,1,rep);
+                fprintf(stderr,"[CharPreview] bg tex missing: %s\n",path);
+            }
+        };
+        load_bg(s_bg_sand,"game/data/textures/terrain/desert_sand.jpg");
+        load_bg(s_bg_dune,"game/data/textures/terrain/desert_dune.jpg");
     }
 
     // ── Scene pipeline: platform planks + anthropometer pole ─────────────────
@@ -857,6 +877,14 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
         bgu.fwd[3] = -(s_height*0.95f);  // ground_y in world = model offset (feet at Y=0)
         bgu.eye[0]=inv_view[12];  bgu.eye[1]=inv_view[13];  bgu.eye[2]=inv_view[14];  bgu.eye[3]=0;
         SDL_PushGPUFragmentUniformData(cmd, 0, &bgu, sizeof(bgu));
+        // Bind desert ground textures (set=2, bindings 0 and 1)
+        if (s_bg_sand.SDLTexture() && s_bg_dune.SDLTexture()) {
+            SDL_GPUTextureSamplerBinding bg_tex[2] = {
+                {s_bg_sand.SDLTexture(), s_bg_sand.SDLSampler()},
+                {s_bg_dune.SDLTexture(), s_bg_dune.SDLSampler()}
+            };
+            SDL_BindGPUFragmentSamplers(rp, 0, bg_tex, 2);
+        }
         SDL_DrawGPUPrimitives(rp, 3, 1, 0, 0);
     }
 
