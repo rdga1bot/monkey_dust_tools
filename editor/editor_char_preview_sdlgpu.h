@@ -44,10 +44,14 @@ static SDL_GPUSampler* s_bones_sampler = nullptr;
 static int             s_ni  = 0;
 static bool            s_ok  = false;
 
-// Per-bone scale (xyz) — 30 bones, updated each frame
-static float s_boneScales[30][3]; // [bone_idx][xyz]
+// Per-bone scales — OGRE has two independent operations:
+//   s_boneScales = setBoneSize       → scales vertices around bone origin (vertex deformation only)
+//   s_posScale   = setBonePositionalSize → scales bone's bind translation from parent (position only)
+// At neutral sliders both = (1,1,1). They are INDEPENDENT — vertex scale does NOT propagate position.
+static float s_boneScales[30][3]; // setBoneSize vertex scale
+static float s_posScale[30][3];   // setBonePositionalSize (default identity)
 // World-space deformation matrices — OGRE-style hierarchical:
-//   new_world[i] = new_world[parent] * (bind_local[i] with translation scaled by parent S)
+//   new_world[i] = new_world[parent] * (bind_local[i] with translation scaled by child s_posScale)
 //   ws_mat[i]    = new_world[i] * S[i] * inv_bind[i]
 // Parent scale moves child bones (scales local translation), but does NOT cascade into
 // child vertex scaling — only this bone's own S[i] affects its vertices.
@@ -322,7 +326,10 @@ static bool Init(const char* glb_path, const char* tex_path) {
     // Bone matrix texture: 120×1 RGBA32F — 30 bones × 4 columns per mat4
     // Each bone i occupies texels [i*4 .. i*4+3] = columns 0-3 of the 4×4 Ws matrix.
     {
-        for (int i=0;i<30;i++){ s_boneScales[i][0]=1;s_boneScales[i][1]=1;s_boneScales[i][2]=1; }
+        for (int i=0;i<30;i++){
+            s_boneScales[i][0]=1;s_boneScales[i][1]=1;s_boneScales[i][2]=1;
+            s_posScale[i][0]=1;s_posScale[i][1]=1;s_posScale[i][2]=1;
+        }
         // Build initial identity Ws matrices before first upload
         for (int i=0;i<30;i++){
             memset(s_ws_mat[i],0,64);
@@ -562,14 +569,25 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
 // NOT raw T-pose. So slider=100 → ws_mat=I (no deformation) is CORRECT.
 // Race multipliers (0.70/1.27/etc.) apply to raw T-pose only; our mesh already
 // bakes slider=100 state → do NOT apply race multipliers here.
+// Bone indices (confirmed from md_human.glb joint list):
+//   0=Pelvis  1=L Thigh  2=L Calf  3=L Foot  4=L Toe0  5=L Toe0Nub
+//   6=R Thigh 7=R Calf   8=R Foot  9=R Toe0 10=R Toe0Nub
+//  11=Spine  12=Spine1  13=Spine2
+//  14=L Clavicle 15=L UpperArm 16=L Forearm 17=L Hand  18=Prop1
+//  19=Neck   20=Head    21=HeadNub 22=Jaw    23=JawNub
+//  24=R Clavicle 25=R UpperArm 26=R Forearm 27=R Hand  28=Prop2  29=breathing
 // Bone axes: Spine/Leg localX=+worldY(height), Arm localY=+worldX(length).
-// setSpine(i, height_localX, lateral_localY, depth_localZ)
+// setBoneSize → s_boneScales (vertex deformation). setBonePositionalSize → s_posScale (position).
 static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
-    for(int i=0;i<30;i++){ s_boneScales[i][0]=1;s_boneScales[i][1]=1;s_boneScales[i][2]=1; }
+    for(int i=0;i<30;i++){
+        s_boneScales[i][0]=1;s_boneScales[i][1]=1;s_boneScales[i][2]=1;
+        s_posScale[i][0]=1;s_posScale[i][1]=1;s_posScale[i][2]=1;
+    }
 
     auto cl=[](float x) -> float { return x<0.1f?0.1f:(x>4.f?4.f:x); };
     auto comp=[&](float x, float k) -> float { return cl(1.f + (x - 1.f)*k); };
-    auto setSpine=[&](int i, float wy, float wx, float wz){
+    // setBS: setBoneSize equivalent — height(localX=worldY), lateral, depth
+    auto setBS=[&](int i, float wy, float wx, float wz){
         s_boneScales[i][0]=wy; s_boneScales[i][1]=wx; s_boneScales[i][2]=wz;
     };
 
@@ -585,63 +603,109 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     float LgB = cl(body[16] / 100.f);  // Legs bulk
     float Hn  = cl(body[11] / 100.f);  // Hands
     float Ft  = cl(body[17] / 100.f);  // Feet
+    // LegShape not in our body[] — Kenshi default 1.0 (neutral)
+    float LgS = 1.f;
 
-    // All =1.0 at slider=100 → ws_mat=I → mesh shows at its designed proportions. ✓
-    // Kenshi formula structure preserved; race mults omitted (baked into mesh).
+    // Kenshi FUN_140015b63 RE — all formulas verified 2026-05-29.
+    // Slider=100 → all =1.0 → ws_mat=I ✓
 
-    // overall_XZ: (LgBulk + (Hips-1)/3) * Frame — Kenshi line 263670
-    float overall_XZ = cl((LgB + (Hips - 1.f) / 3.f) * Fr);
+    // overall_XZ = (LegShape*LegBulk + (Hips-1)/3) * Frame  (Kenshi line 263670)
+    float overall_XZ = cl((LgS * LgB + (Hips - 1.f) / 3.f) * Fr);
+    float leg_Y      = cl((H + LL - 1.f) * 0.95f);  // thigh+calf vertex height
 
-    // ── Legs ──────────────────────────────────────────────────────────────────
-    setSpine(1, H, overall_XZ, overall_XZ);  // Pelvis
-    float leg_Y = cl((H + LL - 1.f) * 0.95f);  // Kenshi: (H+LL-1)*0.95 for thigh length
-    for(int ji:{2,3,7,8}) setSpine(ji, leg_Y, overall_XZ, overall_XZ);
-    float FtH = cl(Ft * H);
-    for(int ji:{4,9})       setSpine(ji, FtH, LL, FtH);
-    for(int ji:{5,6,10,11}){ s_boneScales[ji][0]=FtH; s_boneScales[ji][1]=FtH; s_boneScales[ji][2]=FtH; }
+    // ── Pelvis [0]: setBoneSize(Hips*Fr, H, Hips*Fr) ──────────────────────────
+    setBS(0, H, Hips*Fr, Hips*Fr);
 
-    // ── Torso (Kenshi lines 263822, 263835, 263851) ───────────────────────────
-    float WaC = comp(Wa, 0.6f);
-    setSpine(12, H, WaC*Fr,           WaC*St*Fr);        // Spine
-    setSpine(13, H, Ch*Fr,            St*Fr);             // Spine1
-    setSpine(14, H, comp(Ch,0.45f)*Fr, comp(Ch,0.9f)*Fr); // Spine2
+    // ── Thighs [1,6]: setBoneSize + setBonePositionalSize ─────────────────────
+    // setBoneSize Y = (H+LL-1)*0.95  (vertex deformation only)
+    setBS(1, leg_Y, overall_XZ, overall_XZ);  // L Thigh
+    setBS(6, leg_Y, overall_XZ, overall_XZ);  // R Thigh
+    // setBonePositionalSize Y = Fr*(2-H)*Hips  (moves thigh origin in pelvis space)
+    // Kenshi RE: Vector3(1, Fr*fStack_17c*Hips, 1) where fStack_17c = 2-H
+    float thigh_pos_Y = cl(Fr * (2.f - H) * Hips);
+    s_posScale[1][0] = thigh_pos_Y;  // localX = worldY = height axis
+    s_posScale[6][0] = thigh_pos_Y;
 
-    // ── Arms (Kenshi lines 264001, 264022, 264041) ────────────────────────────
+    // ── Calves [2,7]: setBoneSize only (no setBonePositionalSize) ─────────────
+    // calf_XZ = (2-LgS)*LgB*Fr  (at LgS=1: = LgB*Fr = overall_XZ at Hips=1)
+    float calf_XZ = cl((2.f - LgS) * LgB * Fr);
+    setBS(2, leg_Y, calf_XZ, calf_XZ);  // L Calf
+    setBS(7, leg_Y, calf_XZ, calf_XZ);  // R Calf
+
+    // ── Feet [3,8], Toes [4,9], ToeNubs [5,10] ────────────────────────────────
+    float FtH  = cl(Ft * H);
+    float FtH2 = cl(FtH * FtH);
+    setBS(3, cl(LL*FtH), FtH2, FtH2);  // L Foot: Y=LL*FtH, XZ=FtH²
+    setBS(8, cl(LL*FtH), FtH2, FtH2);  // R Foot
+    for(int ji:{4,9}){  s_boneScales[ji][0]=FtH2; s_boneScales[ji][1]=FtH2; s_boneScales[ji][2]=FtH2; }
+    for(int ji:{5,10}){ s_boneScales[ji][0]=FtH;  s_boneScales[ji][1]=FtH;  s_boneScales[ji][2]=FtH; }
+
+    // ── Spine [11]: setBoneSize(comp(Hips,0.6)*Fr, H, comp(Hips,0.6)*St*Fr) ──
+    float HipsC = comp(Hips, 0.6f);
+    setBS(11, H, HipsC*Fr, HipsC*St*Fr);
+
+    // ── Spine1 [12]: setBoneSize(Waist*Fr, H, Stomach*Fr) ─────────────────────
+    setBS(12, H, Wa*Fr, St*Fr);
+
+    // ── Spine2 [13]: setBoneSize(comp(Ch,0.45)*Fr, H, comp(Ch,0.9)*Fr) ────────
+    setBS(13, H, comp(Ch,0.45f)*Fr, comp(Ch,0.9f)*Fr);
+
+    // ── Arms ──────────────────────────────────────────────────────────────────
+    // Clavicles [14,24]: setBoneSize(Sh*Fr, comp(Sh,0.3)*Fr, Sh*Fr)
     float ShY = comp(Sh, 0.3f)*Fr;
-    for(int ji:{15,25}){ s_boneScales[ji][0]=Sh*Fr; s_boneScales[ji][1]=ShY; s_boneScales[ji][2]=Sh*Fr; }
+    for(int ji:{14,24}){ s_boneScales[ji][0]=Sh*Fr; s_boneScales[ji][1]=ShY; s_boneScales[ji][2]=Sh*Fr; }
+
+    // UpperArms [15,25]: setBoneSize(Ab²Fr², H*Ab*Fr, comp(Ab,1.5)*Ab*Fr²)
+    //                    setBonePositionalSize(Sh*comp(Ch,0.45), 1, 1)
     float AbFr = Ab*Fr;
     float AbZ  = comp(Ab, 1.5f)*Fr;
-    for(int ji:{16,26}){ s_boneScales[ji][0]=AbFr*AbFr; s_boneScales[ji][1]=H*AbFr; s_boneScales[ji][2]=AbZ*AbFr; }
-    for(int ji:{17,27}){ s_boneScales[ji][0]=AbFr*AbFr; s_boneScales[ji][1]=H*AbFr; s_boneScales[ji][2]=AbFr*AbFr; }
-    for(int ji:{18,28}){ s_boneScales[ji][0]=AbFr*Hn*Hn; s_boneScales[ji][1]=H*AbFr*Hn; s_boneScales[ji][2]=AbFr*Hn*Hn; }
+    for(int ji:{15,25}){
+        s_boneScales[ji][0]=AbFr*AbFr;
+        s_boneScales[ji][1]=H*AbFr;
+        s_boneScales[ji][2]=AbZ*AbFr;
+    }
+    // setBonePositionalSize X (arm direction = worldX = arm localY, stored in [1])
+    float arm_pos_X = cl(Sh * comp(Ch,0.45f));
+    s_posScale[15][1] = arm_pos_X;
+    s_posScale[25][1] = arm_pos_X;
+
+    // Forearms [16,26]: setBoneSize(Ab²Fr², H*Ab*Fr, Ab²Fr²)
+    for(int ji:{16,26}){
+        s_boneScales[ji][0]=AbFr*AbFr;
+        s_boneScales[ji][1]=H*AbFr;
+        s_boneScales[ji][2]=AbFr*AbFr;
+    }
+    // Hands [17,27]: setBoneSize * Hands²
+    for(int ji:{17,27}){
+        s_boneScales[ji][0]=AbFr*Hn*Hn;
+        s_boneScales[ji][1]=H*AbFr*Hn;
+        s_boneScales[ji][2]=AbFr*Hn*Hn;
+    }
 
     // ── Head/Neck (Kenshi lines 264237, 264251) ───────────────────────────────
-    float Nw = cl(face[3] / 100.f);  // Neck width — no race mult (mesh bakes it)
+    float Nw = cl(face[3] / 100.f);  // Neck width
     float Nl = cl(face[4] / 100.f);  // Neck length
-    setSpine(20, Nl, Nw*Fr, Nw*Fr);
+    setBS(19, Nl, Nw*Fr, Nw*Fr);     // Neck [19]
 
     float Hd  = cl(face[0] / 100.f);
     float FrH = comp(Fr, 0.25f);
     float Hsp = cl(face[1] / 100.f);
-    setSpine(21, Hd, cl(FrH*Hd*Hsp), FrH*Hd);
+    setBS(20, Hd, cl(FrH*Hd*Hsp), FrH*Hd);  // Head [20]
     float jaw = cl(face[17] / 100.f);
-    s_boneScales[23][0]=jaw*FrH*Hd*Hsp; s_boneScales[23][1]=Hd; s_boneScales[23][2]=FrH*Hd;
+    s_boneScales[22][0]=jaw*FrH*Hd*Hsp; s_boneScales[22][1]=Hd; s_boneScales[22][2]=FrH*Hd; // Jaw [22]
 
-    // OGRE-style hierarchical scale:
-    //   Parent S moves children (scales bind_local translation), children scale own vertices only.
-    //   new_world[i] = new_world[parent] * bind_local_with_scaled_translation[i]
-    //   ws_mat[i]    = new_world[i] * S[i] * inv_bind[i]
-    // No scale cascade — each bone's vertices only scale by its own S[i].
+    // OGRE-style hierarchical: setBoneSize and setBonePositionalSize are INDEPENDENT.
+    //   s_posScale[i] scales bone i's bind translation from its parent (position only).
+    //   s_boneScales[i] scales vertices around bone i (does NOT affect child positions).
+    //   new_world[i] = new_world[parent] * (bind_local[i] with translation * s_posScale[i])
+    //   ws_mat[i]    = new_world[i] * diag(s_boneScales[i]) * inv_bind[i]
     float new_world[30][16];
     for (int i = 0; i < 30; i++) {
-        // Copy bind_local, then scale its translation by parent's bone scale
         float sl[16]; memcpy(sl, s_bind_local[i], 64);
-        if (s_bone_parent[i] >= 0) {
-            int p = s_bone_parent[i];
-            sl[12] *= s_boneScales[p][0];
-            sl[13] *= s_boneScales[p][1];
-            sl[14] *= s_boneScales[p][2];
-        }
+        // Scale this bone's translation from parent by its own positional scale
+        sl[12] *= s_posScale[i][0];
+        sl[13] *= s_posScale[i][1];
+        sl[14] *= s_posScale[i][2];
         if (s_bone_parent[i] < 0)
             memcpy(new_world[i], sl, 64);
         else
