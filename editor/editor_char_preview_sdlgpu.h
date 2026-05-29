@@ -1112,36 +1112,14 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
         s_posScale[i][0]=1;s_posScale[i][1]=1;s_posScale[i][2]=1;
     }
 
-    // ── Pose: idle_stand_normal only ─────────────────────────────────────────
-    // OGRE ANIMBLEND_AVERAGE: idle + postures + shoulder_set + neck_set (all w=1.0).
-    // Quaternions pre-aligned to idle hemisphere at load time → additive blend is stable.
-    // Kenshi RE: Hand(18,28)/Prop(19,29) tracks destroyed in slider anims → skip them.
-    static const bool kSkip[30]={
-        0,0, 0,0,0,0,0, 0,0,0,0,0, 0,0,0, 0,0,0,1,1, 0,0,0,0,0, 0,0,0,1,1};
+    // ── Pose: pure idle_stand_normal (mixed frames), no ANIMBLEND ────────────
+    // ANIMBLEND_AVERAGE with mixed idle frames causes body distortion.
+    // Sliders affect bone SCALE only (not rotation) until ANIMBLEND is fixed.
     for (int i = 0; i < 30; i++) {
-        float sum[4]; memcpy(sum, s_idle_rot[i], 16);
+        memcpy(s_pose_rot[i], s_idle_rot[i], 16);
         s_pose_tra[i][0]=s_bind_local[i][12];
         s_pose_tra[i][1]=s_bind_local[i][13];
         s_pose_tra[i][2]=s_bind_local[i][14];
-        if (!kSkip[i]) {
-            if (s_anim_postures.loaded) {
-                float pa=body[4]*0.01f, q[4];
-                quat_nlerp(q,s_anim_postures.rot0[i],s_anim_postures.rot1[i],pa);
-                quat_blend_add(sum,q);
-            }
-            if (s_anim_shoulder_set.loaded) {
-                float sa=body[6]*0.01f, q[4];
-                quat_nlerp(q,s_anim_shoulder_set.rot0[i],s_anim_shoulder_set.rot1[i],sa);
-                quat_blend_add(sum,q);
-            }
-            if (s_anim_neck_set.loaded) {
-                float na=body[5]*0.01f, q[4];
-                quat_nlerp(q,s_anim_neck_set.rot0[i],s_anim_neck_set.rot1[i],na);
-                quat_blend_add(sum,q);
-            }
-        }
-        quat_blend_normalize(sum);
-        memcpy(s_pose_rot[i], sum, 16);
     }
 
     auto cl=[](float x) -> float { return x<0.1f?0.1f:(x>4.f?4.f:x); };
