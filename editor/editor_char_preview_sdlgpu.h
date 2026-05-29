@@ -63,6 +63,7 @@ static float s_bind[30][16];       // bind matrices = inv(inv_bind)
 static float s_bind_local[30][16]; // bind_local[i] = inv_bind[parent] * bind[i]
 static int8_t s_bone_parent[30];   // parent joint index, -1 for root
 static float s_idle_rot[30][4];    // idle_stand_normal frame-0 quaternion (xyzw) per bone
+static bool  s_idle_has_rot[30];   // true if bone has explicit animation rotation channel
 static bool  s_idle_loaded = false;
 
 // col-major mat4 multiply: C = A * B
@@ -72,6 +73,18 @@ static void m4mul(float* C, const float* A, const float* B) {
         float s=0.f; for (int k=0;k<4;k++) s+=A[k*4+i]*B[j*4+k]; T[j*4+i]=s;
     }
     memcpy(C,T,64);
+}
+// Extract unit quaternion (xyzw) from col-major 4×4 rotation matrix.
+static void mat3_to_quat(float q[4], const float M[16]) {
+    float t = M[0]+M[5]+M[10];
+    if (t>0.f){ float s=0.5f/sqrtf(t+1.f);
+        q[3]=0.25f/s; q[0]=(M[6]-M[9])*s; q[1]=(M[8]-M[2])*s; q[2]=(M[1]-M[4])*s;
+    } else if (M[0]>M[5]&&M[0]>M[10]){ float s=2.f*sqrtf(1.f+M[0]-M[5]-M[10]);
+        q[3]=(M[6]-M[9])/s; q[0]=0.25f*s; q[1]=(M[4]+M[1])/s; q[2]=(M[8]+M[2])/s;
+    } else if (M[5]>M[10]){ float s=2.f*sqrtf(1.f+M[5]-M[0]-M[10]);
+        q[3]=(M[8]-M[2])/s; q[0]=(M[4]+M[1])/s; q[1]=0.25f*s; q[2]=(M[9]+M[6])/s;
+    } else { float s=2.f*sqrtf(1.f+M[10]-M[0]-M[5]);
+        q[3]=(M[1]-M[4])/s; q[0]=(M[8]+M[2])/s; q[1]=(M[9]+M[6])/s; q[2]=0.25f*s; }
 }
 // Build col-major mat4 from unit quaternion q=(xyzw) + translation t.
 static void m4_from_quat_t(float* M, const float q[4], const float t[3]) {
@@ -302,8 +315,11 @@ static bool Init(const char* glb_path, const char* tex_path) {
         }
         fprintf(stdout,"[CharPreview] hierarchy loaded for %d bones\n",jn);
 
-        // Load idle_stand_normal — extract per-bone rotation at frame 0
+        // Load idle_stand_normal — extract per-bone rotation at frame 0.
+        // Bones without a rotation channel keep s_idle_has_rot[]=false;
+        // after bind_local is computed those get their quat extracted from bind_local.
         s_idle_loaded = false;
+        memset(s_idle_has_rot, 0, sizeof(s_idle_has_rot));
         for (int bi=0;bi<30;bi++){
             s_idle_rot[bi][0]=0;s_idle_rot[bi][1]=0;s_idle_rot[bi][2]=0;s_idle_rot[bi][3]=1;
         }
@@ -318,8 +334,10 @@ static bool Init(const char* glb_path, const char* tex_path) {
                 if (ni<0||ni>=2048) continue;
                 int ji=node_to_ji[ni];
                 if (ji<0||ji>=30) continue;
-                if (ch.sampler->output&&ch.sampler->output->count>0)
+                if (ch.sampler->output&&ch.sampler->output->count>0) {
                     cgltf_accessor_read_float(ch.sampler->output,0,s_idle_rot[ji],4);
+                    s_idle_has_rot[ji]=true;
+                }
             }
             s_idle_loaded=true;
             fprintf(stdout,"[CharPreview] idle_stand_normal: %d rot channels loaded\n",(int)anim.channels_count);
@@ -332,6 +350,13 @@ static bool Init(const char* glb_path, const char* tex_path) {
             memcpy(s_bind_local[i], s_bind[i], 64);
         else
             m4mul(s_bind_local[i], s_inv_bind[(int)s_bone_parent[i]], s_bind[i]);
+    }
+    // For idle pose: bones without a rotation channel use bind-pose quaternion
+    // so m4_from_quat_t gives identical result to the T-pose bind_local matrix.
+    if (s_idle_loaded) {
+        for (int i=0;i<30;i++)
+            if (!s_idle_has_rot[i])
+                mat3_to_quat(s_idle_rot[i], s_bind_local[i]);
     }
 
     s_ni=(int)pr.indices->count;
