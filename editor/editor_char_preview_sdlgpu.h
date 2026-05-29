@@ -139,23 +139,13 @@ static void SampleBreathing(float t, float pose_rot[30][4], float pose_tra[30][3
         } else {
             memcpy(pose_rot[i], s_idle_rot[i], 16);
         }
-        // ── translation ───────────────────────────────────────────────────
-        if (bc.tcount >= 2) {
-            int lo=0, hi=bc.tcount-2;
-            while (lo<hi) { int mid=(lo+hi+1)/2; if(bc.times[mid]<=t) lo=mid; else hi=mid-1; }
-            int k = lo;
-            float dt = bc.times[k+1]-bc.times[k];
-            float alpha = (dt>1e-7f) ? (t-bc.times[k])/dt : 0.f;
-            alpha = alpha<0.f?0.f:(alpha>1.f?1.f:alpha);
-            float* p0=bc.trans+k*3; float* p1=bc.trans+(k+1)*3;
-            for(int j=0;j<3;j++) pose_tra[i][j]=p0[j]+alpha*(p1[j]-p0[j]);
-        } else if (bc.tcount==1) {
-            memcpy(pose_tra[i], bc.trans, 12);
-        } else {
-            pose_tra[i][0]=s_bind_local[i][12];
-            pose_tra[i][1]=s_bind_local[i][13];
-            pose_tra[i][2]=s_bind_local[i][14];
-        }
+        // ── translation: always bind_local ────────────────────────────────
+        // Breathing translation (ROOT/Pelvis bob) is in ROOT-local space (90° Y rotation).
+        // Applying it shifts the character forward in world space → visible lean.
+        // The game uses static idle_stand_normal pose without breathing translation.
+        pose_tra[i][0]=s_bind_local[i][12];
+        pose_tra[i][1]=s_bind_local[i][13];
+        pose_tra[i][2]=s_bind_local[i][14];
     }
 }
 
