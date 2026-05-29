@@ -22,6 +22,9 @@ set(EDITOR_IMGUI_SRC
 
 add_executable(monkey_dust_editor
     editor/main.cpp
+    # Header-only files: listed here so ninja tracks them and rebuilds on change
+    editor/editor_char_preview_sdlgpu.h
+    editor/character_editor.h
     ${EDITOR_PANEL_SOURCES}
     ${EDITOR_IMGUI_SRC}
     ${CMAKE_SOURCE_DIR}/engine/src/vendor/glad_impl.cpp    # satisfies engine lib GL refs (never called in SDL_GPU mode)
