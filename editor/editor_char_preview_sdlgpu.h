@@ -616,8 +616,8 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     float overall_XZ = cl((LgS * LgB + (Hips - 1.f) / 3.f) * Fr);
     float leg_Y = cl((H + LL - 1.f) * 0.95f);  // vertex height for thigh+calf
 
-    // Pelvis [1]: setBoneSize(Hips*Fr, H, Hips*Fr)   [Kenshi: Vector3(Hips*Fr, H, Hips*Fr)]
-    setBS(1, H, Hips*Fr, Hips*Fr);
+    // Pelvis [1]: setBoneSize(comp(Hips,0.6)*Fr, H, comp(Hips,0.6)*Fr)   [Kenshi RE line 263670]
+    setBS(1, H, comp(Hips,0.6f)*Fr, comp(Hips,0.6f)*Fr);
 
     // Thighs [2,7]: setBoneSize Y=(H+LL-1)*0.95, XZ=overall_XZ
     // Thighs also get setBonePositionalSize Y = Fr*(2-H)*Hips (hip width adjustment)
@@ -633,16 +633,19 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     // bind_local[calf] = (+0.439, 0, 0) — X is along thigh bone direction
     // Calf follows thigh origin (no posScale) — leg length from vertex deformation only
     float calf_XZ = cl((2.f - LgS) * LgB * Fr);
-    setBS(3, leg_Y, calf_XZ, calf_XZ);
-    setBS(8, leg_Y, calf_XZ, calf_XZ);
+    setBS(3, leg_Y * calf_XZ, calf_XZ*calf_XZ, calf_XZ*calf_XZ);  // wy scales with bulk; XZ quadratic
+    setBS(8, leg_Y * calf_XZ, calf_XZ*calf_XZ, calf_XZ*calf_XZ);
 
     // Feet [4,9]: setBoneSize(Feet²*H², LL*Ft*H, Feet²*H²)
     float FtH = cl(Ft * H);
     setBS(4, cl(LL * FtH), cl(FtH*FtH), cl(FtH*FtH));
     setBS(9, cl(LL * FtH), cl(FtH*FtH), cl(FtH*FtH));
 
-    // Toes [5,10], ToeNubs [6,11]: uniform Ft² scale
-    for(int ji:{5,10}){ s_boneScales[ji][0]=FtH; s_boneScales[ji][1]=FtH; s_boneScales[ji][2]=FtH; }
+    // Toes [5,10]: FtH² uniform + posScale Z=FtH (toe extends forward with foot size)
+    float FtH2 = FtH*FtH;
+    for(int ji:{5,10}){ s_boneScales[ji][0]=FtH2; s_boneScales[ji][1]=FtH2; s_boneScales[ji][2]=FtH2; }
+    s_posScale[5][2] = FtH;
+    s_posScale[10][2] = FtH;
 
     // ── Torso ─────────────────────────────────────────────────────────────────
     // Spine [12]: setBoneSize(comp(Hips,0.6)*Fr, H, comp(Hips,0.6)*St*Fr)   [line 263808/817]
@@ -666,31 +669,31 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     float AbZ  = comp(Ab, 1.5f)*Fr;
     for(int ji:{16,26}){ s_boneScales[ji][0]=AbFr*AbFr; s_boneScales[ji][1]=H*AbFr; s_boneScales[ji][2]=AbZ*AbFr; }
     // bind_local[upperarm] = (+0.165, 0, 0) — X along clavicle/arm direction
-    float arm_pos = cl(Sh * comp(Ch, 0.45f));
+    float arm_pos = cl(Sh * H);  // Kenshi: Shoulders * Height (not comp(Ch,0.45))
     s_posScale[16][0] = arm_pos;
     s_posScale[26][0] = arm_pos;
 
     // Forearms [17,27]: setBoneSize(Ab²Fr², H*Ab*Fr, Ab²Fr²)   [line 264024/034]
     for(int ji:{17,27}){ s_boneScales[ji][0]=AbFr*AbFr; s_boneScales[ji][1]=H*AbFr; s_boneScales[ji][2]=AbFr*AbFr; }
 
-    // Hands [18,28]: setBoneSize(Ab*Fr*Hn², H*Ab*Fr*Hn, Ab*Fr*Hn²)   [line 264099/109]
-    for(int ji:{18,28}){ s_boneScales[ji][0]=AbFr*Hn*Hn; s_boneScales[ji][1]=H*AbFr*Hn; s_boneScales[ji][2]=AbFr*Hn*Hn; }
+    // Hands [18,28]: setBoneSize(AbFr*Hn², H*Hn², AbFr*Hn²)   [line 264099/109]
+    for(int ji:{18,28}){ s_boneScales[ji][0]=AbFr*Hn*Hn; s_boneScales[ji][1]=H*Hn*Hn; s_boneScales[ji][2]=AbFr*Hn*Hn; }
 
     // ── Head/Neck ─────────────────────────────────────────────────────────────
-    // Neck [20]: setBoneSize(NeckW*Stomach*Fr, NeckLen*0.01, NeckW*ShRace*Fr)   [line 264237]
-    float Nw = cl(face[3] / 100.f);
-    float Nl = cl(face[4] / 100.f);
-    setBS(20, Nl, Nw*Fr, Nw*Fr);
+    float Nw  = cl(face[3]  / 100.f);  // Neck width
+    float Nl  = cl(face[4]  / 100.f);  // Neck length
+    float jaw = cl(face[17] / 100.f);  // Jaw — also drives Neck bone Z (depth)
+    // Neck [20]: wy=Nl, wx=Nw*Fr, wz=jaw*Fr   [Kenshi RE line 264237]
+    setBS(20, Nl, Nw*Fr, jaw*Fr);
 
-    // Head [21]: setBoneSize(comp(Fr,0.25)*Hd*Hsp*0.01, Hd, comp(Fr,0.25)*Hd)   [line 264251]
+    // Head [21]: wy=comp(Fr,0.25)*Hd, wx=same*Hsp, wz=same   [line 264251]
     float Hd  = cl(face[0] / 100.f);
     float FrH = comp(Fr, 0.25f);
     float Hsp = cl(face[1] / 100.f);
-    setBS(21, Hd, cl(FrH*Hd*Hsp), FrH*Hd);
+    setBS(21, FrH*Hd, FrH*Hd*Hsp, FrH*Hd);
 
-    // Jaw [23]: setBoneSize(Jaw*0.01*comp(Fr,0.25)*Hd*Hsp, Hd, comp(Fr,0.25)*Hd)   [line 264290]
-    float jaw = cl(face[17] / 100.f);
-    s_boneScales[23][0]=jaw*FrH*Hd*Hsp; s_boneScales[23][1]=Hd; s_boneScales[23][2]=FrH*Hd;
+    // Jaw [23]: wy=FrH*Hd, wx=FrH*Hd*Hsp*jaw, wz=FrH*Hd   [line 264290]
+    s_boneScales[23][0]=FrH*Hd; s_boneScales[23][1]=FrH*Hd*Hsp*jaw; s_boneScales[23][2]=FrH*Hd;
 
     // OGRE-style hierarchical: setBoneSize and setBonePositionalSize are INDEPENDENT.
     //   s_posScale[i] scales bone i's bind translation from its parent (position only).
