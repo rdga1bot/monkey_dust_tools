@@ -107,6 +107,18 @@ static void quat_nlerp(float out[4], const float a[4], const float b[4], float t
     if(len>1e-6f){float il=1.f/len;for(int i=0;i<4;i++)out[i]=r[i]*il;}
     else {out[0]=0;out[1]=0;out[2]=0;out[3]=1;}
 }
+// Additive quaternion accumulation for OGRE ANIMBLEND_AVERAGE.
+// Hemisphere-corrects q relative to current sum before adding.
+static void quat_blend_add(float sum[4], const float q[4]) {
+    float dot=sum[0]*q[0]+sum[1]*q[1]+sum[2]*q[2]+sum[3]*q[3];
+    float s=dot<0.f?-1.f:1.f;
+    sum[0]+=s*q[0]; sum[1]+=s*q[1]; sum[2]+=s*q[2]; sum[3]+=s*q[3];
+}
+static void quat_blend_normalize(float q[4]) {
+    float len=sqrtf(q[0]*q[0]+q[1]*q[1]+q[2]*q[2]+q[3]*q[3]);
+    if(len>1e-6f){float il=1.f/len;q[0]*=il;q[1]*=il;q[2]*=il;q[3]*=il;}
+    else{q[0]=0;q[1]=0;q[2]=0;q[3]=1;}
+}
 
 // All rotations come from idle_stand_normal. Breathing contributes only translation (vertical sway).
 // Rationale: breathing noarms stores absolute rotations that differ from idle — applying them
@@ -1065,33 +1077,51 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
         s_posScale[i][0]=1;s_posScale[i][1]=1;s_posScale[i][2]=1;
     }
 
-    // ── Pose computation ──────────────────────────────────────────────────────
-    // Base: idle_stand_normal for all bones + bind_local translation.
-    // ANIMBLEND_AVERAGE for shoulder_set/neck_set requires delta-based approach
-    // (direct NLERP between absolute GLB quats causes hemisphere flips on clavicles).
-    // For now: idle base + postures overlay for bones that actually change.
+    // ── OGRE ANIMBLEND_AVERAGE (RE-verified from kenshi_x64.exe.c lines 85912-86090) ──
+    // 4 animations with weight=1.0 each: idle_stand_normal + postures + shoulder_set + neck_set.
+    // Method: additive quaternion accumulation + hemisphere correction + normalize.
+    // RE finding: Kenshi calls Animation::destroyOldNodeTrack for L/R Hand + Prop1/Prop2
+    // from ALL slider animations before blending → those bones use idle only.
+    // slider→animation mapping (crossed naming per Kenshi RE):
+    //   body[4] → postures,     body[5] → neck_set (shoulder slider), body[6] → shoulder_set (neck slider)
+
+    // Bones excluded from slider animations per Kenshi RE (destroyOldNodeTrack):
+    static const bool kSkipSlider[30] = {
+        false,false, false,false,false,false,false, false,false,false,false,false, // 0-11
+        false,false,false, false,false,false, true, true,  // 12-19: skip Hand(18), Prop1(19)
+        false,false,false,false,false,                      // 20-24
+        false,false,false, true, true                       // 25-29: skip R Hand(28), Prop2(29)
+    };
+
     for (int i = 0; i < 30; i++) {
-        memcpy(s_pose_rot[i], s_idle_rot[i], 16);
+        // Start with idle_stand_normal (weight=1, the base animation)
+        float sum[4]; memcpy(sum, s_idle_rot[i], 16);
         s_pose_tra[i][0]=s_bind_local[i][12];
         s_pose_tra[i][1]=s_bind_local[i][13];
         s_pose_tra[i][2]=s_bind_local[i][14];
-    }
 
-    // Postures overlay: only bones with delta>2° in postures animation.
-    // RE data: postures changes legs(2-4,7-9), Spine1(13), Spine2(14), UpperArm(16,26), Head(21).
-    // Applied as ANIMBLEND_AVERAGE contribution (50% blend with idle).
-    static const bool kPostureActive[30] = {
-        false,false, true,true,true,false,false, true,true,true,false,false, // 0-11
-        false,true,true, false,true,false,false,false, false,true,false,false,false, // 12-24
-        false,true,false,false,false                                          // 25-29
-    };
-    if (s_anim_postures.loaded) {
-        float pa = body[4] * 0.01f;
-        for (int i = 0; i < 30; i++) {
-            if (!kPostureActive[i]) continue;
-            float q[4]; quat_nlerp(q, s_anim_postures.rot0[i], s_anim_postures.rot1[i], pa);
-            quat_nlerp(s_pose_rot[i], s_pose_rot[i], q, 0.5f);
+        if (!kSkipSlider[i]) {
+            // Add postures (weight=1, body[4] slider)
+            if (s_anim_postures.loaded) {
+                float pa=body[4]*0.01f, q[4];
+                quat_nlerp(q, s_anim_postures.rot0[i], s_anim_postures.rot1[i], pa);
+                quat_blend_add(sum, q);
+            }
+            // Add shoulder_set (weight=1, body[6] = Neck position slider)
+            if (s_anim_shoulder_set.loaded) {
+                float sa=body[6]*0.01f, q[4];
+                quat_nlerp(q, s_anim_shoulder_set.rot0[i], s_anim_shoulder_set.rot1[i], sa);
+                quat_blend_add(sum, q);
+            }
+            // Add neck_set (weight=1, body[5] = Shoulder set slider)
+            if (s_anim_neck_set.loaded) {
+                float na=body[5]*0.01f, q[4];
+                quat_nlerp(q, s_anim_neck_set.rot0[i], s_anim_neck_set.rot1[i], na);
+                quat_blend_add(sum, q);
+            }
         }
+        quat_blend_normalize(sum);
+        memcpy(s_pose_rot[i], sum, 16);
     }
 
     auto cl=[](float x) -> float { return x<0.1f?0.1f:(x>4.f?4.f:x); };
