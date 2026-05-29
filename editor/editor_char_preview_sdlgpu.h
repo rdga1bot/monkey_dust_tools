@@ -502,10 +502,15 @@ static bool Init(const char* glb_path, const char* tex_path) {
         for (int ai=0;ai<(int)d->animations_count;++ai){
             cgltf_animation& anim=d->animations[ai];
             if (!anim.name||strcmp(anim.name,"idle_stand_normal")!=0) continue;
-            // Frame 0 for all bones: stable state, no mesh intersections.
-            // Clavicle+UpperArm must be consistent — mixed frames cause arms to go
-            // into torso (last Clav) or behind body (frame0 Clav + last UpperArm).
-            // Frame 0: head 21.4° (upright), UpperArm ~87° (slightly raised), no clipping.
+            // Frame 0 for most bones. Forearm(17,27)/Hand(18,28) → bind pose (skip).
+            // Frame 0 Forearm=20.3° bends arm downward from T-pose → arms float at hip.
+            // Bind Forearm=0.3° (straight) keeps arm horizontal = connected T-pose look.
+            static const bool kSkipFromIdle[30] = {
+                0,0, 0,0,0,0,0, 0,0,0,0,0, 0,0,0,
+                0,0,1,1,0,  // skip Forearm(17) Hand(18)
+                0,0,0,0,0,
+                0,0,1,1,0   // skip Forearm(27) Hand(28)
+            };
             for (int ci=0;ci<(int)anim.channels_count;++ci){
                 cgltf_animation_channel& ch=anim.channels[ci];
                 if (!ch.target_node||!ch.sampler) continue;
@@ -514,6 +519,7 @@ static bool Init(const char* glb_path, const char* tex_path) {
                 if (ni<0||ni>=2048) continue;
                 int ji=node_to_ji[ni];
                 if (ji<0||ji>=30) continue;
+                if (kSkipFromIdle[ji]) continue;
                 if (ch.sampler->output&&ch.sampler->output->count>0) {
                     cgltf_accessor_read_float(ch.sampler->output, 0, s_idle_rot[ji], 4);
                     s_idle_has_rot[ji]=true;
