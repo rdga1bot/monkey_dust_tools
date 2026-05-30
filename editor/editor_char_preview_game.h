@@ -9,6 +9,7 @@
 #include <monkey_dust/render/gpu_device.h>
 #include <monkey_dust/render/gpu_hal.h>
 #include <monkey_dust/render/skin_mesh.h>
+#include <monkey_dust/render/char_customization.h>
 #include <monkey_dust/render/ssbo.h>
 #include <monkey_dust/platform/window.h>
 #include <SDL3/SDL.h>
@@ -37,8 +38,11 @@ static int             s_rtt_w = 0, s_rtt_h = 0;
 // Lifecycle
 static bool s_ok           = false;
 static int  s_idle_clip    = -1;
-static bool s_morphs_dirty = true;
-static bool s_colors_dirty = true;
+static bool  s_morphs_dirty = true;
+static bool  s_colors_dirty = true;
+static bool  s_bones_dirty  = true;
+static float s_body_cache[CHARCC_BODY_N];
+static float s_face_cache[CHARCC_FACE_N];
 // Camera
 static float s_yaw = 0.f, s_pit = -0.06f, s_dist = 2.6f, s_lookat_y = 0.9f;
 static float s_height = 1.f;
@@ -202,7 +206,10 @@ static bool Init(const char* glb_path, const char* tex_path) {
     if(!s_pipeline.Create(pd)){
         fprintf(stderr,"[CharPreviewGame] pipeline failed\n"); return false;
     }
-    s_morphs_dirty=true; s_ok=true;
+    // Initialise slider caches to neutral (100 = no deformation)
+    for(int i=0;i<CHARCC_BODY_N;i++) s_body_cache[i]=100.f;
+    for(int i=0;i<CHARCC_FACE_N;i++) s_face_cache[i]=100.f;
+    s_morphs_dirty=true; s_bones_dirty=true; s_ok=true;
     return true;
 }
 
@@ -217,12 +224,15 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
 
     // Bones: GetFinalBonesFull + ApplyInvBind — exact game path.
     // Upload via standalone Upload() (not UploadInCmd) to avoid copy/render pass ordering issues.
-    if(s_idle_clip>=0){
+    if(s_idle_clip>=0 && s_bones_dirty){
         static float bones[MAX_SKIN_BONES*16];
-        // GetFinalBonesFull already applies inv_bind internally — result is GPU-ready.
-        // Do NOT call ApplyInvBind after — that would double-apply and cause explosion.
-        s_mesh.GetFinalBonesFull(s_idle_clip,0.f,bones,nullptr);
+        // GetFinalBonesFull/Scaled already apply inv_bind — result is GPU-ready skinning matrices.
+        // Do NOT call ApplyInvBind after — that would double-apply and cause mesh explosion.
+        CharScales scales;
+        CharCustomization_ComputeScales(s_body_cache, s_face_cache, s_mesh.bone_count, scales);
+        s_mesh.GetFinalBonesScaled(s_idle_clip, 0.f, scales, bones);
         s_bones_ssbo.Upload(bones, MAX_SKIN_BONES*16*(int)sizeof(float));
+        s_bones_dirty = false;
     }
     (void)cmd;
 
@@ -293,10 +303,14 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
 }
 
 // ── Public API (same as CharPreviewSDLGPU) ────────────────────────────────────
-static void SetBoneScalesFromDef(const float /*body*/[18], const float /*face*/[24]) {
-    // Pose computed via GetFinalBonesFull in RenderFrame — no manual bone scaling needed.
+static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
+    memcpy(s_body_cache, body, CHARCC_BODY_N * sizeof(float));
+    memcpy(s_face_cache, face, CHARCC_FACE_N * sizeof(float));
+    s_bones_dirty = true;
 }
-static void SetBodyMorphWeights(const float body[18], const float /*face*/[24]) {
+static void SetBodyMorphWeights(const float body[18], const float face[24]) {
+    // Body morphs (fat, muscular, longlegs, broadshdr, tall) via engine API.
+    // Uses same formula as CharCustomization_ApplyMorphs but for body params.
     auto pd=[](float v,float n,float r)->float{float d=(v-n)/r;return d<0?0:(d>1?1:d);};
     struct{const char*n;float w;} bms[]={
         {"fat",     (pd(body[13],100,90)*.65f+pd(body[15],100,45)*.20f+pd(body[12],100,40)*.15f)*.3f},
@@ -305,28 +319,16 @@ static void SetBodyMorphWeights(const float body[18], const float /*face*/[24]) 
         {"broadshdr",(pd(body[3],100,20)*.55f+pd(body[8],100,10)*.45f)*.3f},
         {"tall",     pd(body[2],100,20)*.15f},
     };
+    (void)face;
+    bool changed=false;
     for(auto& bm:bms){int mi=morph_by_name(bm.n);
-        if(mi>=0&&!s_feq(s_mesh.morph_weights[mi],bm.w)){s_mesh.morph_weights[mi]=bm.w;s_morphs_dirty=true;}}
+        if(mi>=0&&!s_feq(s_mesh.morph_weights[mi],bm.w)){s_mesh.morph_weights[mi]=bm.w;changed=true;}}
+    if(changed) s_morphs_dirty=true;
 }
-static void SetMorphWeightsFromFace(const float face[],const float def[],const float lo[],const float hi[]) {
-    struct FM{int idx;const char*pos,*neg;};
-    static const FM kM[]={
-        { 5,"big_eyes",nullptr},{ 6,"narrow_eyes",nullptr},{ 7,"close_eyes",nullptr},
-        { 8,"high_eyes",nullptr},{ 9,"wide_nose",nullptr},{10,"long_nose",nullptr},
-        {11,"arch_nose",nullptr},{12,"tiltup_nose","tiltdown_nose"},{13,"wide_cheekbones","narrow_cheekbones"},
-        {14,"shallow_eyes",nullptr},{15,"tiltup_brow","tiltdown_brow"},{16,"high_brow","low_brow"},
-        {18,"wide_mouth",nullptr},{20,"big_mouth",nullptr},{21,"overbite","underbite"},
-        {22,"tiltup_eyes","tiltdown_eyes"},{23,"high_nose",nullptr},
-    };
-    for(auto&m:kM){
-        float val=face[m.idx],d=def[m.idx];
-        if(m.pos){float rhi=hi[m.idx]-d;int mi=morph_by_name(m.pos);
-            if(mi>=0&&rhi>1e-6f){float w=fmaxf(0,fminf(1,(val-d)/rhi));w=floorf(w*10)/10;
-                if(!s_feq(s_mesh.morph_weights[mi],w)){s_mesh.morph_weights[mi]=w;s_morphs_dirty=true;}}}
-        if(m.neg){float rlo=d-lo[m.idx];int mi=morph_by_name(m.neg);
-            if(mi>=0&&rlo>1e-6f){float w=fmaxf(0,fminf(1,(d-val)/rlo));w=floorf(w*10)/10;
-                if(!s_feq(s_mesh.morph_weights[mi],w)){s_mesh.morph_weights[mi]=w;s_morphs_dirty=true;}}}
-    }
+static void SetMorphWeightsFromFace(const float face[], const float def[],
+                                     const float lo[], const float hi[]) {
+    CharCustomization_ApplyMorphs(face, def, lo, hi, s_mesh);
+    s_morphs_dirty = true;
 }
 static void DrawInImGui(float W, float H,
                         float height_scale, float /*bulk*/,
