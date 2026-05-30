@@ -5,7 +5,8 @@
 
 #include "imgui.h"
 #ifdef MD_SDL_GPU
-#  include "editor_char_preview_sdlgpu.h"
+#  include "editor_char_preview_game.h"   // game-path render: animated.vert + npc_instanced.frag
+#  define CharPreviewSDLGPU CharPreviewGame  // alias — same public API
 #else
 #  include "char_preview_gl.h"
 #endif
