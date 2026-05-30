@@ -534,8 +534,11 @@ static bool Init(const char* glb_path, const char* tex_path) {
         for (int ai=0;ai<(int)d->animations_count;++ai){
             cgltf_animation& anim=d->animations[ai];
             if (!anim.name||strcmp(anim.name,"idle_stand_normal")!=0) continue;
-            // Always use frame 0: head upright (0°), spine/legs stable.
-            // Clavicle+UpperArm arm position is set via shoulder_set slider anim blend.
+            // Frame selection per bone:
+            //   UpperArm L(ji=16) / R(ji=26): frame 1 → natural hang (matches game idle).
+            //   All other bones: frame 0 → head upright, spine/legs stable.
+            // shoulder_set is skipped for UpperArm in SetBoneScalesFromDef so frame 1
+            // is not over-ridden by the additive blend (which would spread arms wide).
             for (int ci=0;ci<(int)anim.channels_count;++ci){
                 cgltf_animation_channel& ch=anim.channels[ci];
                 if (!ch.target_node||!ch.sampler) continue;
@@ -545,12 +548,14 @@ static bool Init(const char* glb_path, const char* tex_path) {
                 int ji=node_to_ji[ni];
                 if (ji<0||ji>=30) continue;
                 if (ch.sampler->output&&ch.sampler->output->count>0) {
-                    cgltf_accessor_read_float(ch.sampler->output, 0, s_idle_rot[ji], 4);
+                    int n_out = (int)ch.sampler->output->count;
+                    int fi = ((ji==16||ji==26) && n_out>1) ? 1 : 0;
+                    cgltf_accessor_read_float(ch.sampler->output, fi, s_idle_rot[ji], 4);
                     s_idle_has_rot[ji]=true;
                 }
             }
             s_idle_loaded=true;
-            fprintf(stdout,"[CharPreview] idle_stand_normal: frame 0 all bones\n");
+            fprintf(stdout,"[CharPreview] idle_stand_normal: f1 UpperArm L/R, f0 all other bones\n");
             break;
         }
 
@@ -1152,7 +1157,10 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
                                 s_anim_neck_set.rot1[i], body[5] * 0.01f, q);
             quat_blend_add(sum, q);
         }
-        if (s_anim_shoulder_set.loaded && s_anim_shoulder_set.has[i]) {  // body[6] Neck pos → shoulder_set
+        // shoulder_set skipped for UpperArm (i==16,26): those bones use idle frame 1
+        // directly to match in-game natural hang. Adding shoulder_set on top of frame 1
+        // causes additive-blend artefact that spreads arms wide outward.
+        if (s_anim_shoulder_set.loaded && s_anim_shoulder_set.has[i] && i!=16 && i!=26) {
             float q[4]; sample3(s_anim_shoulder_set.rot0[i], s_anim_shoulder_set.rot_mid[i],
                                 s_anim_shoulder_set.rot1[i], body[6] * 0.01f, q);
             quat_blend_add(sum, q);
