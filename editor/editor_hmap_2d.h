@@ -171,7 +171,7 @@ static ImVec2  s_win_pos  = {100.f, 60.f};
 static ImVec2  s_win_size = {600.f, 620.f};
 
 // ── Zoom/pan state ────────────────────────────────────────────────────────────
-static float s_zoom = 4.f;   // 1 = full world; 4 = ~16 zones visible; 32 = max
+static float s_zoom = 1.f;   // 1 = full world; 4 = ~16 zones visible; 32 = max
 static float s_vcx  = 0.5f; // view centre [0..1] in hmap X
 static float s_vcy  = 0.5f; // view centre [0..1] in hmap Y
 
