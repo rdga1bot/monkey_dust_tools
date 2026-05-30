@@ -573,18 +573,34 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt) {
             sun.ambient[0] = biome.fog_r * 0.6f + 0.1f;
             sun.ambient[1] = biome.fog_g * 0.6f + 0.12f;
             sun.ambient[2] = biome.fog_b * 0.6f + 0.16f;
-            // Uniform LOD by altitude (no T-junctions between chunks).
-            int world_lod = (s_cy > 4000.f) ? 3 : (s_cy > 1500.f) ? 2 : (s_cy > 500.f) ? 1 : 0;
-            // POM (ray-march) only at LOD 0 — irrelevant + expensive on distant mesh.
-            for (int cz = 0; cz < EDITOR_TNKN; ++cz)
+            // Per-chunk distance-based LOD. T-junctions at boundaries are
+            // acceptable in an editor tool. Thresholds scale with altitude
+            // so the full world stays visible when zoomed out.
+            float alt_scale = fmaxf(1.f, s_cy / 400.f);
+            float d0sq = (1200.f * alt_scale) * (1200.f * alt_scale);
+            float d1sq = (3500.f * alt_scale) * (3500.f * alt_scale);
+            float d2sq = (8000.f * alt_scale) * (8000.f * alt_scale);
+            float d3sq = (18000.f* alt_scale) * (18000.f* alt_scale);
+
+            for (int cz = 0; cz < EDITOR_TNKN; ++cz) {
                 for (int cx = 0; cx < EDITOR_TNKN; ++cx) {
-                    if (world_lod == 0)
-                        s_terrain.DrawRawPOM(rp, cmd, s_chunks[cz][cx], vp.m,
+                    const TerrainChunk& ch = s_chunks[cz][cx];
+                    if (!ch.loaded) continue;
+                    float ddx = ch.center_x - eye_x;
+                    float ddz = ch.center_z - eye_z;
+                    float d2  = ddx*ddx + ddz*ddz;
+                    if (d2 > d3sq) continue;  // beyond draw distance — skip
+                    if (d2 < d0sq)
+                        s_terrain.DrawRawPOM(rp, cmd, ch, vp.m,
                                             sun, eye_x, eye_y, eye_z, WCX, WCZ, W2UV, 0);
+                    else if (d2 < d1sq)
+                        s_terrain.DrawRaw(rp, cmd, ch, vp.m, sun, WCX, WCZ, W2UV, 1);
+                    else if (d2 < d2sq)
+                        s_terrain.DrawRaw(rp, cmd, ch, vp.m, sun, WCX, WCZ, W2UV, 2);
                     else
-                        s_terrain.DrawRaw(rp, cmd, s_chunks[cz][cx], vp.m,
-                                         sun, WCX, WCZ, W2UV, world_lod);
+                        s_terrain.DrawRaw(rp, cmd, ch, vp.m, sun, WCX, WCZ, W2UV, 3);
                 }
+            }
         }
 
         SDL_EndGPURenderPass(rp);
