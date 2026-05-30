@@ -214,15 +214,10 @@ static void s_draw_content() {
     // ── Map image (zoom/pan) ──────────────────────────────────────────────────
     ImVec2 avail = ImGui::GetContentRegionAvail();
     float dw = avail.x, dh = avail.y;
-    // Keep square aspect if map is square
-    if (s_tw == s_th) {
-        float side = dw < dh ? dw : dh;
-        dw = dh = side;
-    }
 
     ImVec2 origin = ImGui::GetCursorScreenPos();
-    float ox = origin.x + (avail.x - dw) * 0.5f;
-    float oy = origin.y + (avail.y - dh) * 0.5f;
+    float ox = origin.x;
+    float oy = origin.y;
 
     // UV range for the zoomed view
     float uv0x = s_vcx - 0.5f / s_zoom,  uv1x = s_vcx + 0.5f / s_zoom;
