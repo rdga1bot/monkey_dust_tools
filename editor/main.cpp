@@ -294,7 +294,7 @@ int main(void) {
         if (cmd) {
             // 1. Render 3D terrain + character preview + tile map to off-screen RTTs
             HmapEditor2D::UploadTexture(cmd);    // upload dirty hmap texture (copy pass)
-            WorldEditor3D_SDLGPU::RenderFrame(cmd, dt);
+            WorldEditor3D_SDLGPU::RenderFrame(cmd, dt, s_world3d_was_active);
             CharPreviewSDLGPU::RenderFrame(cmd);
             MapViewPanel::Get().RenderFrame(cmd);
 

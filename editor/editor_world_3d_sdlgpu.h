@@ -487,7 +487,8 @@ static void handle_input(float dt) {
 
 // ── Render terrain to RTT (call AFTER ImGui build, BEFORE ImGui present) ────────
 // ensure_rtt() is called from DrawImGui (during ImGui build) so s_color is stable.
-static void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt) {
+static void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active = false) {
+    if (!tab_active) return;
     tick_chunk_build(); tick_chunk_build();
     if (!s_master_ready.load() || !s_color) return;
     int w = s_rtt_w, h = s_rtt_h;  // use already-created RTT dimensions
@@ -657,9 +658,9 @@ static void DrawImGui(float W, float H, float dt) {
         float rdx = v[0]*(ndc_x*thf*asp_b) + v[4]*(ndc_y*thf) - v[8];
         float rdy = v[1]*(ndc_x*thf*asp_b) + v[5]*(ndc_y*thf) - v[9];
         float rdz = v[2]*(ndc_x*thf*asp_b) + v[6]*(ndc_y*thf) - v[10];
-        // Only cast when ray points clearly downward (rdy < -0.1 normalized).
+        // Only cast when ray points at least 20° below horizontal.
         float rdlen = sqrtf(rdx*rdx + rdy*rdy + rdz*rdz);
-        bool ray_ok = rdlen > 1e-4f && (rdy / rdlen) < -0.10f;
+        bool ray_ok = rdlen > 1e-4f && (rdy / rdlen) < -0.34f;  // sin(20°)≈0.34
         s_brush_hit = ray_ok && s_ray_terrain(s_last_eye[0], s_last_eye[1], s_last_eye[2],
                                               rdx, rdy, rdz,
                                               s_brush_wx, s_brush_wy, s_brush_wz);
@@ -683,37 +684,17 @@ static void DrawImGui(float W, float H, float dt) {
             IM_COL32(20,20,28,255));
     }
 
-    // ── Brush cursor circle (project 32 world points through VP) ─────────────
-    float s_brush_dist2 = (s_brush_wx-s_last_eye[0])*(s_brush_wx-s_last_eye[0])
-                        + (s_brush_wz-s_last_eye[2])*(s_brush_wz-s_last_eye[2]);
-    if (s_brush_hit && edit_mode && !s_rmb
-        && s_cy < 500.f && s_brush_dist2 < 2000.f*2000.f) {
-        auto project = [&](float px, float py, float pz) -> ImVec2 {
-            float cp[4] = {};
-            float wp[4] = {px, py, pz, 1.f};
-            for (int i = 0; i < 4; ++i)
-                for (int k = 0; k < 4; ++k)
-                    cp[i] += s_last_vp[k*4+i] * wp[k];
-            if (fabsf(cp[3]) < 1e-5f) return {-99999.f, -99999.f};
-            float nx = cp[0]/cp[3], ny = cp[1]/cp[3];
-            return { origin.x + (nx * 0.5f + 0.5f) * W,
-                     origin.y + (1.f - ny * 0.5f - 0.5f) * H };
-        };
+    // ── Brush cursor — crosshair at mouse position (no world-space projection) ──
+    if (s_brush_hit && edit_mode && !s_rmb && s_cy < 500.f) {
+        ImVec2 mp = ImGui::GetMousePos();
         ImDrawList* dl = ImGui::GetWindowDrawList();
-        const int N = 32;
-        ImVec2 prev = {};
         uint32_t col = (s_brush_mode == BrushMode::Lower) ? IM_COL32(255,80,60,220)
                      : (s_brush_mode == BrushMode::Smooth || s_brush_mode == BrushMode::Flatten)
                        ? IM_COL32(80,200,255,220) : IM_COL32(255,210,60,220);
-        for (int i = 0; i <= N; ++i) {
-            float a = (float)i / N * 6.28318f;
-            ImVec2 sp = project(s_brush_wx + cosf(a)*s_brush_radius,
-                                s_brush_wy,
-                                s_brush_wz + sinf(a)*s_brush_radius);
-            if (i > 0) dl->AddLine(prev, sp, col, 2.f);
-            prev = sp;
-        }
-        dl->AddCircleFilled(project(s_brush_wx, s_brush_wy, s_brush_wz), 4.f, col);
+        const float R = 10.f;
+        dl->AddLine({mp.x-R, mp.y}, {mp.x+R, mp.y}, col, 2.f);
+        dl->AddLine({mp.x, mp.y-R}, {mp.x, mp.y+R}, col, 2.f);
+        dl->AddCircle(mp, 4.f, col, 8, 1.5f);
     }
 
     // ── Brush settings overlay (top-right) ───────────────────────────────────
