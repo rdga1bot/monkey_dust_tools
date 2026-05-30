@@ -505,7 +505,7 @@ static void DrawInImGui(float W, float H,
 }
 static void SetCameraForTab(int tab) {
     if(tab==0){s_dist=2.6f; s_pit=-0.06f; s_lookat_y=0.9f;}
-    else      {s_dist=0.75f; s_pit=0.f; s_yaw=0.f; s_lookat_y=1.68f;}
+    else      {s_dist=0.85f; s_pit=0.f; s_yaw=0.f; s_lookat_y=1.76f;}
 }
 static void ResetAnimPhase() {}
 static void DumpState(FILE* f=stdout) { fprintf(f,"[CharPreviewGame] ok=%d idle=%d verts=%u morphs=%d\n",
