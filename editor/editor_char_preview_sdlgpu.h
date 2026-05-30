@@ -1445,11 +1445,7 @@ static void SetCameraForTab(int tab) {
         s_dist     = s_pcfg.portrait_dist;
         s_pit      = 0.f;
         s_yaw      = 0.f;
-        // Face center world Y = h*(face_model_y - 0.95*h), face_model_y≈1.64 (eye level).
-        // Linear s_height*K drifts for tall/short chars; quadratic formula tracks face exactly.
-        // portrait_offset_y in cfg acts as face_model_y override when non-zero.
-        float fmy = (s_pcfg.portrait_offset_y > 0.1f) ? s_pcfg.portrait_offset_y : 1.64f;
-        s_lookat_y = s_height * (fmy - 0.95f * s_height);
+        s_lookat_y = s_height * s_pcfg.portrait_offset_y;
     }
 }
 
