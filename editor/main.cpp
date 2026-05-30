@@ -246,10 +246,6 @@ int main(void) {
                 WorldPanel::Draw(dt);
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Heightmap")) {
-                HmapEditor2D::DrawPanel();
-                ImGui::EndTabItem();
-            }
             if (ImGui::BeginTabItem("Terrain")) {
                 ImVec2 avail = ImGui::GetContentRegionAvail();
                 float graph_w = avail.x * 0.70f;
@@ -261,6 +257,10 @@ int main(void) {
                 ImGui::BeginChild("##terrain_sculpt", {0, avail.y}, false);
                 EditorTerrainPanel::Get().DrawContent(dt);
                 ImGui::EndChild();
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Heightmap")) {
+                HmapEditor2D::DrawPanel();
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("3D World")) {
