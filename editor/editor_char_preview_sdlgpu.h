@@ -1149,22 +1149,28 @@ static void SetBoneScalesFromDef(const float /*body*/[18], const float /*face*/[
     // Use game's exact bone computation — GetFinalBonesFull(idle_stand_normal, t=0).
     // Replaces the previous custom CPU-LBS (pose sliders + bone scales).
     // Result is guaranteed identical to in-game rendering at idle pose.
-    if (s_pose_idle_clip >= 0) {
-        // GetFinalBonesFull returns WORLD POSE matrices (before inv_bind).
-        // Do NOT call ApplyInvBind — it uses inv_bind from md_human.glb which differs
-        // from md_human_t.glb (morph targets change the bind positions).
-        // Instead, manually multiply: ws_mat[i] = world_pose[i] * s_inv_bind[i]
-        // where s_inv_bind[] comes from the display mesh (md_human_t.glb).
-        static float world_poses[MAX_SKIN_BONES * 16];
-        s_pose_mesh.GetFinalBonesFull(s_pose_idle_clip, 0.f, world_poses, nullptr);
-        for (int i = 0; i < 30; ++i)
-            m4mul(s_ws_mat[i], world_poses + i * 16, s_inv_bind[i]);
+    // Build world poses from s_idle_rot[] (idle_stand_normal frame 0) and
+    // s_bind_local[] — both loaded from md_human_t.glb. No slider blending,
+    // no bone scales. ws_mat[i] = new_world[i] * s_inv_bind[i].
+    // This matches the game's idle pose at t=0 without external dependencies.
+    if (!s_idle_loaded) {
+        for (int i = 0; i < 30; ++i) {
+            memset(s_ws_mat[i], 0, 64);
+            s_ws_mat[i][0]=s_ws_mat[i][5]=s_ws_mat[i][10]=s_ws_mat[i][15]=1.f;
+        }
         return;
     }
-    // Fallback: identity (pose mesh not loaded yet).
+    float new_world[30][16];
     for (int i = 0; i < 30; ++i) {
-        memset(s_ws_mat[i], 0, 64);
-        s_ws_mat[i][0]=s_ws_mat[i][5]=s_ws_mat[i][10]=s_ws_mat[i][15]=1.f;
+        float sl[16];
+        // Use bind-local translation directly (no posScale)
+        float tp[3] = { s_bind_local[i][12], s_bind_local[i][13], s_bind_local[i][14] };
+        m4_from_quat_t(sl, s_idle_rot[i], tp);
+        if (s_bone_parent[i] < 0)
+            memcpy(new_world[i], sl, 64);
+        else
+            m4mul(new_world[i], new_world[(int)s_bone_parent[i]], sl);
+        m4mul(s_ws_mat[i], new_world[i], s_inv_bind[i]);
     }
 }
 // ── (old pose code below is unreachable — kept for reference) ──────────────
