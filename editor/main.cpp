@@ -195,9 +195,15 @@ int main(void) {
         // Toolbar draws the menu bar (~20px) + button bar (30px fixed)
         // f3_passthrough: pass-through mouse input when a fullscreen viewport tab is active.
         // Uses prev-frame flag (1-frame lag is imperceptible).
-        static bool s_world3d_was_active = false;
+        static bool s_world3d_was_active  = false;
+        static bool s_hmap_was_active     = false;
+        static bool s_charpreview_active  = false;
+        static bool s_mapview_active      = false;
         EditorCore::Get().f3_passthrough = s_world3d_was_active;
-        s_world3d_was_active = false;  // will be set true below if 3D World tab is active
+        s_world3d_was_active = false;
+        s_hmap_was_active    = false;
+        s_charpreview_active = false;
+        s_mapview_active     = false;
         EditorCore::Get().Update(dt);
         float toolbar_h = ImGui::GetFrameHeight() + 30.f;
 
@@ -232,6 +238,7 @@ int main(void) {
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Map")) {
+                s_mapview_active = true;
                 ImGui::SetCursorPos({8,ImGui::GetCursorPosY()+4});
                 ImGuiIO& mio = ImGui::GetIO();
                 if (mio.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z, false))
@@ -260,6 +267,7 @@ int main(void) {
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Heightmap")) {
+                s_hmap_was_active = true;
                 HmapEditor2D::DrawPanel();
                 ImGui::EndTabItem();
             }
@@ -275,6 +283,7 @@ int main(void) {
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Characters")) {
+                s_charpreview_active = true;
                 ImGui::SetCursorPos({8,ImGui::GetCursorPosY()+4});
                 CharacterEditor::Draw();
                 ImGui::EndTabItem();
@@ -293,10 +302,10 @@ int main(void) {
         SDL_GPUCommandBuffer* cmd = md::GpuDevice::Get().AcquireCommandBuffer();
         if (cmd) {
             // 1. Render 3D terrain + character preview + tile map to off-screen RTTs
-            HmapEditor2D::UploadTexture(cmd);    // upload dirty hmap texture (copy pass)
+            if (s_hmap_was_active)    HmapEditor2D::UploadTexture(cmd);
             WorldEditor3D_SDLGPU::RenderFrame(cmd, dt, s_world3d_was_active);
-            CharPreviewSDLGPU::RenderFrame(cmd);
-            MapViewPanel::Get().RenderFrame(cmd);
+            if (s_charpreview_active) CharPreviewSDLGPU::RenderFrame(cmd);
+            if (s_mapview_active)     MapViewPanel::Get().RenderFrame(cmd);
 
             // 2. Acquire swapchain + clear + ImGui
             uint32_t sw=0, sh=0;
