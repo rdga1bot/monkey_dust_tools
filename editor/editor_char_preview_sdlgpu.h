@@ -1150,11 +1150,15 @@ static void SetBoneScalesFromDef(const float /*body*/[18], const float /*face*/[
     // Replaces the previous custom CPU-LBS (pose sliders + bone scales).
     // Result is guaranteed identical to in-game rendering at idle pose.
     if (s_pose_idle_clip >= 0) {
-        static float game_bones[MAX_SKIN_BONES * 16];
-        s_pose_mesh.GetFinalBonesFull(s_pose_idle_clip, 0.f, game_bones, nullptr);
-        s_pose_mesh.ApplyInvBind(game_bones);
+        // GetFinalBonesFull returns WORLD POSE matrices (before inv_bind).
+        // Do NOT call ApplyInvBind — it uses inv_bind from md_human.glb which differs
+        // from md_human_t.glb (morph targets change the bind positions).
+        // Instead, manually multiply: ws_mat[i] = world_pose[i] * s_inv_bind[i]
+        // where s_inv_bind[] comes from the display mesh (md_human_t.glb).
+        static float world_poses[MAX_SKIN_BONES * 16];
+        s_pose_mesh.GetFinalBonesFull(s_pose_idle_clip, 0.f, world_poses, nullptr);
         for (int i = 0; i < 30; ++i)
-            memcpy(s_ws_mat[i], game_bones + i * 16, 64);
+            m4mul(s_ws_mat[i], world_poses + i * 16, s_inv_bind[i]);
         return;
     }
     // Fallback: identity (pose mesh not loaded yet).
