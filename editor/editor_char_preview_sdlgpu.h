@@ -8,6 +8,7 @@
 #include "imgui.h"
 #include <monkey_dust/render/gpu_device.h>
 #include <monkey_dust/render/gpu_hal.h>
+#include <monkey_dust/render/skin_mesh.h>
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_gpu.h>
 #include "cgltf.h"
@@ -68,9 +69,13 @@ static float s_inv_bind[30][16];   // inverseBindMatrices from GLB (world→bone
 static float s_bind[30][16];       // bind matrices = inv(inv_bind)
 static float s_bind_local[30][16]; // bind_local[i] = inv_bind[parent] * bind[i]
 static int8_t s_bone_parent[30];   // parent joint index, -1 for root
-static float s_idle_rot[30][4];    // idle_stand_normal last-frame quaternion (xyzw) per bone
+static float s_idle_rot[30][4];    // idle_stand_normal frame-0 quaternion (xyzw) per bone
 static bool  s_idle_has_rot[30];   // true if bone has explicit rotation channel in idle_stand_normal
 static bool  s_idle_loaded = false;
+
+// ── Game-path pose: SkinMesh + GetFinalBonesFull (identical to in-game render) ──
+static SkinMesh s_pose_mesh;
+static int      s_pose_idle_clip = -1;
 
 // ── Breathing animation ───────────────────────────────────────────────────────
 struct BreathChan {
@@ -924,6 +929,20 @@ static bool Init(const char* glb_path, const char* tex_path) {
         }
     }
 
+    // Load game mesh for bone pose — identical computation to in-game NPC render.
+    // glb_path may be "md_human_t.glb" (with morphs); game mesh is always md_human.glb.
+    {
+        const char* pose_path = strstr(glb_path, "female")
+            ? "game/data/props/md_human.glb"   // female pose mesh (same skeleton)
+            : "game/data/props/md_human.glb";
+        if (s_pose_mesh.LoadGLB(pose_path)) {
+            s_pose_idle_clip = s_pose_mesh.ClipIndexByName("idle_stand_normal");
+            fprintf(stdout, "[CharPreview] pose mesh loaded, idle_clip=%d\n", s_pose_idle_clip);
+        } else {
+            fprintf(stderr, "[CharPreview] WARN: could not load pose mesh %s\n", pose_path);
+        }
+    }
+
     s_ok=true;
     return true;
 }
@@ -1126,13 +1145,27 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
 // Bone axes: localX=+worldY(height) for spine/leg; localX=arm-direction for arm bones.
 // setBoneSize → s_boneScales (vertex deformation only, doesn't move children).
 // setBonePositionalSize → s_posScale (scales bind translation from parent).
-static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
-    for(int i=0;i<30;i++){
-        s_boneScales[i][0]=1;s_boneScales[i][1]=1;s_boneScales[i][2]=1;
-        s_posScale[i][0]=1;s_posScale[i][1]=1;s_posScale[i][2]=1;
+static void SetBoneScalesFromDef(const float /*body*/[18], const float /*face*/[24]) {
+    // Use game's exact bone computation — GetFinalBonesFull(idle_stand_normal, t=0).
+    // Replaces the previous custom CPU-LBS (pose sliders + bone scales).
+    // Result is guaranteed identical to in-game rendering at idle pose.
+    if (s_pose_idle_clip >= 0) {
+        static float game_bones[MAX_SKIN_BONES * 16];
+        s_pose_mesh.GetFinalBonesFull(s_pose_idle_clip, 0.f, game_bones, nullptr);
+        s_pose_mesh.ApplyInvBind(game_bones);
+        for (int i = 0; i < 30; ++i)
+            memcpy(s_ws_mat[i], game_bones + i * 16, 64);
+        return;
     }
-
-    // ── Pose: idle frame 0 + ANIMBLEND_AVERAGE for posture sliders ───────────
+    // Fallback: identity (pose mesh not loaded yet).
+    for (int i = 0; i < 30; ++i) {
+        memset(s_ws_mat[i], 0, 64);
+        s_ws_mat[i][0]=s_ws_mat[i][5]=s_ws_mat[i][10]=s_ws_mat[i][15]=1.f;
+    }
+}
+// ── (old pose code below is unreachable — kept for reference) ──────────────
+#if 0
+    // ── OLD Pose: idle frame 0 + ANIMBLEND_AVERAGE for posture sliders ───────
     // Kenshi RE (line 19458): setTimePosition(length * slider * 0.01)
     // RE slider→anim mapping (body[] indices in our array):
     //   body[4] "Posture"       → "postures"     (6 keyframes 0/20/40/60/80/100%)
@@ -1308,7 +1341,8 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
         m4mul(tmp, S, s_inv_bind[i]);
         m4mul(s_ws_mat[i], new_world[i], tmp);
     }
-}
+} // old pose block
+#endif // 0
 
 // ── Face morph target wiring ─────────────────────────────────────────────────
 // face[i] → (positive morph name, negative morph name).
