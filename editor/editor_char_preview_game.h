@@ -21,6 +21,15 @@
 
 namespace CharPreviewGame {
 
+// ── Scene: background + platform + anthropometer pole ────────────────────────
+static GpuPipeline     s_bg_pipeline;
+static GpuTexture      s_bg_sand;
+static GpuTexture      s_bg_dune;
+static GpuPipeline     s_scene_pipeline;
+static GpuStaticBuffer s_scene_vbo;
+static GpuStaticBuffer s_scene_ibo;
+static int             s_scene_ni = 0;
+
 // ── State ─────────────────────────────────────────────────────────────────────
 static SkinMesh        s_mesh;
 static GpuPipeline     s_pipeline;
@@ -77,6 +86,14 @@ static void m4_mul(float* C, const float* A, const float* B) {
     }
 }
 static bool s_feq(float a, float b) { return fabsf(a-b)<1e-5f; }
+static void m4inv_rigid(float* out, const float* M) {
+    for(int r=0;r<3;r++) for(int c=0;c<3;c++) out[c*4+r]=M[r*4+c];
+    for(int c=0;c<4;c++) out[c*4+3]=(c==3)?1.f:0.f;
+    float tx=M[12],ty=M[13],tz=M[14];
+    out[12]=-(out[0]*tx+out[4]*ty+out[8]*tz);
+    out[13]=-(out[1]*tx+out[5]*ty+out[9]*tz);
+    out[14]=-(out[2]*tx+out[6]*ty+out[10]*tz); out[15]=1.f;
+}
 
 // ── Morph index by name ───────────────────────────────────────────────────────
 static int morph_by_name(const char* n) {
@@ -206,6 +223,79 @@ static bool Init(const char* glb_path, const char* tex_path) {
     if(!s_pipeline.Create(pd)){
         fprintf(stderr,"[CharPreviewGame] pipeline failed\n"); return false;
     }
+    // ── Background pipeline: fullscreen tri, desert sand/dune ───────────────
+    {
+        GpuPipeline::Desc bgpd;
+        bgpd.vert_path="shaders/char_bg.vert"; bgpd.frag_path="shaders/char_bg.frag";
+        bgpd.layout.count=0; bgpd.layout.stride=0;
+        bgpd.raster.depth_test=false; bgpd.raster.depth_write=false; bgpd.raster.cull_back=false;
+        bgpd.frag_samplers=2; bgpd.frag_uniform_bufs=1;
+        bgpd.has_depth_target=true;
+        bgpd.color_format=SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+        s_bg_pipeline.Create(bgpd);
+        GpuSamplerDesc rep; rep.wrap_s=rep.wrap_t=GpuSamplerDesc::Wrap::REPEAT;
+        auto load_tex=[&](GpuTexture& tex, const char* path){
+            stbi_set_flip_vertically_on_load(0);
+            int w,h,c; unsigned char* d=stbi_load(path,&w,&h,&c,4);
+            if(d){tex.InitFromMemory(d,w,h,rep);stbi_image_free(d);}
+            else{uint8_t fb[4]={160,130,80,255};tex.InitFromMemory(fb,1,1,rep);}
+        };
+        load_tex(s_bg_sand,"game/data/textures/terrain/desert_sand.jpg");
+        load_tex(s_bg_dune,"game/data/textures/terrain/desert_dune.jpg");
+    }
+    // ── Scene pipeline: platform planks + anthropometer pole ─────────────────
+    {
+        GpuPipeline::Desc spd;
+        spd.vert_path="shaders/char_scene.vert"; spd.frag_path="shaders/char_scene.frag";
+        spd.layout.count=2; spd.layout.stride=24;
+        spd.layout.attribs[0]={0,0, GpuAttribFmt::F3};
+        spd.layout.attribs[1]={1,12,GpuAttribFmt::F3};
+        spd.raster.depth_test=true; spd.raster.depth_write=true; spd.raster.cull_back=false;
+        spd.vert_uniform_bufs=1; spd.has_depth_target=true;
+        spd.color_format=SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+        s_scene_pipeline.Create(spd);
+
+        struct SV{float x,y,z,r,g,b;};
+        static SV verts[1024]; static uint32_t idxs[4096]; int vi=0,ii=0;
+        auto quad=[&](SV a,SV b,SV c,SV d){
+            uint16_t base=(uint16_t)vi;
+            verts[vi++]=a;verts[vi++]=b;verts[vi++]=c;verts[vi++]=d;
+            idxs[ii++]=base;idxs[ii++]=base+1;idxs[ii++]=base+2;
+            idxs[ii++]=base;idxs[ii++]=base+2;idxs[ii++]=base+3;
+        };
+        // Platform: 7 planks, Z: -0.7..+0.9, X: -0.955..+0.955
+        float pz0=-0.7f,pz1=0.9f,px=-0.955f,pw=0.26f,pgap=0.015f,pt=0.01f,pb=-0.13f;
+        for(int p=0;p<7;p++){
+            float px0=px,px1=px+pw,sh=(p%2==0)?0.f:0.06f;
+            float dr=0.32f+sh,dg=0.20f+sh*0.7f,db=0.11f+sh*0.4f;
+            float sr=0.38f+sh,sg=0.25f+sh*0.7f,sb=0.14f+sh*0.4f;
+            quad({px0,pt,pz0,sr,sg,sb},{px1,pt,pz0,sr,sg,sb},{px1,pt,pz1,dr,dg,db},{px0,pt,pz1,dr,dg,db});
+            quad({px0,pb,pz1,.18f,.11f,.06f},{px1,pb,pz1,.18f,.11f,.06f},{px1,pt,pz1,.22f,.14f,.08f},{px0,pt,pz1,.22f,.14f,.08f});
+            px+=pw+pgap;
+        }
+        // Anthropometer pole
+        float px0=0.630f,px1=0.658f,pz0_=-0.014f,pz1_=0.014f,py0=0.f,py1=2.10f;
+        float pr=0.30f,pg=0.22f,ppb=0.15f;
+        quad({px0,py0,pz1_,pr,pg,ppb},{px1,py0,pz1_,pr,pg,ppb},{px1,py1,pz1_,pr,pg,ppb},{px0,py1,pz1_,pr,pg,ppb});
+        quad({px1,py0,pz0_,.22f,.16f,.10f},{px0,py0,pz0_,.22f,.16f,.10f},{px0,py1,pz0_,.22f,.16f,.10f},{px1,py1,pz0_,.22f,.16f,.10f});
+        quad({px1,py0,pz0_,.26f,.19f,.12f},{px1,py0,pz1_,.26f,.19f,.12f},{px1,py1,pz1_,.26f,.19f,.12f},{px1,py1,pz0_,.26f,.19f,.12f});
+        // Tick marks
+        float tr=0.55f,tg=0.45f,tb=0.32f;
+        for(int ti=1;ti<=20;ti++){
+            float ty=(float)ti*.10f,th=0.007f;
+            bool major=(ti%10==0),medium=(ti%5==0);
+            float tw=major?.11f:(medium?.07f:.04f);
+            float tx0=px1,tx1=px1+tw;
+            quad({tx0,ty+th,pz0_,tr,tg,tb},{tx1,ty+th,pz0_,tr,tg,tb},{tx1,ty+th,pz1_,tr,tg,tb},{tx0,ty+th,pz1_,tr,tg,tb});
+            quad({tx0,ty-th,pz1_,tr*.8f,tg*.8f,tb*.8f},{tx1,ty-th,pz1_,tr*.8f,tg*.8f,tb*.8f},{tx1,ty+th,pz1_,tr,tg,tb},{tx0,ty+th,pz1_,tr,tg,tb});
+        }
+        s_scene_ni=ii;
+        if(ii>0){
+            s_scene_vbo.Init(0x8892u,verts,(uint32_t)(vi*sizeof(SV)));
+            s_scene_ibo.Init(0x8893u,idxs,(uint32_t)(ii*sizeof(uint32_t)));
+        }
+    }
+
     // Initialise slider caches to neutral (100 = no deformation)
     for(int i=0;i<CHARCC_BODY_N;i++) s_body_cache[i]=100.f;
     for(int i=0;i<CHARCC_FACE_N;i++) s_face_cache[i]=100.f;
@@ -277,6 +367,39 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
     SDL_GPURenderPass* rp=SDL_BeginGPURenderPass(cmd,&ci,1,&di);
     if(!rp) return;
 
+    // ── Background: sky + perspective ground (desert sand/dune) ───────────────
+    if(s_bg_pipeline.SDLPipeline()){
+        SDL_BindGPUGraphicsPipeline(rp,s_bg_pipeline.SDLPipeline());
+        float inv_view[16]; m4inv_rigid(inv_view,view);
+        float asp=(float)s_rtt_w/(float)s_rtt_h;
+        float tan_vfov=tanf(0.36f), tan_hfov=tan_vfov*asp;
+        struct{float right[4],up[4],fwd[4],eye[4];} bgu;
+        bgu.right[0]=inv_view[0];bgu.right[1]=inv_view[1];bgu.right[2]=inv_view[2];bgu.right[3]=tan_hfov;
+        bgu.up[0]=inv_view[4];   bgu.up[1]=inv_view[5];   bgu.up[2]=inv_view[6];   bgu.up[3]=tan_vfov;
+        bgu.fwd[0]=-inv_view[8]; bgu.fwd[1]=-inv_view[9]; bgu.fwd[2]=-inv_view[10];bgu.fwd[3]=-(s_height*.95f);
+        bgu.eye[0]=inv_view[12]; bgu.eye[1]=inv_view[13]; bgu.eye[2]=inv_view[14]; bgu.eye[3]=0;
+        SDL_PushGPUFragmentUniformData(cmd,0,&bgu,sizeof(bgu));
+        if(s_bg_sand.SDLTexture()&&s_bg_dune.SDLTexture()){
+            SDL_GPUTextureSamplerBinding bg_tex[2]={
+                {s_bg_sand.SDLTexture(),s_bg_sand.SDLSampler()},
+                {s_bg_dune.SDLTexture(),s_bg_dune.SDLSampler()}};
+            SDL_BindGPUFragmentSamplers(rp,0,bg_tex,2);
+        }
+        SDL_DrawGPUPrimitives(rp,3,1,0,0);
+    }
+
+    // ── Scene geometry: platform planks + anthropometer pole ─────────────────
+    if(s_scene_pipeline.SDLPipeline()&&s_scene_vbo.SDLBuffer()&&s_scene_ni>0){
+        SDL_BindGPUGraphicsPipeline(rp,s_scene_pipeline.SDLPipeline());
+        SDL_GPUBufferBinding svb={s_scene_vbo.SDLBuffer(),0};
+        SDL_BindGPUVertexBuffers(rp,0,&svb,1);
+        SDL_GPUBufferBinding sib={s_scene_ibo.SDLBuffer(),0};
+        SDL_BindGPUIndexBuffer(rp,&sib,SDL_GPU_INDEXELEMENTSIZE_32BIT);
+        SDL_PushGPUVertexUniformData(cmd,0,vp,64);  // MVP = vp (character at origin)
+        SDL_DrawGPUIndexedPrimitives(rp,s_scene_ni,1,0,0,0);
+    }
+
+    // ── Character mesh ────────────────────────────────────────────────────────
     SDL_BindGPUGraphicsPipeline(rp, s_pipeline.SDLPipeline());
 
     // Slot=0: SkinVertex, Slot=1: body colors
