@@ -534,9 +534,10 @@ static bool Init(const char* glb_path, const char* tex_path) {
         for (int ai=0;ai<(int)d->animations_count;++ai){
             cgltf_animation& anim=d->animations[ai];
             if (!anim.name||strcmp(anim.name,"idle_stand_normal")!=0) continue;
-            // Always use frame 0: head upright (0°), spine/legs stable.
-            // Clavicle+UpperArm arm position is overridden in SetBoneScalesFromDef
-            // via shoulder_set direct replacement (body[6] slider), giving 35° real range.
+            // Bone-selective frame sampling:
+            //   Arms (UpperArm L=16, R=26): frame 1 → natural hanging position (matches game idle).
+            //   All other bones: frame 0 → head upright, spine/legs stable.
+            // Frame 1 for head/neck breaks head tilt — must NOT use for non-arm bones.
             for (int ci=0;ci<(int)anim.channels_count;++ci){
                 cgltf_animation_channel& ch=anim.channels[ci];
                 if (!ch.target_node||!ch.sampler) continue;
@@ -546,12 +547,15 @@ static bool Init(const char* glb_path, const char* tex_path) {
                 int ji=node_to_ji[ni];
                 if (ji<0||ji>=30) continue;
                 if (ch.sampler->output&&ch.sampler->output->count>0) {
-                    cgltf_accessor_read_float(ch.sampler->output, 0, s_idle_rot[ji], 4);
+                    int out_count=(int)ch.sampler->output->count;
+                    // Use frame 1 for UpperArm bones so arms hang naturally (like in-game idle).
+                    int frame_idx = ((ji==16||ji==26) && out_count>1) ? 1 : 0;
+                    cgltf_accessor_read_float(ch.sampler->output, frame_idx, s_idle_rot[ji], 4);
                     s_idle_has_rot[ji]=true;
                 }
             }
             s_idle_loaded=true;
-            fprintf(stdout,"[CharPreview] idle_stand_normal: frame 0 all bones\n");
+            fprintf(stdout,"[CharPreview] idle_stand_normal: frame 0 (head/spine/legs), frame 1 (UpperArm L/R)\n");
             break;
         }
 
