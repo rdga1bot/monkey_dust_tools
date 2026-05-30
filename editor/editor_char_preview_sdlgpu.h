@@ -1145,37 +1145,8 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
 // Bone axes: localX=+worldY(height) for spine/leg; localX=arm-direction for arm bones.
 // setBoneSize → s_boneScales (vertex deformation only, doesn't move children).
 // setBonePositionalSize → s_posScale (scales bind translation from parent).
-static void SetBoneScalesFromDef(const float /*body*/[18], const float /*face*/[24]) {
-    // Use game's exact bone computation — GetFinalBonesFull(idle_stand_normal, t=0).
-    // Replaces the previous custom CPU-LBS (pose sliders + bone scales).
-    // Result is guaranteed identical to in-game rendering at idle pose.
-    // Build world poses from s_idle_rot[] (idle_stand_normal frame 0) and
-    // s_bind_local[] — both loaded from md_human_t.glb. No slider blending,
-    // no bone scales. ws_mat[i] = new_world[i] * s_inv_bind[i].
-    // This matches the game's idle pose at t=0 without external dependencies.
-    if (!s_idle_loaded) {
-        for (int i = 0; i < 30; ++i) {
-            memset(s_ws_mat[i], 0, 64);
-            s_ws_mat[i][0]=s_ws_mat[i][5]=s_ws_mat[i][10]=s_ws_mat[i][15]=1.f;
-        }
-        return;
-    }
-    float new_world[30][16];
-    for (int i = 0; i < 30; ++i) {
-        float sl[16];
-        // Use bind-local translation directly (no posScale)
-        float tp[3] = { s_bind_local[i][12], s_bind_local[i][13], s_bind_local[i][14] };
-        m4_from_quat_t(sl, s_idle_rot[i], tp);
-        if (s_bone_parent[i] < 0)
-            memcpy(new_world[i], sl, 64);
-        else
-            m4mul(new_world[i], new_world[(int)s_bone_parent[i]], sl);
-        m4mul(s_ws_mat[i], new_world[i], s_inv_bind[i]);
-    }
-}
-// ── (old pose code below is unreachable — kept for reference) ──────────────
-#if 0
-    // ── OLD Pose: idle frame 0 + ANIMBLEND_AVERAGE for posture sliders ───────
+static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
+    // ── Pose: idle frame 0 + ANIMBLEND_AVERAGE for posture sliders ───────────
     // Kenshi RE (line 19458): setTimePosition(length * slider * 0.01)
     // RE slider→anim mapping (body[] indices in our array):
     //   body[4] "Posture"       → "postures"     (6 keyframes 0/20/40/60/80/100%)
@@ -1351,8 +1322,7 @@ static void SetBoneScalesFromDef(const float /*body*/[18], const float /*face*/[
         m4mul(tmp, S, s_inv_bind[i]);
         m4mul(s_ws_mat[i], new_world[i], tmp);
     }
-} // old pose block
-#endif // 0
+}
 
 // ── Face morph target wiring ─────────────────────────────────────────────────
 // face[i] → (positive morph name, negative morph name).
