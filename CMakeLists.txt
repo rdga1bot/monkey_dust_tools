@@ -31,6 +31,7 @@ add_executable(monkey_dust_editor
     ${CMAKE_SOURCE_DIR}/engine/src/vendor/stb_image_impl.cpp
     ${CMAKE_SOURCE_DIR}/engine/src/render/cgltf_impl.cpp
     ${CMAKE_SOURCE_DIR}/game/src/world/character_def.cpp
+    ${CMAKE_SOURCE_DIR}/game/src/world/world_registry.cpp
     # Third-party panels
     ${CMAKE_SOURCE_DIR}/third_party/imnodes/imnodes.cpp
     ${CMAKE_SOURCE_DIR}/third_party/ImGuiColorTextEdit/TextEditor.cpp

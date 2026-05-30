@@ -16,9 +16,12 @@
 #include <monkey_dust/render/prop_renderer.h>
 #include <monkey_dust/render/gpu_device.h>
 #include <monkey_dust/render/gpu_hal.h>
+#include <monkey_dust/render/light_system.h>
 #include <monkey_dust/world/terrain_gen.h>
 #include <monkey_dust/world/terrain_chunk.h>
 #include <monkey_dust/world/chunk_def.h>
+#include "world/biome_def.h"
+#include "world/world_registry.h"
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_gpu.h>
 #include <atomic>
@@ -26,6 +29,18 @@
 #include <cstring>
 #include <cstdio>
 #include <cmath>
+
+// SkyUBO — mirrors game's scene_render.h SkyUBO (same sky.vert/frag shaders)
+struct alignas(16) EditorSkyUBO {
+    float cam_right[4];
+    float cam_up[4];
+    float cam_fwd[4];
+    float sun_dir[4];
+    float horizon_col[4];
+    float fov_tan;
+    float aspect;
+    float _pad[2];
+};
 
 namespace WorldEditor3D_SDLGPU {
 
@@ -37,6 +52,7 @@ static TerrainRenderer    s_terrain;
 static PropRenderer       s_props;
 static TerrainChunk       s_chunks[EDITOR_TNKN][EDITOR_TNKN];
 static bool               s_loaded = false;
+static GpuPipeline        s_sky_pipeline;
 
 // Prop scatter state — rebuilt once per zone change when atlas is ready
 static constexpr int  PROPS_PER_CHUNK = 8;   // rocks per 500×500m chunk
@@ -464,6 +480,21 @@ static bool Init(const char* overlay_path, int zone_ox = 28, int zone_oz = 28) {
     if (!TerrainMaster_Load(MASTER_PATH, 64.f * CHUNK_SIZE, 64.f * CHUNK_SIZE))
         fprintf(stderr, "[W3D-SDLGPU] master hmap load failed: %s\n", MASTER_PATH);
 
+    // Sky pipeline — same shaders as game (sky.vert/frag, SkyUBO)
+    {
+        GpuPipeline::Desc sd;
+        sd.vert_path          = "shaders/sky.vert";
+        sd.frag_path          = "shaders/sky.frag";
+        sd.vert_uniform_bufs  = 1;
+        sd.frag_uniform_bufs  = 1;
+        sd.has_depth_target   = true;
+        sd.raster.depth_test  = false;
+        sd.raster.depth_write = false;
+        sd.raster.cull_back   = false;
+        sd.layout.count       = 0;
+        s_sky_pipeline.Create(sd);
+    }
+
     // Background: init TerrainRenderer (GPU shader compilation) + build overview mesh
     const char* op = overlay_path;
     s_loader_thread = std::thread([op]() {
@@ -632,12 +663,17 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt) {
         }
     }
 
+    // Sun direction + biome sky/fog from LightSystem + WorldRegistry
+    const auto& ls  = LightSystem::Get();
+    const char* cur_zone = WorldRegistry::Get().CurrentZone();
+    const BiomeDef& biome = BiomeDef::ForZone(cur_zone ? cur_zone : "");
+
     // ── Terrain render pass ──────────────────────────────────────────────────
     SDL_GPUColorTargetInfo ct = {};
     ct.texture     = s_color;
     ct.load_op     = SDL_GPU_LOADOP_CLEAR;
     ct.store_op    = SDL_GPU_STOREOP_STORE;
-    ct.clear_color = { 0.42f, 0.52f, 0.62f, 1.f };  // sky
+    ct.clear_color = { biome.fog_r, biome.fog_g, biome.fog_b, 1.f };  // biome fog as clear
 
     SDL_GPUDepthStencilTargetInfo di = {};
     di.texture          = s_depth;
@@ -649,16 +685,42 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt) {
 
     SDL_GPURenderPass* rp = SDL_BeginGPURenderPass(cmd, &ct, 1, &di);
     if (rp) {
+        // ── Sky — same shader + SkyUBO as game ───────────────────────────────
+        if (s_sky_pipeline.SDLPipeline()) {
+            EditorSkyUBO sky{};
+            // View matrix rows → camera basis vectors for sky ray generation
+            const float* v = view.m;  // column-major
+            sky.cam_right[0]=v[0]; sky.cam_right[1]=v[4]; sky.cam_right[2]=v[8];
+            sky.cam_up[0]   =v[1]; sky.cam_up[1]   =v[5]; sky.cam_up[2]   =v[9];
+            sky.cam_fwd[0]  =-v[2];sky.cam_fwd[1]  =-v[6];sky.cam_fwd[2]  =-v[10];
+            sky.sun_dir[0]  = ls.sun_dir.x;
+            sky.sun_dir[1]  = ls.sun_dir.y;
+            sky.sun_dir[2]  = ls.sun_dir.z;
+            sky.horizon_col[0] = biome.sky_horizon_r;
+            sky.horizon_col[1] = biome.sky_horizon_g;
+            sky.horizon_col[2] = biome.sky_horizon_b;
+            sky.fov_tan = tanf(0.80f * 0.5f);
+            sky.aspect  = asp;
+            SDL_BindGPUGraphicsPipeline(rp, s_sky_pipeline.SDLPipeline());
+            SDL_PushGPUVertexUniformData(cmd, 0, &sky, sizeof(sky));
+            SDL_PushGPUFragmentUniformData(cmd, 0, &sky, sizeof(sky));
+            SDL_DrawGPUPrimitives(rp, 3, 1, 0, 0);
+        }
+
         // Overview mesh: full 64×64 world at low resolution (always visible)
         s_draw_overview(rp, cmd, vp.m, false);
 
-        // High-res near terrain (7×7 chunks) — drawn on top of overview.
-        // world_to_uv maps full 64-zone world (32000m) → UV [0,1].
+        // High-res near terrain (7×7 chunks) with sun from LightSystem
         if (s_loaded && s_terrain.IsReady()) {
             static constexpr float W2UV = 1.f / (64.f * CHUNK_SIZE);
             static constexpr float WCX  = 32.f * CHUNK_SIZE;
             static constexpr float WCZ  = 32.f * CHUNK_SIZE;
-            auto sun = TerrainRenderer::SunParams::Default();
+            TerrainRenderer::SunParams sun;
+            sun.dir[0] = ls.sun_dir.x; sun.dir[1] = ls.sun_dir.y; sun.dir[2] = ls.sun_dir.z;
+            sun.strength   = 1.1f;
+            sun.ambient[0] = biome.fog_r * 0.6f + 0.1f;
+            sun.ambient[1] = biome.fog_g * 0.6f + 0.12f;
+            sun.ambient[2] = biome.fog_b * 0.6f + 0.16f;
             for (int cz = 0; cz < EDITOR_TNKN; ++cz)
                 for (int cx = 0; cx < EDITOR_TNKN; ++cx)
                     s_terrain.DrawRawPOM(rp, cmd, s_chunks[cz][cx], vp.m,
