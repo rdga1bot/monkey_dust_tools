@@ -472,7 +472,8 @@ static bool Init(const char* overlay_path, int zone_ox = 28, int zone_oz = 28) {
         }
         s_props.Init("game/data/props/rocks/rock_01.glb"); // no-op if missing
         s_terrain.InitKenshiOverlay(op);
-        s_terrain.InitPOM("game/data/terrain/pom_detail.png");
+        TerrainRenderer::PomParams pom; pom.height_scale=0.04f; pom.layers_min=4; pom.layers_max=8;
+        s_terrain.InitPOM("game/data/textures/terrain_pom_rock.png", pom);
         s_master_ready = true;
         s_build_prop_positions();
         s_build_overview_cpu();
