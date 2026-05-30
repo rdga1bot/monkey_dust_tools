@@ -545,25 +545,16 @@ static void tick_chunk_build() {
 // ── Camera input (called inside DrawImGui while item is hovered) ───────────────
 static void handle_input(float dt) {
     ImGuiIO& io = ImGui::GetIO();
-    // RMB look — relative mouse mode hides cursor and gives unlimited delta
-    if (io.MouseClicked[1] && !s_rmb) {
+    // RMB look — use ImGui mouse delta (no SDL relative mode; avoids input freeze bugs)
+    if (io.MouseDown[1]) {
         s_rmb = true;
-        SDL_SetWindowRelativeMouseMode(SDL_GetMouseFocus(), true);
-        float _dx, _dy;
-        SDL_GetRelativeMouseState(&_dx, &_dy);  // drain stale delta accumulated before click
-    }
-    if (s_rmb) {
-        if (io.MouseDown[1]) {
-            float dx, dy;
-            SDL_GetRelativeMouseState(&dx, &dy);
-            s_yaw   -= dx * 0.0018f;
-            s_pitch += dy * 0.0014f;
-            if (s_pitch < -0.3f) s_pitch = -0.3f;
-            if (s_pitch >  1.3f) s_pitch =  1.3f;
-        } else {
-            s_rmb = false;
-            SDL_SetWindowRelativeMouseMode(SDL_GetMouseFocus(), false);
-        }
+        ImGui::SetMouseCursor(ImGuiMouseCursor_None);
+        s_yaw   -= io.MouseDelta.x * 0.003f;
+        s_pitch += io.MouseDelta.y * 0.002f;
+        if (s_pitch < -0.3f) s_pitch = -0.3f;
+        if (s_pitch >  1.3f) s_pitch =  1.3f;
+    } else {
+        s_rmb = false;
     }
     // WASD — speed scales with altitude so pan feel is consistent at any zoom
     float sp = s_cy * dt;
