@@ -227,9 +227,9 @@ static int             s_rtt_w = 0, s_rtt_h = 0;
 static int             s_last_w = 1280, s_last_h = 720;  // use prev frame size
 
 // Camera (world-space meters, Y up)
-static float s_cx = 16000.f, s_cy = 3500.f, s_cz = 11000.f; // overview: see full Kenshi world
-static float s_yaw = 0.f, s_pitch = 0.42f;  // ~24° down
-static float s_speed = 800.f;
+static float s_cx = 16000.f, s_cy = 400.f, s_cz = 11000.f;
+static float s_yaw = 0.f, s_pitch = 0.38f;  // ~22° down — game-like angle
+static float s_speed = 200.f;
 static bool  s_rmb     = false;
 static bool  s_focused = false;  // viewport has keyboard focus (set on click, cleared on outside click)
 
@@ -454,8 +454,8 @@ static bool Init(const char* overlay_path, int zone_ox = 28, int zone_oz = 28) {
     s_zone_ox_saved = zone_ox;
     s_zone_oz_saved = zone_oz;
     s_cx = 32.f * CHUNK_SIZE;  // center of world
-    s_cy = 28000.f;            // altitude to see full 32 km world (FOV 0.80 rad)
-    s_pitch = 1.05f;           // ~60° down — correct focal distance at 28 km
+    s_cy = 400.f;              // ~game altitude: terrain detail visible
+    s_pitch = 0.38f;           // ~22° down — similar to game camera angle
     s_cz = 32.f * CHUNK_SIZE;
 
     s_load_zone_amplitudes("game/data/terrain_config.txt");
