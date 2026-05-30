@@ -227,9 +227,9 @@ static int             s_rtt_w = 0, s_rtt_h = 0;
 static int             s_last_w = 1280, s_last_h = 720;  // use prev frame size
 
 // Camera (world-space meters, Y up)
-static float s_cx = 16000.f, s_cy = 400.f, s_cz = 11000.f;
-static float s_yaw = 0.f, s_pitch = 0.38f;  // ~22° down — game-like angle
-static float s_speed = 200.f;
+static float s_cx = 16000.f, s_cy = 1500.f, s_cz = 11000.f;
+static float s_yaw = 0.f, s_pitch = 0.55f;
+static float s_speed = 500.f;
 static bool  s_rmb     = false;
 static bool  s_focused = false;  // viewport has keyboard focus (set on click, cleared on outside click)
 
@@ -454,8 +454,8 @@ static bool Init(const char* overlay_path, int zone_ox = 28, int zone_oz = 28) {
     s_zone_ox_saved = zone_ox;
     s_zone_oz_saved = zone_oz;
     s_cx = 32.f * CHUNK_SIZE;  // center of world
-    s_cy = 400.f;              // ~game altitude: terrain detail visible
-    s_pitch = 0.38f;           // ~22° down — similar to game camera angle
+    s_cy = 1500.f;             // altitude: horizon + terrain detail visible
+    s_pitch = 0.55f;           // ~32° down — matches game camera angle
     s_cz = 32.f * CHUNK_SIZE;
 
     s_load_zone_amplitudes("game/data/terrain_config.txt");
@@ -537,6 +537,8 @@ static void tick_chunk_build() {
     if (s_chunks_built >= EDITOR_TNKN * EDITOR_TNKN) {
         s_loaded = true;
         fprintf(stdout, "[W3D-SDLGPU] %dx%d chunks ready\n", EDITOR_TNKN, EDITOR_TNKN);
+        // Auto-center grid on camera so first view shows high-res terrain
+        travel_to_camera();
     }
 }
 
