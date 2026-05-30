@@ -2,6 +2,8 @@
 #include <monkey_dust/platform/input.h>
 #include <monkey_dust/render/gpu_device.h>
 #include <monkey_dust/render/gpu_hal.h>
+#include <monkey_dust/render/light_system.h>
+#include <monkey_dust/world/terrain_gen.h>
 #include <SDL3/SDL.h>
 #include "backends/imgui_impl_sdl3.h"
 #include "backends/imgui_impl_sdlgpu3.h"
@@ -94,6 +96,10 @@ int main(void) {
     FactionEditor::Load("data/factions/factions.json");
     NpcArchetypeEditor::Load("game/data/defs/npc_archetypes.json");
     WorldPanel::Init();
+    // Terrain atlas (editable heightmap) + light system for editor 3D view
+    LightSystem::Get().Init();
+    TerrainAtlas_Load("game/data/terrain/world_hmap.r32");
+    TerrainAtlas_SmoothBoundaries();
     WorldEditor3D_SDLGPU::Init(
         "game/data/textures/md_terrain.png",
         29, 25);  // 7×7 view centred near The Hub area
