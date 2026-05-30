@@ -260,7 +260,7 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
     ci.clear_color={0.48f,0.52f,0.6f,1.f};
     SDL_GPUDepthStencilTargetInfo di{};
     di.texture=s_depth_rtt; di.load_op=SDL_GPU_LOADOP_CLEAR; di.store_op=SDL_GPU_STOREOP_DONT_CARE;
-    di.clear_depth=1.f; di.cycle=true;
+    di.stencil_load_op=SDL_GPU_LOADOP_DONT_CARE; di.clear_depth=1.f;
     SDL_GPURenderPass* rp=SDL_BeginGPURenderPass(cmd,&ci,1,&di);
     if(!rp) return;
 
