@@ -242,13 +242,16 @@ static SDL_GPUTexture* s_depth = nullptr;
 static int             s_rtt_w = 0, s_rtt_h = 0;
 static int             s_last_w = 1280, s_last_h = 720;  // use prev frame size
 
-// ── Orbit camera — exact copy from /game/monkey_dust main.cpp ─────────────────
-// cam_x/z = ground target; camera orbits around it at az/el/dist.
-static float s_cam_x    = 16000.f; // target world X
-static float s_cam_z    = 14000.f; // target world Z
-static float s_cam_az   = 0.f;     // azimuth radians (0 = south)
-static float s_cam_el   = 0.70f;   // elevation radians (~40°, same default as game)
-static float s_cam_dist = 22.f;    // distance metres (game default 22)
+// Camera (free-fly world-space)
+static float s_cam_x    = 16000.f;
+static float s_cam_z    = 14000.f;
+static float s_cam_az   = 0.f;
+static float s_cam_el   = 0.70f;
+static float s_cam_dist = 22.f;
+// Free-fly state
+static float s_cx = 16000.f, s_cy = 1500.f, s_cz = 14000.f;
+static float s_yaw = 0.f, s_pitch = 0.38f;
+static float s_speed = 500.f;
 static bool  s_rmb      = false;
 static bool  s_focused  = false;
 
@@ -473,12 +476,10 @@ static void ensure_rtt(int w, int h) {
 static bool Init(const char* overlay_path, int zone_ox = 28, int zone_oz = 28) {
     s_zone_ox_saved = zone_ox;
     s_zone_oz_saved = zone_oz;
-    // Start camera at Hub-area (same as zone_ox/oz default in main.cpp)
-    s_cam_x = (zone_ox + EDITOR_TNKN / 2) * CHUNK_SIZE;
-    s_cam_z = (zone_oz + EDITOR_TNKN / 2) * CHUNK_SIZE;
-    s_cam_az   = 0.f;
-    s_cam_el   = 0.70f;   // ~40° — game default
-    s_cam_dist = 22.f;    // game default
+    s_cx = (zone_ox + EDITOR_TNKN / 2.f) * CHUNK_SIZE;
+    s_cy = 1500.f;
+    s_cz = (zone_oz + EDITOR_TNKN / 2.f) * CHUNK_SIZE;
+    s_yaw = 0.f; s_pitch = 0.38f;
 
     s_load_zone_amplitudes("game/data/terrain_config.txt");
 
@@ -538,10 +539,10 @@ static void rebuild_inplace() {
     s_begin_rebuild();
 }
 
-// T: travel here — recenter grid on camera target, then rebuild
+// T: travel here — recenter grid on camera, then rebuild
 static void travel_to_camera() {
-    int zx = (int)(s_cam_x / CHUNK_SIZE);
-    int zy = (int)(s_cam_z / CHUNK_SIZE);
+    int zx = (int)(s_cx / CHUNK_SIZE);
+    int zy = (int)(s_cz / CHUNK_SIZE);
     zx = zx < EDITOR_TNKN/2 ? EDITOR_TNKN/2 : (zx > 63-EDITOR_TNKN/2 ? 63-EDITOR_TNKN/2 : zx);
     zy = zy < EDITOR_TNKN/2 ? EDITOR_TNKN/2 : (zy > 63-EDITOR_TNKN/2 ? 63-EDITOR_TNKN/2 : zy);
     s_zone_ox_saved = zx - EDITOR_TNKN / 2;
@@ -549,13 +550,12 @@ static void travel_to_camera() {
     s_begin_rebuild();
 }
 
-// ── Tick: build one chunk per call; auto-reload when camera target leaves grid ──
+// ── Tick: build one chunk per call; auto-reload when camera leaves grid ────────
 static void tick_chunk_build() {
     if (s_ov_data_ready.load() && !s_ov_gpu_ready) s_init_overview_gpu();
-    // Auto-travel: if target zone drifts more than 1 chunk outside the loaded grid, rebuild
     if (s_master_ready && s_loaded) {
-        int cam_zx = (int)(s_cam_x / CHUNK_SIZE);
-        int cam_zz = (int)(s_cam_z / CHUNK_SIZE);
+        int cam_zx = (int)(s_cx / CHUNK_SIZE);
+        int cam_zz = (int)(s_cz / CHUNK_SIZE);
         bool outside = cam_zx < s_zone_ox_saved + 1 || cam_zx > s_zone_ox_saved + EDITOR_TNKN - 2
                     || cam_zz < s_zone_oz_saved + 1 || cam_zz > s_zone_oz_saved + EDITOR_TNKN - 2;
         if (outside) travel_to_camera();
@@ -586,49 +586,39 @@ static void tick_chunk_build() {
     }
 }
 
-// ── Camera input — exact copy of game orbit camera from /game/monkey_dust ──────
+// ── Camera input (original free-fly) ─────────────────────────────────────────
 static void handle_input(float dt) {
     ImGuiIO& io = ImGui::GetIO();
-
-    // RMB: orbit rotate (same sensitivity as game: 0.005f)
     if (io.MouseDown[1]) {
         s_rmb = true;
         ImGui::SetMouseCursor(ImGuiMouseCursor_None);
-        s_cam_az += io.MouseDelta.x * 0.005f;
-        s_cam_el  = fmaxf(fminf(s_cam_el - io.MouseDelta.y * 0.005f, 1.45f), 0.10f);
+        s_yaw   -= io.MouseDelta.x * 0.003f;
+        s_pitch += io.MouseDelta.y * 0.002f;
+        if (s_pitch < -0.3f) s_pitch = -0.3f;
+        if (s_pitch >  1.3f) s_pitch =  1.3f;
     } else {
         s_rmb = false;
     }
-
-    // Arrow keys: rotate (same ROT_SPD=1.2 as game)
-    static constexpr float ROT_SPD = 1.2f;
-    if (ImGui::IsKeyDown(ImGuiKey_LeftArrow))  s_cam_az -= ROT_SPD * dt;
-    if (ImGui::IsKeyDown(ImGuiKey_RightArrow)) s_cam_az += ROT_SPD * dt;
-    if (ImGui::IsKeyDown(ImGuiKey_UpArrow))    s_cam_el = fminf(s_cam_el + ROT_SPD * dt, 1.45f);
-    if (ImGui::IsKeyDown(ImGuiKey_DownArrow))  s_cam_el = fmaxf(s_cam_el - ROT_SPD * dt, 0.10f);
-
-    // WASD: camera-relative ground movement (same formula as game player_input.h)
-    //   fwd = (-sin(az), 0, cos(az))   rgt = (-cos(az), 0, -sin(az))
-    // Speed scales with dist so feel is consistent across zoom levels (editor extension)
-    float move_spd = s_cam_dist * 0.8f * dt;   // 0.8× dist/s — fast enough for map navigation
-    if (ImGui::IsKeyDown(ImGuiKey_LeftShift)) move_spd *= 4.f;  // Shift = sprint (4× like game)
-    float fwd_x = -sinf(s_cam_az), fwd_z =  cosf(s_cam_az);
-    float rgt_x = -cosf(s_cam_az), rgt_z = -sinf(s_cam_az);
-    if (ImGui::IsKeyDown(ImGuiKey_W)) { s_cam_x += fwd_x*move_spd; s_cam_z += fwd_z*move_spd; }
-    if (ImGui::IsKeyDown(ImGuiKey_S)) { s_cam_x -= fwd_x*move_spd; s_cam_z -= fwd_z*move_spd; }
-    if (ImGui::IsKeyDown(ImGuiKey_A)) { s_cam_x -= rgt_x*move_spd; s_cam_z -= rgt_z*move_spd; }
-    if (ImGui::IsKeyDown(ImGuiKey_D)) { s_cam_x += rgt_x*move_spd; s_cam_z += rgt_z*move_spd; }
-
-    // Scroll: zoom (same ZOOM_SPD=4 as game, range 3..500 — extended for editor)
-    if (io.MouseWheel != 0.f)
-        s_cam_dist = fmaxf(fminf(s_cam_dist - io.MouseWheel * 4.f, 500.f), 3.f);
-
+    float sp = s_cy * dt;
+    float sy = sinf(s_yaw), cy2 = cosf(s_yaw);
+    if (ImGui::IsKeyDown(ImGuiKey_W)||ImGui::IsKeyDown(ImGuiKey_UpArrow))   { s_cx+=sp*sy; s_cz+=sp*cy2; }
+    if (ImGui::IsKeyDown(ImGuiKey_S)||ImGui::IsKeyDown(ImGuiKey_DownArrow)) { s_cx-=sp*sy; s_cz-=sp*cy2; }
+    if (ImGui::IsKeyDown(ImGuiKey_A))  { s_cx+=sp*cy2; s_cz-=sp*sy; }
+    if (ImGui::IsKeyDown(ImGuiKey_D))  { s_cx-=sp*cy2; s_cz+=sp*sy; }
+    if (ImGui::IsKeyDown(ImGuiKey_Q)||ImGui::IsKeyDown(ImGuiKey_PageDown)) s_cy-=sp;
+    if (ImGui::IsKeyDown(ImGuiKey_E)||ImGui::IsKeyDown(ImGuiKey_PageUp))   s_cy+=sp;
     if (ImGui::IsKeyPressed(ImGuiKey_R)) rebuild_inplace();
     if (ImGui::IsKeyPressed(ImGuiKey_T)) travel_to_camera();
-
+    if (io.MouseWheel != 0.f) {
+        float step = s_cy * 0.05f * io.MouseWheel;
+        s_cx += step*sy; s_cz += step*cy2;
+        if (io.MouseWheel > 0) s_cy = fmaxf(s_cy * 0.92f, 10.f);
+        else                   s_cy = fminf(s_cy * 1.08f, 150000.f);
+    }
     static constexpr float ATLAS_MAX = 63.f * CHUNK_SIZE;
-    if (s_cam_x < 0.f) s_cam_x = 0.f; if (s_cam_x > ATLAS_MAX) s_cam_x = ATLAS_MAX;
-    if (s_cam_z < 0.f) s_cam_z = 0.f; if (s_cam_z > ATLAS_MAX) s_cam_z = ATLAS_MAX;
+    if (s_cx < 0.f) s_cx = 0.f; if (s_cx > ATLAS_MAX) s_cx = ATLAS_MAX;
+    if (s_cz < 0.f) s_cz = 0.f; if (s_cz > ATLAS_MAX) s_cz = ATLAS_MAX;
+    if (s_cy < 5.f) s_cy = 5.f; if (s_cy > 150000.f) s_cy = 150000.f;
 }
 
 // ── Render terrain to RTT (call AFTER ImGui build, BEFORE ImGui present) ────────
@@ -648,35 +638,13 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt) {
     if (w < 8 || h < 8) return;
 
     float asp = (float)w / (float)h;
-
-    // ── Orbit camera — exact formula from /game/monkey_dust main.cpp ─────────
-    // target sits at ground level + 1m (same as game's camera.target.y)
-    float target_y = 0.f; // ground height (simplified — no TerrainQuery in editor yet)
-    float target_x = s_cam_x, target_z = s_cam_z;
-
-    // Camera position from azimuth, elevation, distance (game main.cpp lines 1173-1175)
-    float eye_x = target_x + s_cam_dist * cosf(s_cam_el) * sinf(s_cam_az);
-    float eye_y = target_y + s_cam_dist * sinf(s_cam_el);
-    float eye_z = target_z - s_cam_dist * cosf(s_cam_el) * cosf(s_cam_az);
-    float at[3] = { target_x, target_y + 1.f, target_z };
-    float eye[3] = { eye_x, eye_y, eye_z };
-
-    // fovy=45° same as game (MdCamera default)
-    M4 proj = m4_persp(45.f * 0.01745329f, asp, 0.5f, 80000.f);
-    M4 view; {
-        float f[3]={at[0]-eye[0],at[1]-eye[1],at[2]-eye[2]};
-        float fl=sqrtf(f[0]*f[0]+f[1]*f[1]+f[2]*f[2]); if(fl>0){f[0]/=fl;f[1]/=fl;f[2]/=fl;}
-        float r[3]={f[1]*0-f[2]*1,f[2]*0-f[0]*0,f[0]*1-f[1]*0};
-        float rl=sqrtf(r[0]*r[0]+r[1]*r[1]+r[2]*r[2]); if(rl>0){r[0]/=rl;r[1]/=rl;r[2]/=rl;}
-        float u[3]={r[1]*f[2]-r[2]*f[1],r[2]*f[0]-r[0]*f[2],r[0]*f[1]-r[1]*f[0]};
-        view.m[0]=r[0];view.m[4]=r[1];view.m[8] =r[2];view.m[12]=-(r[0]*eye[0]+r[1]*eye[1]+r[2]*eye[2]);
-        view.m[1]=u[0];view.m[5]=u[1];view.m[9]=u[2];view.m[13]=-(u[0]*eye[0]+u[1]*eye[1]+u[2]*eye[2]);
-        view.m[2]=-f[0];view.m[6]=-f[1];view.m[10]=-f[2];view.m[14]=f[0]*eye[0]+f[1]*eye[1]+f[2]*eye[2];
-        view.m[3]=0;view.m[7]=0;view.m[11]=0;view.m[15]=1;
-    }
+    M4 proj = m4_persp(0.80f, asp, 5.f, 350000.f);
+    M4 view = m4_view(s_cx, s_cy, s_cz, s_yaw, s_pitch);
     M4 vp   = m4_mul(proj, view);
     memcpy(s_last_vp, vp.m, 64);
-    s_last_eye[0]=eye_x; s_last_eye[1]=eye_y; s_last_eye[2]=eye_z;
+    // eye position for POM + brush ray
+    float eye_x = s_cx, eye_y = s_cy, eye_z = s_cz;
+    s_last_eye[0]=s_cx; s_last_eye[1]=s_cy; s_last_eye[2]=s_cz;
 
     // Rebuild dirty chunks (marked by s_apply_brush)
     if (s_loaded) {
@@ -902,10 +870,10 @@ static void DrawImGui(float W, float H, float dt) {
     // HUD — top-left
     ImGui::SetCursorScreenPos({origin.x+8, origin.y+8});
     ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255,255,200,220));
-    int cur_zx = (int)(s_cam_x / CHUNK_SIZE);
-    int cur_zy = (int)(s_cam_z / CHUNK_SIZE);
-    ImGui::Text("Zone: %d,%d  Dist: %.0fm  Az: %.0f°", cur_zx, cur_zy, s_cam_dist, s_cam_az*57.3f);
-    ImGui::Text("RMB=orbit  WASD=move  Scroll=zoom  Arrows=rotate  F5=save");
+    int cur_zx = (int)(s_cx / CHUNK_SIZE);
+    int cur_zy = (int)(s_cz / CHUNK_SIZE);
+    ImGui::Text("Zone: %d,%d  Alt: %.0fm  Speed: %.0fm/s", cur_zx, cur_zy, s_cy, s_speed);
+    ImGui::Text("RMB=look  WASD=move  Q/E=alt  Scroll=zoom  F5=save");
     ImGui::PopStyleColor();
 
 }
