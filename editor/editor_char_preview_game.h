@@ -219,8 +219,9 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
     // Upload via standalone Upload() (not UploadInCmd) to avoid copy/render pass ordering issues.
     if(s_idle_clip>=0){
         static float bones[MAX_SKIN_BONES*16];
+        // GetFinalBonesFull already applies inv_bind internally — result is GPU-ready.
+        // Do NOT call ApplyInvBind after — that would double-apply and cause explosion.
         s_mesh.GetFinalBonesFull(s_idle_clip,0.f,bones,nullptr);
-        s_mesh.ApplyInvBind(bones);
         s_bones_ssbo.Upload(bones, MAX_SKIN_BONES*16*(int)sizeof(float));
     }
     (void)cmd;
