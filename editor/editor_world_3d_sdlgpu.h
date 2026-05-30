@@ -514,7 +514,15 @@ static void travel_to_camera() {
 // ── Tick: build one chunk per call; auto-reload when camera leaves grid ────────
 static void tick_chunk_build() {
     if (s_ov_data_ready.load() && !s_ov_gpu_ready) s_init_overview_gpu();
-    if (s_master_ready && s_loaded) return;
+    // Auto-travel: if camera zone drifts more than 1 chunk outside the loaded grid, rebuild
+    if (s_master_ready && s_loaded) {
+        int cam_zx = (int)(s_cx / CHUNK_SIZE);
+        int cam_zz = (int)(s_cz / CHUNK_SIZE);
+        bool outside = cam_zx < s_zone_ox_saved + 1 || cam_zx > s_zone_ox_saved + EDITOR_TNKN - 2
+                    || cam_zz < s_zone_oz_saved + 1 || cam_zz > s_zone_oz_saved + EDITOR_TNKN - 2;
+        if (outside) travel_to_camera();
+        return;
+    }
     if (!s_master_ready || s_loaded) return;
     int idx = s_chunks_built.load();
     if (idx >= EDITOR_TNKN * EDITOR_TNKN) { s_loaded = true; return; }
@@ -537,8 +545,6 @@ static void tick_chunk_build() {
     if (s_chunks_built >= EDITOR_TNKN * EDITOR_TNKN) {
         s_loaded = true;
         fprintf(stdout, "[W3D-SDLGPU] %dx%d chunks ready\n", EDITOR_TNKN, EDITOR_TNKN);
-        // Auto-center grid on camera so first view shows high-res terrain
-        travel_to_camera();
     }
 }
 
