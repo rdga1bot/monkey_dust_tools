@@ -133,6 +133,7 @@ void EditorCore::Update(float dt) {
         ImGuiWindowFlags_NoScrollWithMouse |
         ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoSavedSettings;
     if (det6[s_f3_active_tab]) f3_flags |= ImGuiWindowFlags_NoBackground;
+    if (f3_passthrough)        f3_flags |= ImGuiWindowFlags_NoMouseInputs;
 
     ImGui::SetNextWindowPos({0.f, toolbar_h});
     ImGui::SetNextWindowSize({io.DisplaySize.x, io.DisplaySize.y - toolbar_h});

@@ -187,6 +187,11 @@ int main(void) {
         ImGuiIO& fio = ImGui::GetIO();
 
         // Toolbar draws the menu bar (~20px) + button bar (30px fixed)
+        // f3_passthrough: pass-through mouse input when a fullscreen viewport tab is active.
+        // Uses prev-frame flag (1-frame lag is imperceptible).
+        static bool s_world3d_was_active = false;
+        EditorCore::Get().f3_passthrough = s_world3d_was_active;
+        s_world3d_was_active = false;  // will be set true below if 3D World tab is active
         EditorCore::Get().Update(dt);
         float toolbar_h = ImGui::GetFrameHeight() + 30.f;
 
@@ -253,6 +258,7 @@ int main(void) {
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("3D World")) {
+                s_world3d_was_active = true;  // tell EditorCore next frame to pass through mouse
                 ImVec2 avail = ImGui::GetContentRegionAvail();
                 WorldEditor3D_SDLGPU::DrawImGui(avail.x, avail.y-2, dt);
                 ImGui::EndTabItem();

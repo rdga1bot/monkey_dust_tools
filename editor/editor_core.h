@@ -27,6 +27,9 @@ public:
     // ── State ─────────────────────────────────────────────
     bool editor_open    = false;
     bool physics_paused = true;
+    // Set to true by main.cpp when a full-screen viewport tab (e.g. 3D World) is
+    // active so ##f3editor gets NoMouseInputs and stops blocking the viewport.
+    bool f3_passthrough = false;
 
     // F3 panel detach states + positions (persisted to data/editor_f3_layout.json)
     bool f3_det_scene = false, f3_det_ai    = false, f3_det_anim  = false;
