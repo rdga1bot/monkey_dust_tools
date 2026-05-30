@@ -15,7 +15,7 @@ All tool names use the `md_` prefix (no proprietary asset branding in public rep
 
 ImGui-based editor compiled into the engine binary via `MONKEY_DUST_EDITOR=ON`.
 Runs as a standalone SDL\_GPU/Vulkan window (RD-3: migrated from OpenGL).
-Includes a **3D terrain viewport** (`editor_world_3d_sdlgpu.h`): 7×7 chunk terrain, async atlas load, RTT → ImGui::Image.
+Includes a **3D terrain viewport** (`editor_world_3d_sdlgpu.h`): full 64×64 world (32×32 km), all chunks always loaded, per-chunk distance-based LOD (LOD0+POM <1.2 km, LOD1 <3.5 km, LOD2 <8 km, LOD3 <18 km, skip beyond), LOD thresholds scale with camera altitude. No overview mesh. Camera starts at 8000 m altitude to see the full world; T resets to world center at 8000 m. Brush cursor is a screen-space crosshair (+). All rendering suspends when the tab is inactive (zero background CPU/GPU). RTT → ImGui::Image.
 `TerrainAtlas_SmoothBoundaries()` applied at startup (same zone-seam fix as the game).
 
 **14 panels:**
@@ -154,7 +154,7 @@ tools/
     editor_console.*   ← Log panel + Lua REPL
     editor_map_view.*  ← M9 map editor (FBO viewport + tile palette)
     editor_world_panel.h ← World tab: Zone/Faction/Town + map preview (KEN-5)
-    editor_world_3d_sdlgpu.h ← 3D terrain viewport (SDL_GPU, 7×7 chunks, async atlas load, RTT→ImGui)
+    editor_world_3d_sdlgpu.h ← 3D terrain viewport (SDL_GPU, full 64×64 world, per-chunk LOD 0–3, tab-gated RTT→ImGui)
     editor_*_panel.*   ← Specialist panels (ViewCone, FlowGraph, Director, GPU Profiler …)
     scene_serializer.h ← Import/Export scene JSON
     editor_game_context.h ← Callback bridge to game-side systems
