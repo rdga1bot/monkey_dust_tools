@@ -77,18 +77,23 @@ static constexpr int OV_IDX     = OV_GRID*OV_GRID*6;          // 384 per chunk
 static constexpr int OV_ZONES   = 64;
 static constexpr int OV_TOTAL_V = OV_ZONES*OV_ZONES*OV_VERTS; // 331,776
 
-struct OvVtx { float x,y,z, nx,ny,nz, height_t; };  // 28 bytes
+struct OvVtx { float x,y,z, nx,ny,nz, height_t, u,v; };  // 36 bytes
 
 static GpuStaticBuffer     s_ov_vbo;
 static GpuStaticBuffer     s_ov_ibo;
 static GpuPipeline         s_ov_pipeline;
+static GpuTexture          s_ov_worldmap;
 static std::atomic<bool>   s_ov_data_ready{false};
 static bool                s_ov_gpu_ready  = false;
 static bool                s_ov_rebuild_needed = false;
 
-// Staging in BSS (~9.3 MB + 768 B; OS lazy-maps pages)
+// Staging in BSS (~12 MB + 768 B; OS lazy-maps pages)
 static OvVtx    s_ov_stage[OV_TOTAL_V];
 static uint16_t s_ov_ibo_data[OV_IDX];
+
+// 512×512 RGBA8 world color map baked from height data
+static constexpr int OV_MAP_W = 512, OV_MAP_H = 512;
+static uint8_t s_ov_mapbuf[OV_MAP_W * OV_MAP_H * 4];
 
 // Build deterministic rock positions across the 7×7 near-zone viewport.
 // Uses LCG seeded per-chunk so positions are stable across camera moves.
@@ -159,12 +164,35 @@ static void s_build_overview_cpu() {
             }
     }
 
-    const float step    = CHUNK_SIZE / (float)OV_GRID;  // 62.5 m/quad
-    const float H_RANGE = TerrainMaster_HMax() > 1.f ? TerrainMaster_HMax() : 100.f;
+    const float step     = CHUNK_SIZE / (float)OV_GRID;  // 62.5 m/quad
+    const float H_RANGE  = TerrainMaster_HMax() > 1.f ? TerrainMaster_HMax() : 100.f;
+    const float WORLD_SZ = (float)(OV_ZONES) * CHUNK_SIZE;  // 32000 m
 
     auto get_h = [](float wx, float wz) -> float {
         return TerrainMaster_SampleWorld(wx, wz);
     };
+
+    // Height-based gradient (matches frag shader default colors)
+    auto height_col = [](float t, uint8_t out[3]) {
+        float r,g,b;
+        if      (t < 0.06f) { float s=t/0.06f;       r=0.73f+(0.68f-0.73f)*s; g=0.58f+(0.62f-0.58f)*s; b=0.37f+(0.38f-0.37f)*s; }
+        else if (t < 0.28f) { float s=(t-0.06f)/0.22f; r=0.68f+(0.46f-0.68f)*s; g=0.62f+(0.58f-0.62f)*s; b=0.38f+(0.30f-0.38f)*s; }
+        else if (t < 0.55f) { float s=(t-0.28f)/0.27f; r=0.46f+(0.50f-0.46f)*s; g=0.58f+(0.46f-0.58f)*s; b=0.30f+(0.40f-0.30f)*s; }
+        else                { float s=(t-0.55f)/0.45f; r=0.50f+(0.88f-0.50f)*s; g=0.46f+(0.88f-0.46f)*s; b=0.40f+(0.90f-0.40f)*s; }
+        out[0]=(uint8_t)(r*255.f); out[1]=(uint8_t)(g*255.f); out[2]=(uint8_t)(b*255.f);
+    };
+
+    // Bake 512×512 world color map
+    for (int py = 0; py < OV_MAP_H; ++py) {
+        for (int px = 0; px < OV_MAP_W; ++px) {
+            float wx = ((float)px + 0.5f) / OV_MAP_W * WORLD_SZ;
+            float wz = ((float)py + 0.5f) / OV_MAP_H * WORLD_SZ;
+            float ht = get_h(wx, wz) / H_RANGE;
+            uint8_t* p = &s_ov_mapbuf[(py*OV_MAP_W + px)*4];
+            height_col(ht, p);
+            p[3] = 255;
+        }
+    }
 
     for (int zz = 0; zz < OV_ZONES; ++zz) {
         for (int zx = 0; zx < OV_ZONES; ++zx) {
@@ -183,11 +211,14 @@ static void s_build_overview_cpu() {
                     v.x=wx; v.y=wy; v.z=wz;
                     v.nx=-dhdx/len; v.ny=1.f/len; v.nz=-dhdz/len;
                     v.height_t = wy/H_RANGE;
+                    v.u = wx / WORLD_SZ;
+                    v.v = wz / WORLD_SZ;
                 }
             }
         }
     }
-    fprintf(stdout, "[W3D] overview CPU mesh built (%d verts)\n", OV_TOTAL_V);
+    fprintf(stdout, "[W3D] overview CPU mesh + world map built (%d verts, %dx%d tex)\n",
+            OV_TOTAL_V, OV_MAP_W, OV_MAP_H);
 }
 
 // ── Overview: GPU upload + pipeline (main thread) ─────────────────────────────
@@ -196,22 +227,25 @@ static void s_init_overview_gpu() {
     s_ov_vbo.Init(0x8892u, s_ov_stage,    sizeof(s_ov_stage));
     s_ov_ibo.Init(0x8893u, s_ov_ibo_data, sizeof(s_ov_ibo_data));
 
+    s_ov_worldmap.InitFromMemory(s_ov_mapbuf, OV_MAP_W, OV_MAP_H);
+
     GpuPipeline::Desc pd;
     pd.vert_path = "shaders/terrain_overview.vert";
     pd.frag_path = "shaders/terrain_overview.frag";
-    pd.layout.count  = 3;
+    pd.layout.count  = 4;
     pd.layout.stride = sizeof(OvVtx);
     pd.layout.attribs[0] = { 0,  0, GpuAttribFmt::F3 };  // pos
     pd.layout.attribs[1] = { 1, 12, GpuAttribFmt::F3 };  // norm
     pd.layout.attribs[2] = { 2, 24, GpuAttribFmt::F1 };  // height_t
+    pd.layout.attribs[3] = { 3, 28, GpuAttribFmt::F2 };  // uv
     pd.vert_uniform_bufs = 1;
-    pd.frag_samplers     = 0;
+    pd.frag_samplers     = 1;
     pd.frag_uniform_bufs = 0;
     pd.color_format      = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
     pd.has_depth_target  = true;
     s_ov_pipeline.Create(pd);
     s_ov_gpu_ready = true;
-    fprintf(stdout, "[W3D] overview GPU pipeline ready\n");
+    fprintf(stdout, "[W3D] overview GPU pipeline + world map texture ready\n");
 }
 
 // ── Overview: draw world — skip_near=true leaves the EDITOR_TNKN×EDITOR_TNKN hole
@@ -225,6 +259,8 @@ static void s_draw_overview(SDL_GPURenderPass* rp, SDL_GPUCommandBuffer* cmd,
     SDL_BindGPUVertexBuffers(rp, 0, &vb, 1);
     SDL_GPUBufferBinding ib = { s_ov_ibo.SDLBuffer(), 0 };
     SDL_BindGPUIndexBuffer(rp, &ib, SDL_GPU_INDEXELEMENTSIZE_16BIT);
+    SDL_GPUTextureSamplerBinding tsb = { s_ov_worldmap.SDLTexture(), s_ov_worldmap.SDLSampler() };
+    SDL_BindGPUFragmentSamplers(rp, 0, &tsb, 1);
     for (int zz = 0; zz < OV_ZONES; ++zz)
         for (int zx = 0; zx < OV_ZONES; ++zx) {
             if (skip_near &&
