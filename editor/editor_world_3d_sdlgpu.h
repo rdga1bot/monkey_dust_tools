@@ -706,9 +706,8 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt) {
             SDL_DrawGPUPrimitives(rp, 3, 1, 0, 0);
         }
 
-        // Overview mesh: only at high altitude (>2000m) — hidden when near terrain visible
-        if (s_cy > 2000.f || !s_loaded)
-            s_draw_overview(rp, cmd, vp.m, false);
+        // Overview mesh: always draw as background horizon fill
+        s_draw_overview(rp, cmd, vp.m, false);
 
         // High-res near terrain (7×7 chunks) with sun from LightSystem
         if (s_loaded && s_terrain.IsReady()) {
