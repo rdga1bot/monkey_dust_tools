@@ -70,30 +70,6 @@ static bool               s_rebuild_pending = false;
 // Per-zone amplitude from terrain_config.txt (indexed [gz][gx], default 40)
 static float s_zone_amp[64][64];
 
-// ── World overview — full 64×64 map at 8×8 quads/chunk (built once) ───────────
-static constexpr int OV_GRID    = 8;
-static constexpr int OV_VERTS   = (OV_GRID+1)*(OV_GRID+1);   // 81 per chunk
-static constexpr int OV_IDX     = OV_GRID*OV_GRID*6;          // 384 per chunk
-static constexpr int OV_ZONES   = 64;
-static constexpr int OV_TOTAL_V = OV_ZONES*OV_ZONES*OV_VERTS; // 331,776
-
-struct OvVtx { float x,y,z, nx,ny,nz, height_t, u,v; };  // 36 bytes
-
-static GpuStaticBuffer     s_ov_vbo;
-static GpuStaticBuffer     s_ov_ibo;
-static GpuPipeline         s_ov_pipeline;
-static GpuTexture          s_ov_worldmap;
-static std::atomic<bool>   s_ov_data_ready{false};
-static bool                s_ov_gpu_ready  = false;
-static bool                s_ov_rebuild_needed = false;
-
-// Staging in BSS (~12 MB + 768 B; OS lazy-maps pages)
-static OvVtx    s_ov_stage[OV_TOTAL_V];
-static uint16_t s_ov_ibo_data[OV_IDX];
-
-// 512×512 RGBA8 world color map baked from height data
-static constexpr int OV_MAP_W = 512, OV_MAP_H = 512;
-static uint8_t s_ov_mapbuf[OV_MAP_W * OV_MAP_H * 4];
 
 // Build deterministic rock positions across the 7×7 near-zone viewport.
 // Uses LCG seeded per-chunk so positions are stable across camera moves.
@@ -147,130 +123,6 @@ static void s_load_zone_amplitudes(const char* cfg_path) {
     fprintf(stdout, "[W3D] zone amplitudes loaded from %s\n", cfg_path);
 }
 
-// ── Overview: CPU mesh build (background thread, after atlas loaded) ───────────
-static void s_build_overview_cpu() {
-    // Shared IBO: indices 0..80, reused per chunk via vertex_offset in draw call
-    {
-        int ii = 0;
-        for (int r = 0; r < OV_GRID; ++r)
-            for (int c = 0; c < OV_GRID; ++c) {
-                int v = r*(OV_GRID+1)+c;
-                s_ov_ibo_data[ii++]=(uint16_t)v;
-                s_ov_ibo_data[ii++]=(uint16_t)(v+OV_GRID+1);
-                s_ov_ibo_data[ii++]=(uint16_t)(v+1);
-                s_ov_ibo_data[ii++]=(uint16_t)(v+1);
-                s_ov_ibo_data[ii++]=(uint16_t)(v+OV_GRID+1);
-                s_ov_ibo_data[ii++]=(uint16_t)(v+OV_GRID+2);
-            }
-    }
-
-    const float step     = CHUNK_SIZE / (float)OV_GRID;  // 62.5 m/quad
-    const float H_RANGE  = TerrainMaster_HMax() > 1.f ? TerrainMaster_HMax() : 100.f;
-    const float WORLD_SZ = (float)(OV_ZONES) * CHUNK_SIZE;  // 32000 m
-
-    auto get_h = [](float wx, float wz) -> float {
-        return TerrainMaster_SampleWorld(wx, wz);
-    };
-
-    // Height-based gradient (matches frag shader default colors)
-    auto height_col = [](float t, uint8_t out[3]) {
-        float r,g,b;
-        if      (t < 0.06f) { float s=t/0.06f;       r=0.73f+(0.68f-0.73f)*s; g=0.58f+(0.62f-0.58f)*s; b=0.37f+(0.38f-0.37f)*s; }
-        else if (t < 0.28f) { float s=(t-0.06f)/0.22f; r=0.68f+(0.46f-0.68f)*s; g=0.62f+(0.58f-0.62f)*s; b=0.38f+(0.30f-0.38f)*s; }
-        else if (t < 0.55f) { float s=(t-0.28f)/0.27f; r=0.46f+(0.50f-0.46f)*s; g=0.58f+(0.46f-0.58f)*s; b=0.30f+(0.40f-0.30f)*s; }
-        else                { float s=(t-0.55f)/0.45f; r=0.50f+(0.88f-0.50f)*s; g=0.46f+(0.88f-0.46f)*s; b=0.40f+(0.90f-0.40f)*s; }
-        out[0]=(uint8_t)(r*255.f); out[1]=(uint8_t)(g*255.f); out[2]=(uint8_t)(b*255.f);
-    };
-
-    // Bake 512×512 world color map
-    for (int py = 0; py < OV_MAP_H; ++py) {
-        for (int px = 0; px < OV_MAP_W; ++px) {
-            float wx = ((float)px + 0.5f) / OV_MAP_W * WORLD_SZ;
-            float wz = ((float)py + 0.5f) / OV_MAP_H * WORLD_SZ;
-            float ht = get_h(wx, wz) / H_RANGE;
-            uint8_t* p = &s_ov_mapbuf[(py*OV_MAP_W + px)*4];
-            height_col(ht, p);
-            p[3] = 255;
-        }
-    }
-
-    for (int zz = 0; zz < OV_ZONES; ++zz) {
-        for (int zx = 0; zx < OV_ZONES; ++zx) {
-            int   base = (zz*OV_ZONES + zx)*OV_VERTS;
-            float ox   = (float)zx * CHUNK_SIZE;
-            float oz   = (float)zz * CHUNK_SIZE;
-            for (int r = 0; r <= OV_GRID; ++r) {
-                for (int c = 0; c <= OV_GRID; ++c) {
-                    float wx   = ox + c*step;
-                    float wz   = oz + r*step;
-                    float wy   = get_h(wx, wz);
-                    float dhdx = (get_h(wx+step, wz) - get_h(wx-step, wz)) / (2.f*step);
-                    float dhdz = (get_h(wx, wz+step) - get_h(wx, wz-step)) / (2.f*step);
-                    float len  = sqrtf(dhdx*dhdx + 1.f + dhdz*dhdz);
-                    OvVtx& v   = s_ov_stage[base + r*(OV_GRID+1)+c];
-                    v.x=wx; v.y=wy; v.z=wz;
-                    v.nx=-dhdx/len; v.ny=1.f/len; v.nz=-dhdz/len;
-                    v.height_t = wy/H_RANGE;
-                    v.u = wx / WORLD_SZ;
-                    v.v = wz / WORLD_SZ;
-                }
-            }
-        }
-    }
-    fprintf(stdout, "[W3D] overview CPU mesh + world map built (%d verts, %dx%d tex)\n",
-            OV_TOTAL_V, OV_MAP_W, OV_MAP_H);
-}
-
-// ── Overview: GPU upload + pipeline (main thread) ─────────────────────────────
-static void s_init_overview_gpu() {
-    // 0x8892 = GL_ARRAY_BUFFER, 0x8893 = GL_ELEMENT_ARRAY_BUFFER (avoid GL header)
-    s_ov_vbo.Init(0x8892u, s_ov_stage,    sizeof(s_ov_stage));
-    s_ov_ibo.Init(0x8893u, s_ov_ibo_data, sizeof(s_ov_ibo_data));
-
-    s_ov_worldmap.InitFromMemory(s_ov_mapbuf, OV_MAP_W, OV_MAP_H);
-
-    GpuPipeline::Desc pd;
-    pd.vert_path = "shaders/terrain_overview.vert";
-    pd.frag_path = "shaders/terrain_overview.frag";
-    pd.layout.count  = 4;
-    pd.layout.stride = sizeof(OvVtx);
-    pd.layout.attribs[0] = { 0,  0, GpuAttribFmt::F3 };  // pos
-    pd.layout.attribs[1] = { 1, 12, GpuAttribFmt::F3 };  // norm
-    pd.layout.attribs[2] = { 2, 24, GpuAttribFmt::F1 };  // height_t
-    pd.layout.attribs[3] = { 3, 28, GpuAttribFmt::F2 };  // uv
-    pd.vert_uniform_bufs = 1;
-    pd.frag_samplers     = 1;
-    pd.frag_uniform_bufs = 0;
-    pd.color_format      = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
-    pd.has_depth_target  = true;
-    s_ov_pipeline.Create(pd);
-    s_ov_gpu_ready = true;
-    fprintf(stdout, "[W3D] overview GPU pipeline + world map texture ready\n");
-}
-
-// ── Overview: draw world — skip_near=true leaves the EDITOR_TNKN×EDITOR_TNKN hole
-//              for high-res near terrain to fill (low-altitude mode).
-static void s_draw_overview(SDL_GPURenderPass* rp, SDL_GPUCommandBuffer* cmd,
-                             const float* vp_mat, bool skip_near) {
-    if (!s_ov_gpu_ready || !s_ov_pipeline.SDLPipeline()) return;
-    SDL_BindGPUGraphicsPipeline(rp, s_ov_pipeline.SDLPipeline());
-    SDL_PushGPUVertexUniformData(cmd, 0, vp_mat, 64);
-    SDL_GPUBufferBinding vb = { s_ov_vbo.SDLBuffer(), 0 };
-    SDL_BindGPUVertexBuffers(rp, 0, &vb, 1);
-    SDL_GPUBufferBinding ib = { s_ov_ibo.SDLBuffer(), 0 };
-    SDL_BindGPUIndexBuffer(rp, &ib, SDL_GPU_INDEXELEMENTSIZE_16BIT);
-    SDL_GPUTextureSamplerBinding tsb = { s_ov_worldmap.SDLTexture(), s_ov_worldmap.SDLSampler() };
-    SDL_BindGPUFragmentSamplers(rp, 0, &tsb, 1);
-    for (int zz = 0; zz < OV_ZONES; ++zz)
-        for (int zx = 0; zx < OV_ZONES; ++zx) {
-            if (skip_near &&
-                zx >= s_zone_ox_saved && zx < s_zone_ox_saved + EDITOR_TNKN &&
-                zz >= s_zone_oz_saved && zz < s_zone_oz_saved + EDITOR_TNKN)
-                continue;
-            SDL_DrawGPUIndexedPrimitives(rp, OV_IDX, 1, 0,
-                                         (zz*OV_ZONES + zx)*OV_VERTS, 0);
-        }
-}
 
 // RTT
 static SDL_GPUTexture* s_color = nullptr;
@@ -423,7 +275,6 @@ static void s_apply_brush(float dt) {
         }
     }
     if (any_touched) {
-        s_ov_rebuild_needed = true;
         // Mark all near chunks dirty — master hmap change affects the whole area
         for (int dz = 0; dz < EDITOR_TNKN; ++dz)
             for (int dx = 0; dx < EDITOR_TNKN; ++dx) {
@@ -482,7 +333,6 @@ static void UploadTerrainHeightmap(const float* hmap, int W, int H,
         for (int dx = 0; dx < EDITOR_TNKN; ++dx)
             if (s_zone_ox_saved + dx == chunk_x && s_zone_oz_saved + dz == chunk_z)
                 s_chunk_dirty[dz][dx] = true;
-    s_ov_rebuild_needed = true;
 }
 
 // ── RTT management ─────────────────────────────────────────────────────────────
@@ -538,7 +388,6 @@ static bool Init(const char* overlay_path, int zone_ox = 28, int zone_oz = 28) {
         s_sky_pipeline.Create(sd);
     }
 
-    // Background: init TerrainRenderer (GPU shader compilation) + build overview mesh
     const char* op = overlay_path;
     s_loader_thread = std::thread([op]() {
         if (!s_terrain.Init()) {
@@ -550,8 +399,6 @@ static bool Init(const char* overlay_path, int zone_ox = 28, int zone_oz = 28) {
         s_terrain.InitPOM("game/data/textures/terrain_pom_rock.png", pom);
         s_master_ready = true;
         s_build_prop_positions();
-        s_build_overview_cpu();
-        s_ov_data_ready = true;
     });
     s_loader_thread.detach();
     return true;
@@ -588,7 +435,6 @@ static void travel_to_camera() {
 
 // ── Tick: build one chunk per call; auto-reload when camera leaves grid ────────
 static void tick_chunk_build() {
-    if (s_ov_data_ready.load() && !s_ov_gpu_ready) s_init_overview_gpu();
     if (s_master_ready && s_loaded) {
         int cam_zx = (int)(s_cx / CHUNK_SIZE);
         int cam_zz = (int)(s_cz / CHUNK_SIZE);
@@ -661,15 +507,7 @@ static void handle_input(float dt) {
 // ensure_rtt() is called from DrawImGui (during ImGui build) so s_color is stable.
 static void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt) {
     tick_chunk_build(); tick_chunk_build();
-    bool ready = s_ov_gpu_ready;
-    if (!ready || !s_color) return;
-    // Rebuild overview VBO on main thread after brush stroke
-    if (s_ov_rebuild_needed) {
-        s_build_overview_cpu();
-        s_ov_vbo.Shutdown();
-        s_ov_vbo.Init(0x8892u, s_ov_stage, sizeof(s_ov_stage));
-        s_ov_rebuild_needed = false;
-    }
+    if (!s_master_ready.load() || !s_color) return;
     int w = s_rtt_w, h = s_rtt_h;  // use already-created RTT dimensions
     if (w < 8 || h < 8) return;
 
@@ -742,9 +580,6 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt) {
             SDL_DrawGPUPrimitives(rp, 3, 1, 0, 0);
         }
 
-        // Overview mesh: always draw as background horizon fill
-        s_draw_overview(rp, cmd, vp.m, false);
-
         // High-res near terrain (7×7 chunks) with sun from LightSystem
         if (s_loaded && s_terrain.IsReady()) {
             static constexpr float W2UV = 1.f / (64.f * CHUNK_SIZE);
@@ -775,19 +610,15 @@ static void DrawImGui(float W, float H, float dt) {
 
     // (chunk building handled in RenderFrame, called every frame)
 
-    if (!s_ov_gpu_ready) {
+    if (!s_master_ready.load()) {
         ImVec2 p = ImGui::GetCursorScreenPos();
         ImGui::Dummy({W, H});
         ImGui::GetWindowDrawList()->AddRectFilled(p, {p.x+W, p.y+H}, IM_COL32(15,15,20,255));
-        float pct  = !s_master_ready ? 0.f : s_ov_data_ready.load() ? 0.9f : 0.5f;
-        const char* msg = !s_master_ready ? "Initialising terrain renderer..." : "Building world overview...";
+        const char* msg = "Initialising terrain renderer...";
         ImVec2 tc = ImGui::CalcTextSize(msg);
         ImGui::GetWindowDrawList()->AddText(
             {p.x + W*0.5f - tc.x*0.5f, p.y + H*0.5f - 20},
             IM_COL32(200,200,200,255), msg);
-        float bw = W * 0.5f, bx = p.x + W*0.25f, by = p.y + H*0.5f;
-        ImGui::GetWindowDrawList()->AddRectFilled({bx,by}, {bx+bw,by+16}, IM_COL32(40,40,60,255), 4.f);
-        ImGui::GetWindowDrawList()->AddRectFilled({bx,by}, {bx+bw*pct,by+16}, IM_COL32(80,140,220,255), 4.f);
         return;
     }
 
@@ -809,7 +640,7 @@ static void DrawImGui(float W, float H, float dt) {
     if (hov || s_rmb || s_focused || ImGui::GetIO().MouseWheel != 0.f) handle_input(dt);
 
     // ── Mouse → terrain ray cast (brush targeting) ───────────────────────────
-    bool edit_mode = s_ov_gpu_ready;
+    bool edit_mode = s_loaded;
     if (hov && edit_mode && !s_rmb) {
         ImVec2 mouse = ImGui::GetMousePos();
         float ndc_x = ((mouse.x - origin.x) / W) * 2.f - 1.f;
