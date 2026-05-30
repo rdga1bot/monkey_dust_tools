@@ -213,11 +213,14 @@ static void s_draw_content() {
 
     // ── Map image (zoom/pan) ──────────────────────────────────────────────────
     ImVec2 avail = ImGui::GetContentRegionAvail();
-    float dw = avail.x, dh = avail.y;
+    float scale = (s_tw > 0 && s_th > 0)
+                ? fminf(avail.x / (float)s_tw, avail.y / (float)s_th)
+                : 1.f;
+    float dw = s_tw * scale, dh = s_th * scale;
 
     ImVec2 origin = ImGui::GetCursorScreenPos();
-    float ox = origin.x;
-    float oy = origin.y;
+    float ox = origin.x + (avail.x - dw) * 0.5f;
+    float oy = origin.y + (avail.y - dh) * 0.5f;
 
     // UV range for the zoomed view
     float uv0x = s_vcx - 0.5f / s_zoom,  uv1x = s_vcx + 0.5f / s_zoom;
