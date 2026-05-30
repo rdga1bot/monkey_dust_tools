@@ -54,7 +54,7 @@ static bool  s_morphs_dirty = true;
 static float s_body_cache[CHARCC_BODY_N];
 static float s_face_cache[CHARCC_FACE_N];
 // Camera
-static float s_yaw = 0.f, s_pit = -0.06f, s_dist = 2.6f, s_lookat_y = 0.9f;
+static float s_yaw = 0.f, s_pit = -0.06f, s_dist = 3.5f, s_lookat_y = 0.9f;
 static float s_height = 1.f;
 // Appearance (passed to FU each frame — no CPU pre-baking needed)
 static float s_skin_rgb[3] = {0.82f, 0.65f, 0.52f};
