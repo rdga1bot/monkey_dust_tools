@@ -215,13 +215,15 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
     if(s_morphs_dirty) upload_morphed();
     if(s_colors_dirty) bake_body_colors();
 
-    // Bones: GetFinalBonesFull + ApplyInvBind — exact game path
+    // Bones: GetFinalBonesFull + ApplyInvBind — exact game path.
+    // Upload via standalone Upload() (not UploadInCmd) to avoid copy/render pass ordering issues.
     if(s_idle_clip>=0){
         static float bones[MAX_SKIN_BONES*16];
         s_mesh.GetFinalBonesFull(s_idle_clip,0.f,bones,nullptr);
         s_mesh.ApplyInvBind(bones);
-        s_bones_ssbo.UploadInCmd(cmd,bones,MAX_SKIN_BONES*16*(int)sizeof(float));
+        s_bones_ssbo.Upload(bones, MAX_SKIN_BONES*16*(int)sizeof(float));
     }
+    (void)cmd;
 
     // Camera
     float camX=s_dist*sinf(s_yaw)*cosf(s_pit);
