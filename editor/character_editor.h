@@ -700,9 +700,11 @@ static void Draw() {
         static int s_prev_sex = -1;
         if (s_prev_sex != (int)s_def.sex) {
             s_prev_sex = (int)s_def.sex;
+            // Use base mesh (same as game) — _t variant has shifted node indices
+            // that break SkinMesh animation. Morphs added incrementally later.
             const char* glb = (s_def.sex == 0)
-                ? "game/data/props/md_human_t.glb"
-                : "game/data/props/md_human_female_t.glb";
+                ? "game/data/props/md_human.glb"
+                : "game/data/props/md_human.glb";
             const char* tex = (s_def.sex == 0)
                 ? "game/data/textures/md_human_body.png"
                 : "game/data/textures/md_human_female_body.png";
