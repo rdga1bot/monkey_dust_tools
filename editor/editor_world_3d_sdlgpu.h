@@ -573,14 +573,18 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt) {
             sun.ambient[0] = biome.fog_r * 0.6f + 0.1f;
             sun.ambient[1] = biome.fog_g * 0.6f + 0.12f;
             sun.ambient[2] = biome.fog_b * 0.6f + 0.16f;
-            // Distance-based LOD (uniform per frame = no T-junctions).
-            // Pick LOD from camera altitude: high alt → coarser mesh.
+            // Uniform LOD by altitude (no T-junctions between chunks).
             int world_lod = (s_cy > 4000.f) ? 3 : (s_cy > 1500.f) ? 2 : (s_cy > 500.f) ? 1 : 0;
+            // POM (ray-march) only at LOD 0 — irrelevant + expensive on distant mesh.
             for (int cz = 0; cz < EDITOR_TNKN; ++cz)
-                for (int cx = 0; cx < EDITOR_TNKN; ++cx)
-                    s_terrain.DrawRawPOM(rp, cmd, s_chunks[cz][cx], vp.m,
-                                        sun, eye_x, eye_y, eye_z, WCX, WCZ, W2UV,
-                                        world_lod);
+                for (int cx = 0; cx < EDITOR_TNKN; ++cx) {
+                    if (world_lod == 0)
+                        s_terrain.DrawRawPOM(rp, cmd, s_chunks[cz][cx], vp.m,
+                                            sun, eye_x, eye_y, eye_z, WCX, WCZ, W2UV, 0);
+                    else
+                        s_terrain.DrawRaw(rp, cmd, s_chunks[cz][cx], vp.m,
+                                         sun, WCX, WCZ, W2UV, world_lod);
+                }
         }
 
         SDL_EndGPURenderPass(rp);
@@ -637,11 +641,15 @@ static void DrawImGui(float W, float H, float dt) {
         float rdx = v[0]*(ndc_x*thf*asp_b) + v[4]*(ndc_y*thf) - v[8];
         float rdy = v[1]*(ndc_x*thf*asp_b) + v[5]*(ndc_y*thf) - v[9];
         float rdz = v[2]*(ndc_x*thf*asp_b) + v[6]*(ndc_y*thf) - v[10];
-        s_brush_hit = s_ray_terrain(s_last_eye[0], s_last_eye[1], s_last_eye[2], rdx, rdy, rdz,
-                                     s_brush_wx, s_brush_wy, s_brush_wz);
+        // Only cast when ray points clearly downward (rdy < -0.1 normalized).
+        float rdlen = sqrtf(rdx*rdx + rdy*rdy + rdz*rdz);
+        bool ray_ok = rdlen > 1e-4f && (rdy / rdlen) < -0.10f;
+        s_brush_hit = ray_ok && s_ray_terrain(s_last_eye[0], s_last_eye[1], s_last_eye[2],
+                                              rdx, rdy, rdz,
+                                              s_brush_wx, s_brush_wy, s_brush_wz);
 
-        // LMB held → paint
-        if (s_brush_hit && ImGui::GetIO().MouseDown[0])
+        // LMB held → paint (only when close enough to terrain)
+        if (s_brush_hit && s_cy < 500.f && ImGui::GetIO().MouseDown[0])
             s_apply_brush(dt);
     } else {
         s_brush_hit = false;
@@ -660,7 +668,10 @@ static void DrawImGui(float W, float H, float dt) {
     }
 
     // ── Brush cursor circle (project 32 world points through VP) ─────────────
-    if (s_brush_hit && edit_mode && !s_rmb) {
+    float s_brush_dist2 = (s_brush_wx-s_last_eye[0])*(s_brush_wx-s_last_eye[0])
+                        + (s_brush_wz-s_last_eye[2])*(s_brush_wz-s_last_eye[2]);
+    if (s_brush_hit && edit_mode && !s_rmb
+        && s_cy < 500.f && s_brush_dist2 < 2000.f*2000.f) {
         auto project = [&](float px, float py, float pz) -> ImVec2 {
             float cp[4] = {};
             float wp[4] = {px, py, pz, 1.f};
