@@ -504,7 +504,7 @@ static void DrawInImGui(float W, float H,
             (ImTextureID)(intptr_t)s_color_rtt, org, {org.x+W,org.y+H});
 }
 static void SetCameraForTab(int tab) {
-    if(tab==0){s_dist=2.6f; s_pit=-0.06f; s_lookat_y=0.9f;}
+    if(tab==0){s_dist=3.0f; s_pit=-0.06f; s_lookat_y=0.9f;}
     else      {s_dist=0.85f; s_pit=0.f; s_yaw=0.f; s_lookat_y=1.76f;}
 }
 static void ResetAnimPhase() {}
