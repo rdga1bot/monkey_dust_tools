@@ -376,7 +376,8 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
         struct{float right[4],up[4],fwd[4],eye[4];} bgu;
         bgu.right[0]=inv_view[0];bgu.right[1]=inv_view[1];bgu.right[2]=inv_view[2];bgu.right[3]=tan_hfov;
         bgu.up[0]=inv_view[4];   bgu.up[1]=inv_view[5];   bgu.up[2]=inv_view[6];   bgu.up[3]=tan_vfov;
-        bgu.fwd[0]=-inv_view[8]; bgu.fwd[1]=-inv_view[9]; bgu.fwd[2]=-inv_view[10];bgu.fwd[3]=-(s_height*.95f);
+        bgu.fwd[0]=-inv_view[8]; bgu.fwd[1]=-inv_view[9]; bgu.fwd[2]=-inv_view[10];
+        bgu.fwd[3]=-0.13f;  // desert sand at platform bottom edge (py_bot=-0.13), no floating gap
         bgu.eye[0]=inv_view[12]; bgu.eye[1]=inv_view[13]; bgu.eye[2]=inv_view[14]; bgu.eye[3]=0;
         SDL_PushGPUFragmentUniformData(cmd,0,&bgu,sizeof(bgu));
         if(s_bg_sand.SDLTexture()&&s_bg_dune.SDLTexture()){
