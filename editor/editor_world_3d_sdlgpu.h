@@ -45,8 +45,7 @@ struct alignas(16) EditorSkyUBO {
 namespace WorldEditor3D_SDLGPU {
 
 // ── State ──────────────────────────────────────────────────────────────────────
-static constexpr int   EDITOR_TNKN = 7;   // 7×7 near chunks = 3500×3500m (full res)
-static constexpr float WORLD_HALF  = (EDITOR_TNKN * CHUNK_SIZE) * 0.5f;
+static constexpr int   EDITOR_TNKN = 64;  // 64×64 = full world (32×32 km)
 
 static TerrainRenderer    s_terrain;
 static PropRenderer       s_props;
@@ -54,17 +53,18 @@ static TerrainChunk       s_chunks[EDITOR_TNKN][EDITOR_TNKN];
 static bool               s_loaded = false;
 static GpuPipeline        s_sky_pipeline;
 
-// Prop scatter state — rebuilt once per zone change when atlas is ready
-static constexpr int  PROPS_PER_CHUNK = 8;   // rocks per 500×500m chunk
+// Prop scatter state — rebuilt once on init
+static constexpr int  PROPS_PER_CHUNK = 8;
 static float          s_prop_pos[PropRenderer::MAX_PROPS * 3] = {};
 static int            s_prop_count = 0;
 static bool           s_props_built = false;
 
 // Async loading state
-static std::atomic<bool>  s_master_ready{false};  // terrain renderer ready (master hmap loaded sync)
-static std::atomic<int>   s_chunks_built{0};       // near chunks built so far (main thread)
+static std::atomic<bool>  s_master_ready{false};
+static std::atomic<int>   s_chunks_built{0};
 static std::thread        s_loader_thread;
-static int                s_zone_ox_saved = 28, s_zone_oz_saved = 28;
+static constexpr int      s_zone_ox_saved = 0;
+static constexpr int      s_zone_oz_saved = 0;
 static bool               s_rebuild_pending = false;
 
 // Per-zone amplitude from terrain_config.txt (indexed [gz][gx], default 40)
@@ -358,13 +358,11 @@ static void ensure_rtt(int w, int h) {
     fprintf(stdout, "[W3D-SDLGPU] RTT %dx%d\n", w, h);
 }
 
-// ── Init — loads master hmap synchronously (257 KiB), background: renderer + overview ──
-static bool Init(const char* overlay_path, int zone_ox = 28, int zone_oz = 28) {
-    s_zone_ox_saved = zone_ox;
-    s_zone_oz_saved = zone_oz;
-    s_cx = (zone_ox + EDITOR_TNKN / 2.f) * CHUNK_SIZE;
-    s_cy = 1500.f;
-    s_cz = (zone_oz + EDITOR_TNKN / 2.f) * CHUNK_SIZE;
+// ── Init — loads master hmap synchronously (257 KiB), background: renderer ──
+static bool Init(const char* overlay_path, int /*zone_ox*/ = 28, int /*zone_oz*/ = 28) {
+    s_cx = 16000.f;
+    s_cy = 8000.f;   // start high to see whole world
+    s_cz = 16000.f;
     s_yaw = 0.f; s_pitch = 0.38f;
 
     s_load_zone_amplitudes("game/data/terrain_config.txt");
@@ -417,55 +415,39 @@ static void s_begin_rebuild() {
     SDL_GetRelativeMouseState(&_dx, &_dy);  // drain accumulated delta
 }
 
-// R: rebuild same zone area (no grid shift) — use after sculpting to refresh heights
+// R: rebuild all chunks (after sculpting)
 static void rebuild_inplace() {
     s_begin_rebuild();
 }
 
-// T: travel here — recenter grid on camera, then rebuild
-static void travel_to_camera() {
-    int zx = (int)(s_cx / CHUNK_SIZE);
-    int zy = (int)(s_cz / CHUNK_SIZE);
-    zx = zx < EDITOR_TNKN/2 ? EDITOR_TNKN/2 : (zx > 63-EDITOR_TNKN/2 ? 63-EDITOR_TNKN/2 : zx);
-    zy = zy < EDITOR_TNKN/2 ? EDITOR_TNKN/2 : (zy > 63-EDITOR_TNKN/2 ? 63-EDITOR_TNKN/2 : zy);
-    s_zone_ox_saved = zx - EDITOR_TNKN / 2;
-    s_zone_oz_saved = zy - EDITOR_TNKN / 2;
-    s_begin_rebuild();
-}
-
-// ── Tick: build one chunk per call; auto-reload when camera leaves grid ────────
+// ── Tick: build 8 chunks per call until all 64×64 are loaded ──────────────────
 static void tick_chunk_build() {
-    if (s_master_ready && s_loaded) {
-        int cam_zx = (int)(s_cx / CHUNK_SIZE);
-        int cam_zz = (int)(s_cz / CHUNK_SIZE);
-        bool outside = cam_zx < s_zone_ox_saved + 1 || cam_zx > s_zone_ox_saved + EDITOR_TNKN - 2
-                    || cam_zz < s_zone_oz_saved + 1 || cam_zz > s_zone_oz_saved + EDITOR_TNKN - 2;
-        if (outside) travel_to_camera();
-        return;
-    }
-    if (!s_master_ready || s_loaded) return;
+    if (s_loaded) return;
+    if (!s_master_ready) return;
+
+    for (int b = 0; b < 8; ++b) {
     int idx = s_chunks_built.load();
     if (idx >= EDITOR_TNKN * EDITOR_TNKN) { s_loaded = true; return; }
 
     int cz = idx / EDITOR_TNKN, cx = idx % EDITOR_TNKN;
-    ChunkCoord coord = { s_zone_ox_saved + cx, s_zone_oz_saved + cz };
+    ChunkCoord coord = { cx, cz };
     TerrainGenParams p;
     p.zone_origin_x = 0;
     p.zone_origin_z = 0;
-    // amplitude=0 when master loaded: h = master_h + noise*0 → clean master hmap, no noise
     p.amplitude = TerrainMaster_Loaded() ? 0.f :
         ((coord.x >= 0 && coord.x < 64 && coord.z >= 0 && coord.z < 64)
             ? s_zone_amp[coord.z][coord.x] : 40.f);
     TerrainGen_Build(s_chunks[cz][cx], coord, p);
     TerrainGen_Upload(s_chunks[cz][cx]);
-    s_chunks[cz][cx].center_x = (float)(s_zone_ox_saved + cx) * CHUNK_SIZE + CHUNK_SIZE * 0.5f;
-    s_chunks[cz][cx].center_z = (float)(s_zone_oz_saved + cz) * CHUNK_SIZE + CHUNK_SIZE * 0.5f;
+    s_chunks[cz][cx].center_x = (float)cx * CHUNK_SIZE + CHUNK_SIZE * 0.5f;
+    s_chunks[cz][cx].center_z = (float)cz * CHUNK_SIZE + CHUNK_SIZE * 0.5f;
 
     ++s_chunks_built;
     if (s_chunks_built >= EDITOR_TNKN * EDITOR_TNKN) {
         s_loaded = true;
         fprintf(stdout, "[W3D-SDLGPU] %dx%d chunks ready\n", EDITOR_TNKN, EDITOR_TNKN);
     }
+    } // for b
 }
 
 // ── Camera input (original free-fly) ─────────────────────────────────────────
@@ -490,7 +472,7 @@ static void handle_input(float dt) {
     if (ImGui::IsKeyDown(ImGuiKey_Q)||ImGui::IsKeyDown(ImGuiKey_PageDown)) s_cy-=sp;
     if (ImGui::IsKeyDown(ImGuiKey_E)||ImGui::IsKeyDown(ImGuiKey_PageUp))   s_cy+=sp;
     if (ImGui::IsKeyPressed(ImGuiKey_R)) rebuild_inplace();
-    if (ImGui::IsKeyPressed(ImGuiKey_T)) travel_to_camera();
+    if (ImGui::IsKeyPressed(ImGuiKey_T)) { s_cx=16000.f; s_cy=8000.f; s_cz=16000.f; }
     if (io.MouseWheel != 0.f) {
         float step = s_cy * 0.05f * io.MouseWheel;
         s_cx += step*sy; s_cz += step*cy2;
@@ -591,10 +573,14 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt) {
             sun.ambient[0] = biome.fog_r * 0.6f + 0.1f;
             sun.ambient[1] = biome.fog_g * 0.6f + 0.12f;
             sun.ambient[2] = biome.fog_b * 0.6f + 0.16f;
+            // Distance-based LOD (uniform per frame = no T-junctions).
+            // Pick LOD from camera altitude: high alt → coarser mesh.
+            int world_lod = (s_cy > 4000.f) ? 3 : (s_cy > 1500.f) ? 2 : (s_cy > 500.f) ? 1 : 0;
             for (int cz = 0; cz < EDITOR_TNKN; ++cz)
                 for (int cx = 0; cx < EDITOR_TNKN; ++cx)
                     s_terrain.DrawRawPOM(rp, cmd, s_chunks[cz][cx], vp.m,
-                                        sun, eye_x, eye_y, eye_z, WCX, WCZ, W2UV);
+                                        sun, eye_x, eye_y, eye_z, WCX, WCZ, W2UV,
+                                        world_lod);
         }
 
         SDL_EndGPURenderPass(rp);
@@ -739,8 +725,15 @@ static void DrawImGui(float W, float H, float dt) {
     ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255,255,200,220));
     int cur_zx = (int)(s_cx / CHUNK_SIZE);
     int cur_zy = (int)(s_cz / CHUNK_SIZE);
-    ImGui::Text("Zone: %d,%d  Alt: %.0fm  Speed: %.0fm/s", cur_zx, cur_zy, s_cy, s_speed);
-    ImGui::Text("RMB=look  WASD=move  Q/E=alt  Scroll=zoom  F5=save");
+    int built  = s_chunks_built.load();
+    int total  = EDITOR_TNKN * EDITOR_TNKN;
+    if (!s_loaded)
+        ImGui::Text("Loading %d/%d chunks...", built, total);
+    else
+        ImGui::Text("Zone: %d,%d  Alt: %.0fm  LOD: %s",
+            cur_zx, cur_zy, s_cy,
+            s_cy > 4000.f ? "8x8" : s_cy > 1500.f ? "16x16" : s_cy > 500.f ? "32x32" : "64x64");
+    ImGui::Text("RMB=look  WASD=move  Q/E=alt  Scroll=zoom  F5=save  T=centre");
     ImGui::PopStyleColor();
 
 }
