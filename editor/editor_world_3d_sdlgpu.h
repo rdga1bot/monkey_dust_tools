@@ -649,7 +649,22 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt) {
 
     SDL_GPURenderPass* rp = SDL_BeginGPURenderPass(cmd, &ct, 1, &di);
     if (rp) {
+        // Overview mesh: full 64×64 world at low resolution (always visible)
         s_draw_overview(rp, cmd, vp.m, false);
+
+        // High-res near terrain (7×7 chunks) — drawn on top of overview.
+        // world_to_uv maps full 64-zone world (32000m) → UV [0,1].
+        if (s_loaded && s_terrain.IsReady()) {
+            static constexpr float W2UV = 1.f / (64.f * CHUNK_SIZE);
+            static constexpr float WCX  = 32.f * CHUNK_SIZE;
+            static constexpr float WCZ  = 32.f * CHUNK_SIZE;
+            auto sun = TerrainRenderer::SunParams::Default();
+            for (int cz = 0; cz < EDITOR_TNKN; ++cz)
+                for (int cx = 0; cx < EDITOR_TNKN; ++cx)
+                    s_terrain.DrawRawPOM(rp, cmd, s_chunks[cz][cx], vp.m,
+                                        sun, s_cx, s_cy, s_cz, WCX, WCZ, W2UV);
+        }
+
         SDL_EndGPURenderPass(rp);
     }
 
