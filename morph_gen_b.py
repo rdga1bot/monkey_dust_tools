@@ -10,12 +10,16 @@ Output: game/data/props/md_human_morphs.glb  (same mesh + morph targets)
         game/data/chars/morph_names.txt       (one name per line)
 
 Morphs generated:
-  0  tall      — scale Y proportional to spine chain weight
-  1  fat       — push verts outward along normal × belly/torso weight
-  2  muscular  — push outward × arm/shoulder weight (less belly)
-  3  longlegs  — scale Y of leg vertices
-  4  bighead   — scale head bone-weighted verts by 1.15
-  5  broadshdr — widen shoulder verts along X
+  0  tall         — scale Y proportional to spine chain weight
+  1  fat          — push verts outward along normal × belly/torso weight
+  2  muscular     — push outward × arm/shoulder weight (less belly)
+  3  longlegs     — scale Y of leg vertices
+  4  bighead      — scale head bone-weighted verts by 1.15
+  5  broadshdr    — widen shoulder verts along X
+  6  female_body  — narrow shoulders + wide hips + narrow waist (hourglass)
+  7  wide_hips    — push hip/thigh region outward in X (+ slightly Z)
+  8  stocky       — compress Y (shorter) + widen torso
+  9  narrow_torso — pull belly/torso inward (thin silhouette)
 
 Usage:
   python3 tools/morph_gen_b.py [glb_path]
@@ -27,7 +31,8 @@ GLB_IN    = sys.argv[1] if len(sys.argv) > 1 else "game/data/props/md_human.glb"
 GLB_OUT   = GLB_IN   # overwrite in-place: md_human.glb = mesh + face morphs + body morphs
 NAMES_OUT = "game/data/chars/morph_names.txt"
 
-MORPH_NAMES = ["tall", "fat", "muscular", "longlegs", "bighead", "broadshdr"]
+MORPH_NAMES = ["tall", "fat", "muscular", "longlegs", "bighead", "broadshdr",
+               "female_body", "wide_hips", "stocky", "narrow_torso"]
 
 # md_human.glb joint indices (CLAUDE.md canonical list):
 #   0=Bip01  1=Pelvis
@@ -43,6 +48,9 @@ _ARM    = frozenset({15, 16, 17, 18, 25, 26, 27, 28})
 _CLAV   = frozenset({15, 25})
 _HEAD   = frozenset({20, 21, 22, 23, 24})
 _LEG    = frozenset({2, 3, 4, 5, 6, 7, 8, 9, 10, 11})
+_HIP    = frozenset({1, 2, 7})       # pelvis + both thighs
+_WAIST  = frozenset({1, 12})         # pelvis + lower spine
+_TORSO  = frozenset({0, 1, 12, 13, 14, 15, 25})  # full torso + clavicles
 
 # ── GLB reader (minimal — only what we need) ──────────────────────────────────
 def read_glb(path):
@@ -187,11 +195,57 @@ def compute_deltas(positions, normals, joints, weights, morph_idx):
             deltas[i] = (nm[0]*mag, nm[1]*mag, nm[2]*mag)
 
         elif morph_idx == 5:  # broadshdr — widen clavicle/arm region along X
-            # clavicle verts get full push; arm verts get half
             cv = _bw(j, w, _CLAV)
             av = _bw(j, w, _ARM) * 0.5
             sign = 1.0 if p[0] > 0 else -1.0
             deltas[i] = (sign * (cv + av) * SCALE * 0.5, 0.0, 0.0)
+
+        elif morph_idx == 6:  # female_body — hourglass: narrow shoulders, wide hips, narrow waist
+            sign = 1.0 if p[0] >= 0 else -1.0
+            # shoulder region: high Y (>1.25) + clavicle weight → push inward
+            sh_y  = max(0.0, (p[1] - 1.25) / 0.25)           # 0→1 from Y=1.25 to Y=1.5
+            sh_w  = _bw(j, w, _CLAV) + _bw(j, w, _ARM) * 0.2
+            shoulder = -sign * sh_w * sh_y * SCALE * 0.55     # narrow
+
+            # hip region: low Y (<1.05) + pelvis/thigh weight → push outward
+            hp_y  = max(0.0, (1.05 - p[1]) / 0.2)            # 0→1 from Y=1.05 to Y=0.85
+            hp_w  = _bw(j, w, _HIP)
+            hip   =  sign * hp_w * hp_y * SCALE * 0.7         # wide
+            hip_y = -hp_w * hp_y * SCALE * 0.04               # hips slightly lower
+
+            # waist region: mid Y (1.0-1.25) + pelvis/spine weight → pull inward
+            wt_y  = max(0.0, 1.0 - abs(p[1] - 1.12) / 0.13)  # bell peak at Y=1.12
+            wt_w  = _bw(j, w, _WAIST)
+            waist = -sign * wt_w * wt_y * SCALE * 0.25        # narrow
+
+            deltas[i] = (shoulder + hip + waist, hip_y, 0.0)
+
+        elif morph_idx == 7:  # wide_hips — push hip/thigh outward in X+Z
+            sign = 1.0 if p[0] >= 0 else -1.0
+            hp_y = max(0.0, (1.1 - p[1]) / 0.25)              # gate: below Y=1.1
+            hw   = _bw(j, w, _HIP)
+            mag  = hw * hp_y * SCALE * 0.65
+            # outward in X + slightly backward in Z (butt volume)
+            deltas[i] = (sign * mag, 0.0, nm[2] * hw * hp_y * SCALE * 0.2)
+
+        elif morph_idx == 8:  # stocky — shorter + wider torso
+            sw = _bw(j, w, _SPINE)
+            lw = _bw(j, w, _LEG)
+            bw = _bw(j, w, _BELLY) + _bw(j, w, _TORSO) * 0.3
+            # compress height: spine and leg verts move down proportionally
+            compress = -(p[1] * (sw * 0.10 + lw * 0.12))
+            # widen torso laterally
+            widen_x  =  nm[0] * bw * SCALE * 0.25
+            widen_z  =  nm[2] * bw * SCALE * 0.15
+            deltas[i] = (widen_x, compress, widen_z)
+
+        elif morph_idx == 9:  # narrow_torso — pull belly/torso inward (thin silhouette)
+            bw  = _bw(j, w, _BELLY) + _bw(j, w, _SPINE) * 0.35
+            # only X and Z (don't change height), and skip arms/legs
+            arm_w = _bw(j, w, _ARM) + _bw(j, w, _LEG)
+            factor = max(0.0, bw - arm_w * 0.3)
+            mag = -factor * SCALE * 0.55
+            deltas[i] = (nm[0] * mag, 0.0, nm[2] * mag)
 
     return deltas
 
