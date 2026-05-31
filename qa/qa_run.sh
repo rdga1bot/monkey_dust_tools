@@ -78,27 +78,35 @@ if [[ $NO_BUILD -eq 0 ]] && [[ $FAIL -eq 0 ]]; then
 fi
 
 # ── 3. Game capture ───────────────────────────────────────────────────────────
+CAPTURE_ID=""
 if [[ $NO_CAPTURE -eq 0 ]] && [[ $FAIL -eq 0 ]]; then
-  log "Запускаю гру (QA capture)..."
+  CAPTURE_ID=$(date +%Y%m%d_%H%M%S)
+  CAPTURE_DIR="tools/qa/captures/${CAPTURE_ID}"
+  mkdir -p "${CAPTURE_DIR}/frames"
+  QA_JSONL="${CAPTURE_DIR}/qa_state.jsonl"
+  log "QA capture → ${CAPTURE_DIR}"
+
   if command -v wmctrl &>/dev/null && command -v ffmpeg &>/dev/null; then
-    # Запускаємо гру в background
-    DISPLAY="${DISPLAY:-:0}" ./build/game/monkey_dust &
+    DISPLAY="${DISPLAY:-:0}" MD_QA_STATE="${QA_JSONL}" \
+        ./build/game/monkey_dust &
     GAME_PID=$!
-    sleep 1  # чекаємо запуску
+    sleep 1
 
-    # Запускаємо capture (з'єднується з вікном)
     CAPTURE_OUT=$(python3 scripts/game_capture.py \
-        --no-launch --record-fps 10 2>&1) || true
+        --no-launch --record-fps 10 \
+        --output-dir "${CAPTURE_DIR}/frames" 2>&1) || true
 
-    # Чекаємо завершення гри (QA режим виходить сам)
     wait $GAME_PID 2>/dev/null || true
     ok "Capture завершено"
   else
-    # Headless: просто запускаємо гру (вона сама робить capture в QA mode)
     log "Headless режим (без wmctrl/ffmpeg)..."
-    DISPLAY="${DISPLAY:-:0}" ./build/game/monkey_dust 2>&1 | tail -5 || true
+    DISPLAY="${DISPLAY:-:0}" MD_QA_STATE="${QA_JSONL}" \
+        ./build/game/monkey_dust 2>&1 | tail -5 || true
     ok "Game run завершено"
   fi
+
+  [[ -f "${QA_JSONL}" ]] && ok "QA state log: $(wc -l < "${QA_JSONL}") ticks" \
+                          || log "QA state log: не згенеровано (headless?)"
 else
   [[ $NO_CAPTURE -eq 1 ]] && log "Capture: пропускаємо (--no-capture)"
 fi
@@ -106,14 +114,22 @@ fi
 # ── 4. QA Report ──────────────────────────────────────────────────────────────
 log "Генерую QA report..."
 REPORT_ARGS=""
-[[ $NO_TESTS -eq 1 ]] && REPORT_ARGS="--no-tests"
+[[ $NO_TESTS -eq 1 ]]   && REPORT_ARGS="--no-tests"
 [[ $OPEN_REPORT -eq 1 ]] && REPORT_ARGS="$REPORT_ARGS --open"
+[[ -n "${CAPTURE_ID}" ]] && REPORT_ARGS="$REPORT_ARGS --capture ${CAPTURE_ID}"
 
 REPORT_OUT=$(python3 tools/qa/qa_report.py $REPORT_ARGS 2>&1) || {
   err "qa_report.py failed:\n$REPORT_OUT"
   FAIL=1
 }
 echo "$REPORT_OUT"
+
+# ── 4b. BDD ───────────────────────────────────────────────────────────────────
+if [[ -n "${CAPTURE_ID}" ]] && [[ -f "tools/qa/qa_bdd.py" ]]; then
+  log "BDD перевірки..."
+  BDD_ARGS="--capture ${CAPTURE_ID}"
+  python3 tools/qa/qa_bdd.py tools/qa/features/ $BDD_ARGS 2>&1 | tail -20 || true
+fi
 
 # ── Підсумок ──────────────────────────────────────────────────────────────────
 echo ""
