@@ -189,6 +189,17 @@ void EditorNodeGraphPanel::BuildDefaultGraph() {
     int out   = SpawnNode(NK::TerrainOutput);
     if (fbm < 0 || warp < 0 || ridge < 0 || biome < 0 || out < 0) return;
 
+    // Initial layout: FBM→Warp→Ridge vertically, Biome below FBM, Out on left.
+    // SetNodePosition must be called AFTER ed::Begin() on the first frame — deferred
+    // via ed::SetNodePosition which applies on next frame when context is active.
+    ed::SetCurrentEditor(ctx_);
+    ed::SetNodePosition(ed::NodeId(nodes_[fbm  ].id), ImVec2(350,  80));
+    ed::SetNodePosition(ed::NodeId(nodes_[warp ].id), ImVec2(350, 210));
+    ed::SetNodePosition(ed::NodeId(nodes_[ridge].id), ImVec2(350, 340));
+    ed::SetNodePosition(ed::NodeId(nodes_[biome].id), ImVec2(350, 470));
+    ed::SetNodePosition(ed::NodeId(nodes_[out  ].id), ImVec2( 80, 250));
+    ed::SetCurrentEditor(nullptr);
+
     auto link = [&](int fn, int fp_local, int tn, int tp_local) {
         if (link_cnt_ >= MAX_L) return;
         int fp = pins_[nodes_[fn].first_out + fp_local].id;
@@ -324,14 +335,14 @@ void EditorNodeGraphPanel::DrawNode(Node& n) {
         ed::EndPin();
     }
 
-    // Output pin (right side)
+    // Output pin — left-aligned within node.
+    // DO NOT use SetCursorPosX(cursor + GetContentRegionAvail().x - w) here:
+    // inside ed::BeginPin(), GetContentRegionAvail() returns the CANVAS width,
+    // not the node width → bounding rect expands to ~700px → node drag fails.
     for (int i = 0; i < n.out_cnt; ++i) {
         const Pin& p = pins_[n.first_out + i];
         ed::BeginPin(ed::PinId(p.id), ed::PinKind::Output);
             md::PinColor c = md::PcgPinColor(p.data_type);
-            float w = ImGui::CalcTextSize("Out ◀").x + 16.f;
-            ImGui::SetCursorPosX(ImGui::GetCursorPosX() +
-                ImGui::GetContentRegionAvail().x - w);
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(c.r,c.g,c.b,c.a));
             ImGui::Text("Out ◀");
             ImGui::PopStyleColor();
