@@ -9,6 +9,7 @@
 #include <monkey_dust/render/gpu_device.h>
 #include <monkey_dust/render/gpu_hal.h>
 #include <monkey_dust/render/skin_mesh.h>
+#include <monkey_dust/render/ozz_animator.h>
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_gpu.h>
 #include "cgltf.h"
@@ -73,9 +74,10 @@ static float s_idle_rot[30][4];    // idle_stand_normal frame-0 quaternion (xyzw
 static bool  s_idle_has_rot[30];   // true if bone has explicit rotation channel in idle_stand_normal
 static bool  s_idle_loaded = false;
 
-// ── Game-path pose: SkinMesh + GetFinalBonesFull (identical to in-game render) ──
-static SkinMesh s_pose_mesh;
-static int      s_pose_idle_clip = -1;
+// ── Pose mesh + OzzAnimator (identical to in-game render pipeline) ───────────
+static SkinMesh    s_pose_mesh;
+static OzzAnimator s_pose_ozz;
+static int         s_pose_idle_clip = -1;
 
 // ── Breathing animation ───────────────────────────────────────────────────────
 struct BreathChan {
@@ -937,7 +939,10 @@ static bool Init(const char* glb_path, const char* tex_path) {
             : "game/data/props/md_human.glb";
         if (s_pose_mesh.LoadGLB(pose_path)) {
             s_pose_idle_clip = s_pose_mesh.ClipIndexByName("idle_stand_normal");
-            fprintf(stdout, "[CharPreview] pose mesh loaded, idle_clip=%d\n", s_pose_idle_clip);
+            if (s_pose_ozz.Init(s_pose_mesh))
+                fprintf(stdout, "[CharPreview] OzzAnimator ready, idle_clip=%d\n", s_pose_idle_clip);
+            else
+                fprintf(stderr, "[CharPreview] OzzAnimator init failed\n");
         } else {
             fprintf(stderr, "[CharPreview] WARN: could not load pose mesh %s\n", pose_path);
         }
@@ -1299,23 +1304,30 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     // Jaw [23]: wy=FrH*Hd, wx=FrH*Hd*Hsp*jaw, wz=FrH*Hd   [line 264290]
     s_boneScales[23][0]=FrH*Hd; s_boneScales[23][1]=FrH*Hd*Hsp*jaw; s_boneScales[23][2]=FrH*Hd;
 
-    // All bones: s_pose_rot (idle_stand_normal for all, since kBreathRotList=all-false)
-    // + bind_local translation. Consistent idle pose for entire skeleton = no lean.
-    // Previous 3-tier (kBreathList/kIdleArmList/bind) mixed idle+bind → forward lean.
+    // Bone pose via OzzAnimator (same pipeline as in-game NPC render).
+    // SampleWorldMats gives world matrices before inv_bind — we apply
+    // s_posScale (positional) and s_boneScales (vertex) ourselves to keep
+    // the character-editor body-development formula intact.
     float new_world[30][16];
+    if (s_pose_ozz.IsLoaded() && s_pose_idle_clip >= 0) {
+        s_pose_ozz.SampleWorldMats(s_pose_idle_clip, 0.f, new_world);
+    } else {
+        // Fallback: legacy custom FK (s_pose_rot[] loaded via cgltf).
+        for (int i = 0; i < 30; i++) {
+            float sl[16];
+            float tp[3] = {
+                s_bind_local[i][12] * s_posScale[i][0],
+                s_bind_local[i][13] * s_posScale[i][1],
+                s_bind_local[i][14] * s_posScale[i][2]
+            };
+            m4_from_quat_t(sl, s_pose_rot[i], tp);
+            if (s_bone_parent[i] < 0)
+                memcpy(new_world[i], sl, 64);
+            else
+                m4mul(new_world[i], new_world[(int)s_bone_parent[i]], sl);
+        }
+    }
     for (int i = 0; i < 30; i++) {
-        float sl[16];
-        float tp[3] = {
-            s_bind_local[i][12] * s_posScale[i][0],
-            s_bind_local[i][13] * s_posScale[i][1],
-            s_bind_local[i][14] * s_posScale[i][2]
-        };
-        m4_from_quat_t(sl, s_pose_rot[i], tp);
-        if (s_bone_parent[i] < 0)
-            memcpy(new_world[i], sl, 64);
-        else
-            m4mul(new_world[i], new_world[(int)s_bone_parent[i]], sl);
-
         float sx=s_boneScales[i][0], sy=s_boneScales[i][1], sz=s_boneScales[i][2];
         float S[16]={sx,0,0,0, 0,sy,0,0, 0,0,sz,0, 0,0,0,1};
         float tmp[16];
