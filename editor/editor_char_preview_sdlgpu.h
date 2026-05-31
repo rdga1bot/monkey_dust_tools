@@ -1390,9 +1390,16 @@ static void SetBodyMorphWeights(const float body[18], const float face[24]) {
         int mi=s_morph_idx_by_name(n);
         if(mi>=0) s_morph_weights[mi]=w<0.f?0.f:(w>1.f?1.f:w);
     };
+    // pd: positive deviation above neutral (0 at neutral, 1 at neutral+range)
     auto pd = [](float v, float neu, float rng) -> float {
         float d=(v-neu)/rng; return d<0.f?0.f:(d>1.f?1.f:d);
     };
+    // nd: negative deviation below neutral (0 at neutral, 1 at neutral-range)
+    auto nd = [](float v, float neu, float rng) -> float {
+        float d=(neu-v)/rng; return d<0.f?0.f:(d>1.f?1.f:d);
+    };
+
+    // ── existing 6 morphs ────────────────────────────────────────────────────
     set("fat",      (pd(body[13],100.f,90.f)*0.65f
                    + pd(body[15],100.f,45.f)*0.20f
                    + pd(body[12],100.f,40.f)*0.15f) * 0.3f);
@@ -1404,11 +1411,26 @@ static void SetBodyMorphWeights(const float body[18], const float face[24]) {
     set("longlegs", pd(body[7], 100.f,15.f) * 0.3f);
     set("bighead",  pd(face[0], 100.f,10.f) * 0.3f);
 
-    // 0.6 instead of 0.3: without artist morphs, needs 2× weight to fill shoulder gap
     set("broadshdr",(pd(body[3], 100.f,20.f)*0.55f
                    + pd(body[8], 100.f,10.f)*0.45f) * 0.6f);
 
     set("tall",     pd(body[2], 100.f,20.f) * 0.15f);
+
+    // ── нові 4 морфи ─────────────────────────────────────────────────────────
+    // female_body: широкі стегна + вузькі плечі → hourglass силует
+    // body[15]=Hips(75-145), body[8]=Shoulders(90-110)
+    set("female_body", (pd(body[15],100.f,45.f)*0.6f
+                      + nd(body[8], 100.f,10.f)*0.4f) * 0.55f);
+
+    // wide_hips: прямо від Hips слайдера (доповнює female_body)
+    set("wide_hips",   pd(body[15],100.f,45.f) * 0.4f);
+
+    // stocky: активний тільки коли Frame HIGH і Height LOW разом
+    // body[3]=Frame(80-120), body[2]=Height(80-120)
+    set("stocky",      pd(body[3],100.f,20.f) * nd(body[2],100.f,20.f) * 1.2f);
+
+    // narrow_torso: активний коли Frame LOW (lean тулуб)
+    set("narrow_torso",nd(body[3],100.f,20.f) * 0.4f);
 
     s_morphs_dirty = true;
 }
