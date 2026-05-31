@@ -9,12 +9,20 @@
 
 ```
 tools/qa/
-├── qa_run.sh          — Головний runner: build → capture → report
-├── qa_report.py       — Генератор QA звіту (аналіз frames)
-├── captures/          — Записані gameplay сесії (video + frames)
+├── qa_run.sh          — Головний runner: build → capture (MD_QA_STATE) → report → BDD
+├── qa_report.py       — Генератор QA звіту (аналіз frames + JSONL)
+├── qa_regression.py   — Visual regression: baseline / compare / HTML scrubber
+├── qa_bdd.py          — BDD Gherkin runner (7 built-in steps)
+├── features/          — .feature files
+│   ├── npc_behavior.feature
+│   ├── rendering.feature
+│   └── player.feature
+├── captures/          — Записані gameplay сесії
 │   └── YYYYMMDD_HHMMSS/
-│       ├── demo.mkv   — Повний запис
-│       └── frames/    — PNG фрейми (221 шт. @ 10fps)
+│       ├── frames/           — PNG фрейми (@ 10fps)
+│       └── qa_state.jsonl    — JSONL log: NPC pos/vel per logic tick
+├── baselines/         — Еталонні кадри для regression
+│   └── YYYYMMDD_HHMMSS/     — скопійовані frames + meta.json
 ├── reports/           — Згенеровані звіти (gitignored)
 │   └── YYYYMMDD_HHMMSS/
 │       ├── report.html           — Основний звіт (відкрити в браузері)
@@ -24,7 +32,8 @@ tools/qa/
 │       ├── *_contact.png         — Contact sheet (всі кадри)
 │       ├── *_delta.png           — Frame delta chart (full + NPC zone)
 │       ├── *_tracking.png        — NPC tracking charts
-│       └── annotated/            — Кадри з анотованими аномаліями
+│       ├── annotated/            — Кадри з анотованими аномаліями
+│       └── regression/           — Visual regression дiffs + report.html
 └── QA_GUIDE.md        — Цей файл
 ```
 
@@ -48,6 +57,30 @@ python3 tools/qa/qa_report.py --capture 20260531_030631
 python3 tools/qa/qa_report.py --no-tests               # без unit tests
 python3 tools/qa/qa_report.py --open                   # відкрити HTML
 ```
+
+### BDD перевірки
+```bash
+python3 tools/qa/qa_bdd.py tools/qa/features/             # всі .feature файли, latest capture
+python3 tools/qa/qa_bdd.py tools/qa/features/ --capture 20260531_030631
+python3 tools/qa/qa_bdd.py tools/qa/features/npc_behavior.feature --capture latest
+```
+
+### Visual Regression
+```bash
+# 1. Зберегти еталон з «хорошого» capture:
+python3 tools/qa/qa_regression.py --baseline 20260531_030631
+
+# 2. Порівняти новий capture проти еталону:
+python3 tools/qa/qa_regression.py --compare 20260601_120000
+
+# 3. Вказати конкретний baseline:
+python3 tools/qa/qa_regression.py --compare 20260601_120000 --baseline-id 20260531_030631
+
+# 4. Переглянути всі baselines і captures:
+python3 tools/qa/qa_regression.py --list
+```
+
+HTML звіт: `tools/qa/reports/TIMESTAMP/regression/report.html` — drag-to-reveal scrubber.
 
 ### Unit tests
 ```bash
@@ -124,6 +157,104 @@ QA camera (в грі) робить orbit навколо гравця:
 - Горизонтальний 360° orbit
 - Вертикальне качання (overhead → low angle)
 - Тривалість: ~22 секунди (221 frames @ 10fps)
+
+---
+
+## Log-based QA (qa_state.jsonl)
+
+Гра автоматично пише JSONL коли встановлено `MD_QA_STATE`:
+
+```
+{"tick":1,"t":0.100,"px":0.0,"pz":5.0,"npcs":[{"s":1,"x":10.5,"z":20.3,"vx":1.5,"vz":0.0,"mv":1},...]}
+```
+
+- **tick** — лічильник logic ticks (10 TPS)
+- **t** — game time (секунди)
+- **px/pz** — позиція гравця
+- **npcs** — всі NPC в радіусі 150m: slot, x, z, vx (desired_vel_x), vz, mv (is_moving)
+
+`qa_run.sh` автоматично встановлює `MD_QA_STATE=captures/TIMESTAMP/qa_state.jsonl`.
+BDD steps читають цей файл для точних перевірок (без image heuristics).
+
+---
+
+## BDD — Gherkin тести
+
+Feature файли в `tools/qa/features/*.feature`. Синтаксис:
+
+```gherkin
+Feature: NPC behavior stability
+
+  Background:
+    Given capture "latest"
+
+  Scenario: NPCs must not freeze
+    Then no NPC freezes for more than 10 ticks
+
+  Scenario: No teleportation
+    Then no NPC teleports more than 15m in one tick
+```
+
+### Вбудовані steps
+
+| Step | Тип | Джерело |
+|------|-----|---------|
+| `capture "ID\|latest"` | setup | — |
+| `no NPC freezes for more than N ticks` | assert | JSONL |
+| `no NPC teleports more than Xm in one tick` | assert | JSONL |
+| `at least N NPCs are present` | assert | JSONL |
+| `player position changes at least Xm per second` | assert | JSONL |
+| `sky is visible in [all\|N%] frames` | assert | PNG |
+| `NPCs are visible in at least N% of frames` | assert | PNG |
+
+Log-based steps (`JSONL`) точніші. Image steps (`PNG`) — fallback якщо JSONL недоступний.
+
+### Додати новий step
+
+```python
+# В qa_bdd.py:
+@step(r'no entity spawns outside (\d+)m radius')
+def step_spawn_radius(m):
+    max_r = float(m.group(1))
+    if not ctx.qa_ticks:
+        return Skip("no qa_state.jsonl")
+    # ... перевірка
+    return Pass("all spawns within radius") # або Fail("...")
+```
+
+---
+
+## Visual Regression
+
+Порівнює captures по пікселях. Корисно для:
+- Детекції рендер-регресій після змін шейдерів
+- Перевірки що фікс не зламав візуальний результат
+
+### Workflow
+
+```bash
+# 1. Після підтвердження що capture виглядає правильно:
+python3 tools/qa/qa_regression.py --baseline 20260531_030631
+
+# 2. Після кожного наступного capture:
+python3 tools/qa/qa_regression.py --compare 20260601_120000
+# → PASS якщо < 2% пікселів змінилось у кожному кадрі
+# → FAIL + HTML звіт якщо більше
+```
+
+### HTML звіт — drag-to-reveal scrubber
+
+Відкрий `reports/TIMESTAMP/regression/report.html`:
+- Ліворуч — таблиця кадрів з % зміни
+- По центру — drag-to-reveal: тягни мишею щоб побачити before/after
+- Праворуч — diff thumbnail (червоний = змінені пікселі)
+
+### Пороги
+
+| Параметр | Значення | Опис |
+|----------|----------|------|
+| `DIFF_THRESHOLD` | 8/255 | Ігнорує sub-pixel antialiasing шум |
+| `FAIL_PCT` | 2.0% | Кадр вважається FAIL якщо > 2% пікселів змінено |
 
 ---
 
