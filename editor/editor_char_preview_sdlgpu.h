@@ -1277,13 +1277,15 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     // Arm THICKNESS is preserved via [0] and [2]. This is bone-only limitation vs Kenshi morph system.
     float AbFr = Ab*Fr;
     float AbZ  = comp(Ab, 1.5f)*Fr;
-    for(int ji:{16,26}){ s_boneScales[ji][0]=H*AbFr; s_boneScales[ji][1]=H; s_boneScales[ji][2]=AbZ*AbFr; }
+    // [2] = AbZ (not AbZ*AbFr): depth grows linear with Fr, same rate as Clavicle[2]=Sh*Fr.
+    // Without vertex morphs, Fr² depth scale creates a 20% shoulder gap at Frame=120.
+    for(int ji:{16,26}){ s_boneScales[ji][0]=H*AbFr; s_boneScales[ji][1]=H; s_boneScales[ji][2]=AbZ; }
     float arm_pos = cl(Sh * comp(Ch, 0.45f));  // Kenshi RE line 264061: Sh * comp(Chest,0.45)
     s_posScale[16][0] = arm_pos;
     s_posScale[26][0] = arm_pos;
 
-    // Forearm [17,27]: same axes as UpperArm; [1]=H (no Arm bulk along-arm stretch)
-    for(int ji:{17,27}){ s_boneScales[ji][0]=H*AbFr; s_boneScales[ji][1]=H; s_boneScales[ji][2]=AbFr*AbFr; }
+    // Forearm [17,27]: [2]=AbFr (linear, not AbFr²) for same reason as UpperArm
+    for(int ji:{17,27}){ s_boneScales[ji][0]=H*AbFr; s_boneScales[ji][1]=H; s_boneScales[ji][2]=AbFr; }
 
     // Hand [18,28]: localZ=along arm → [2]=AbFr*Hn² (modest: Hn≤1.15), [0]=H*Hn², [1]=AbFr*Hn²
     for(int ji:{18,28}){ s_boneScales[ji][0]=H*Hn*Hn; s_boneScales[ji][1]=AbFr*Hn*Hn; s_boneScales[ji][2]=Hn*Hn; }
