@@ -1278,7 +1278,7 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     float AbFr = Ab*Fr;
     float AbZ  = comp(Ab, 1.5f)*Fr;
     for(int ji:{16,26}){ s_boneScales[ji][0]=H*AbFr; s_boneScales[ji][1]=H; s_boneScales[ji][2]=AbZ*AbFr; }
-    float arm_pos = cl(Sh * H);
+    float arm_pos = cl(Sh * comp(Ch, 0.45f));  // Kenshi RE line 264061: Sh * comp(Chest,0.45)
     s_posScale[16][0] = arm_pos;
     s_posScale[26][0] = arm_pos;
 

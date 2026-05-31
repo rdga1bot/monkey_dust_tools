@@ -23,11 +23,26 @@ Usage:
 """
 import struct, json, os, sys, math, copy
 
-GLB_IN  = sys.argv[1] if len(sys.argv) > 1 else "game/data/props/md_human.glb"
-GLB_OUT = "game/data/props/md_human_morphs.glb"
+GLB_IN    = sys.argv[1] if len(sys.argv) > 1 else "game/data/props/md_human.glb"
+GLB_OUT   = GLB_IN   # overwrite in-place: md_human.glb = mesh + face morphs + body morphs
 NAMES_OUT = "game/data/chars/morph_names.txt"
 
 MORPH_NAMES = ["tall", "fat", "muscular", "longlegs", "bighead", "broadshdr"]
+
+# md_human.glb joint indices (CLAUDE.md canonical list):
+#   0=Bip01  1=Pelvis
+#   2=L Thigh  3=L Calf  4=L Foot  5=L Toe0  6=L Toe0Nub
+#   7=R Thigh  8=R Calf  9=R Foot 10=R Toe0 11=R Toe0Nub
+#  12=Spine  13=Spine1  14=Spine2
+#  15=L Clavicle 16=L UpperArm 17=L Forearm 18=L Hand  19=Prop1
+#  20=Neck   21=Head    22=HeadNub 23=Jaw    24=JawNub
+#  25=R Clavicle 26=R UpperArm 27=R Forearm 28=R Hand  29=Prop2
+_SPINE  = frozenset({0, 1, 12, 13, 14})
+_BELLY  = frozenset({1, 12, 13})
+_ARM    = frozenset({15, 16, 17, 18, 25, 26, 27, 28})
+_CLAV   = frozenset({15, 25})
+_HEAD   = frozenset({20, 21, 22, 23, 24})
+_LEG    = frozenset({2, 3, 4, 5, 6, 7, 8, 9, 10, 11})
 
 # ── GLB reader (minimal — only what we need) ──────────────────────────────────
 def read_glb(path):
@@ -131,86 +146,52 @@ def append_accessor(gltf, bin_data, data_list, component_type, atype):
 
 
 # ── Morph delta computation ───────────────────────────────────────────────────
+def _bw(j, w, bone_set):
+    total = 0.0
+    for k in range(4):
+        if j[k] in bone_set: total += w[k]
+    return total
+
 def compute_deltas(positions, normals, joints, weights, morph_idx):
-    """
-    Returns list of (dx, dy, dz) for each vertex for the given morph.
-    Bone indices (approximate from Kenshi/Biped skeleton, adjust if needed):
-      0=root/hips  1=spine  2=spine1  3=spine2  4=neck  5=head
-      6=L_clavicle 7=L_upper_arm  8=L_forearm  9=L_hand
-      10=R_clavicle 11=R_upper_arm 12=R_forearm 13=R_hand
-      14=L_thigh  15=L_calf  16=L_foot
-      17=R_thigh  18=R_calf  19=R_foot
-    """
     n = len(positions)
     deltas = [(0.0, 0.0, 0.0)] * n
-    SCALE = 0.3   # max displacement in metres
-
-    def spine_w(j, w):
-        """Weight from spine chain bones."""
-        total = 0.0
-        for k in range(4):
-            if j[k] in (0, 1, 2, 3, 4): total += w[k]
-        return total
-
-    def belly_w(j, w):
-        """Weight concentrated at hips/lower spine."""
-        total = 0.0
-        for k in range(4):
-            if j[k] in (0, 1): total += w[k]
-        return total
-
-    def arm_w(j, w):
-        """Arm/shoulder weight."""
-        total = 0.0
-        for k in range(4):
-            if j[k] in (6, 7, 8, 9, 10, 11, 12, 13): total += w[k]
-        return total
-
-    def head_w(j, w):
-        for k in range(4):
-            if j[k] == 5: return w[k]
-        return 0.0
-
-    def leg_w(j, w):
-        total = 0.0
-        for k in range(4):
-            if j[k] in (14, 15, 16, 17, 18, 19): total += w[k]
-        return total
+    SCALE = 0.3
 
     for i in range(n):
-        p  = positions[i]   # (x, y, z)
-        nm = normals[i]     # (nx, ny, nz)
-        j  = joints[i]      # (j0,j1,j2,j3) uint8
-        w  = weights[i]     # (w0,w1,w2,w3) float
+        p  = positions[i]
+        nm = normals[i]
+        j  = joints[i]
+        w  = weights[i]
 
-        if morph_idx == 0:   # tall — scale Y by spine weight
-            sw = spine_w(j, w)
+        if morph_idx == 0:   # tall — elongate spine-weighted verts along Y
+            sw = _bw(j, w, _SPINE)
             deltas[i] = (0.0, p[1] * sw * 0.18, 0.0)
 
-        elif morph_idx == 1:  # fat — push outward by belly weight
-            bw = belly_w(j, w) + spine_w(j, w) * 0.4
+        elif morph_idx == 1:  # fat — push belly/torso outward along normal
+            bw = _bw(j, w, _BELLY) + _bw(j, w, _SPINE) * 0.4
             mag = bw * SCALE
             deltas[i] = (nm[0]*mag, nm[1]*mag*0.3, nm[2]*mag)
 
-        elif morph_idx == 2:  # muscular — arm + shoulder bulge
-            aw = arm_w(j, w)
+        elif morph_idx == 2:  # muscular — arm/shoulder bulge outward
+            aw = _bw(j, w, _ARM)
             mag = aw * SCALE * 0.7
             deltas[i] = (nm[0]*mag, nm[1]*mag, nm[2]*mag)
 
-        elif morph_idx == 3:  # longlegs — Y-scale of leg verts
-            lw = leg_w(j, w)
+        elif morph_idx == 3:  # longlegs — stretch leg verts along Y
+            lw = _bw(j, w, _LEG)
             deltas[i] = (0.0, p[1] * lw * 0.22, 0.0)
 
-        elif morph_idx == 4:  # bighead — uniform head expansion
-            hw = head_w(j, w)
+        elif morph_idx == 4:  # bighead — expand head verts along normal
+            hw = _bw(j, w, _HEAD)
             mag = hw * SCALE * 0.6
-            # scale around centroid (head is roughly at y>1.5m)
             deltas[i] = (nm[0]*mag, nm[1]*mag, nm[2]*mag)
 
-        elif morph_idx == 5:  # broadshdr — widen shoulders along X
-            aw = arm_w(j, w) * 0.5 + (1.0 if any(j[k] in (6,10) for k in range(4)) else 0.0)
+        elif morph_idx == 5:  # broadshdr — widen clavicle/arm region along X
+            # clavicle verts get full push; arm verts get half
+            cv = _bw(j, w, _CLAV)
+            av = _bw(j, w, _ARM) * 0.5
             sign = 1.0 if p[0] > 0 else -1.0
-            deltas[i] = (sign * aw * SCALE * 0.5, 0.0, 0.0)
+            deltas[i] = (sign * (cv + av) * SCALE * 0.5, 0.0, 0.0)
 
     return deltas
 
@@ -244,20 +225,37 @@ def main():
     n_verts = len(positions)
     print(f"[B] {n_verts} vertices, generating {len(MORPH_NAMES)} morphs ...")
 
-    morph_targets = []
-    for mi, name in enumerate(MORPH_NAMES):
-        deltas = compute_deltas(positions, normals, joints, weights_n, mi)
-        # Only store non-zero deltas (sparse representation in JSON, dense in accessor)
-        pos_acc = append_accessor(gltf, bin_data, deltas, 5126, 'VEC3')
-        morph_targets.append({'POSITION': pos_acc})
-        print(f"  [{mi}] {name:12s}  non-zero: {sum(1 for d in deltas if any(abs(v)>1e-6 for v in d))}")
+    # Collect existing face morph targets + names (from md_convert.py face pipeline)
+    existing_targets = prim.get('targets', [])
+    existing_names   = (prim.get('extras') or {}).get('targetNames', []) or \
+                       (mesh.get('extras') or {}).get('targetNames', [])
+    # Drop any stale body morphs (re-generate fresh)
+    keep_n = len(existing_names)
+    keep_t = existing_targets[:keep_n]
+    for name in MORPH_NAMES:
+        if name in existing_names:
+            idx = existing_names.index(name)
+            keep_n = idx
+            keep_t = existing_targets[:idx]
+            existing_names = existing_names[:idx]
+            break
 
-    # Attach morph targets to primitive
-    prim['targets'] = morph_targets
-    prim['extras'] = {'targetNames': MORPH_NAMES}
-    # Default weights = 0 (no morph applied)
-    mesh['weights'] = [0.0] * len(MORPH_NAMES)
-    mesh.setdefault('extras', {})['targetNames'] = MORPH_NAMES
+    new_targets = []
+    for mi, name in enumerate(MORPH_NAMES):
+        deltas  = compute_deltas(positions, normals, joints, weights_n, mi)
+        pos_acc = append_accessor(gltf, bin_data, deltas, 5126, 'VEC3')
+        new_targets.append({'POSITION': pos_acc})
+        nz = sum(1 for d in deltas if any(abs(v) > 1e-6 for v in d))
+        print(f"  [{mi}] {name:12s}  non-zero verts: {nz}")
+
+    all_targets = keep_t + new_targets
+    all_names   = list(existing_names) + MORPH_NAMES
+
+    prim['targets'] = all_targets
+    prim.setdefault('extras', {})['targetNames'] = all_names
+    mesh['weights'] = [0.0] * len(all_targets)
+    mesh.setdefault('extras', {})['targetNames'] = all_names
+    print(f"[B] Total morphs: {len(all_names)} ({len(existing_names)} face + {len(MORPH_NAMES)} body)")
 
     # Update buffer byteLength
     gltf['buffers'][0]['byteLength'] = len(bin_data)
@@ -270,7 +268,7 @@ def main():
         for name in MORPH_NAMES:
             f.write(name + '\n')
     print(f"[B] Wrote {NAMES_OUT}")
-    print("[B] Next: load md_human_morphs.glb in SkinMesh and drive mesh.weights from CharacterDef.morph_weights[]")
+    print("[B] Pipeline: md_convert.py → md_human.glb (face morphs) → morph_gen_b.py → md_human.glb (face + body morphs)")
 
 
 if __name__ == '__main__':
