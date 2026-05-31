@@ -64,13 +64,17 @@ class CaptureAnalysis:
     height: int
     anomalies: list[FrameAnomaly] = field(default_factory=list)
     delta_pcts: list[float]       = field(default_factory=list)
+    npc_delta_pcts: list[float]   = field(default_factory=list)   # delta тільки в NPC зоні
     contact_sheet_path: Optional[Path] = None
     delta_chart_path: Optional[Path]   = None
+    gif_path: Optional[Path]           = None
+    annotated_dir: Optional[Path]      = None
     npc_transparent_frames: int   = 0
     sky_missing_frames: int       = 0
     freeze_pairs: int             = 0
     jump_pairs: int               = 0
     twitch_pairs: int             = 0
+    npc_freeze_pairs: int         = 0   # NPC зона заморожена при русі камери
 
 
 # ── Аналіз фреймів ────────────────────────────────────────────────────────────
@@ -93,15 +97,22 @@ def check_sky(frame: np.ndarray) -> float:
     return float(np.mean(top[:, :, 2])) * 100.0
 
 
-def check_npc_visibility(frame: np.ndarray) -> float:
-    """
-    NPC зона: центральна вертикальна смуга (25-75% по X), верхня 2/3 по Y.
-    Повертає % пікселів з brightness > 0.15 (не чорний фон).
-    """
+def npc_roi(frame: np.ndarray) -> np.ndarray:
+    """Центральна зона кадру де зазвичай знаходиться NPC (35-65% X, 20-80% Y)."""
     h, w = frame.shape[:2]
-    roi = frame[: h * 2 // 3, w // 4: w * 3 // 4, :]
+    return frame[h // 5: h * 4 // 5, w * 35 // 100: w * 65 // 100, :]
+
+
+def check_npc_visibility(frame: np.ndarray) -> float:
+    """% пікселів в NPC зоні з brightness > 0.15 (не чорний фон і не небо)."""
+    roi = npc_roi(frame)
     brightness = np.mean(roi, axis=2)
     return float(np.mean(brightness > 0.15)) * 100.0
+
+
+def npc_delta_pct(a: np.ndarray, b: np.ndarray) -> float:
+    """Delta тільки в NPC зоні."""
+    return frame_delta_pct(npc_roi(a), npc_roi(b))
 
 
 def analyze_capture(capture_dir: Path, report_dir: Path) -> CaptureAnalysis:
@@ -124,10 +135,12 @@ def analyze_capture(capture_dir: Path, report_dir: Path) -> CaptureAnalysis:
     for p in frame_paths:
         frames.append(load_frame(p))
 
-    # ── Frame diff analysis ──
+    # ── Frame diff analysis (full frame + NPC region) ──
     for i in range(len(frames) - 1):
-        d = frame_delta_pct(frames[i], frames[i + 1])
+        d     = frame_delta_pct(frames[i], frames[i + 1])
+        d_npc = npc_delta_pct(frames[i], frames[i + 1])
         analysis.delta_pcts.append(d)
+        analysis.npc_delta_pcts.append(d_npc)
 
         fi = int(frame_paths[i].stem)
         fj = int(frame_paths[i + 1].stem)
@@ -136,19 +149,28 @@ def analyze_capture(capture_dir: Path, report_dir: Path) -> CaptureAnalysis:
             analysis.freeze_pairs += 1
             analysis.anomalies.append(FrameAnomaly(
                 fi, fj, "freeze", d,
-                f"NPC/сцена заморожені: delta={d:.2f}%"
+                f"Сцена заморожена: delta={d:.2f}%"
             ))
         elif d > JUMP_DELTA_PCT:
             analysis.jump_pairs += 1
             analysis.anomalies.append(FrameAnomaly(
                 fi, fj, "jump", d,
-                f"Різкий стрибок камери/NPC: delta={d:.2f}%"
+                f"Різкий стрибок: delta={d:.2f}%"
             ))
         elif TWITCH_DELTA_PCT < d <= JUMP_DELTA_PCT:
             analysis.twitch_pairs += 1
-            # не додаємо кожен — лише кластери
 
-    # Тремтіння: 3+ consecutive twitch з малим варіансом
+        # NPC заморожений при русі камери (камера рухається, NPC стоїть)
+        if d > 1.0 and d_npc < 0.3:
+            analysis.npc_freeze_pairs += 1
+            if analysis.npc_freeze_pairs <= 10:
+                analysis.anomalies.append(FrameAnomaly(
+                    fi, fj, "npc_freeze",
+                    d_npc,
+                    f"NPC не анімується (камера={d:.1f}% NPC={d_npc:.2f}%)"
+                ))
+
+    # Тремтіння: 3+ consecutive twitch
     deltas = analysis.delta_pcts
     for i in range(2, len(deltas) - 1):
         window = deltas[i-2:i+2]
@@ -156,7 +178,7 @@ def analyze_capture(capture_dir: Path, report_dir: Path) -> CaptureAnalysis:
             fi = int(frame_paths[i].stem)
             analysis.anomalies.append(FrameAnomaly(
                 fi, -1, "twitch", float(np.mean(window)),
-                f"Тремтіння анімації (3+ кадри): mid_delta={np.mean(window):.2f}%"
+                f"Тремтіння (3+ кадри): mid_delta={np.mean(window):.2f}%"
             ))
 
     # ── Per-frame checks ──
@@ -186,9 +208,17 @@ def analyze_capture(capture_dir: Path, report_dir: Path) -> CaptureAnalysis:
         frame_paths, report_dir, capture_id
     )
 
-    # ── Delta chart ──
+    # ── Delta chart (full + NPC) ──
     analysis.delta_chart_path = _make_delta_chart(
-        analysis.delta_pcts, report_dir, capture_id
+        analysis.delta_pcts, analysis.npc_delta_pcts, report_dir, capture_id
+    )
+
+    # ── Animated GIF (4fps для огляду) ──
+    analysis.gif_path = _make_gif(frame_paths, report_dir, capture_id, fps=4)
+
+    # ── Annotated frames для аномалій ──
+    analysis.annotated_dir = _make_annotated_frames(
+        analysis.anomalies, frames, frame_paths, report_dir, capture_id
     )
 
     return analysis
@@ -215,7 +245,99 @@ def _make_contact_sheet(frame_paths: list[Path], report_dir: Path, capture_id: s
     return out_path
 
 
-def _make_delta_chart(deltas: list[float], report_dir: Path, capture_id: str) -> Path:
+def _make_gif(frame_paths: list[Path], report_dir: Path, capture_id: str,
+              fps: int = 4, max_frames: int = 60) -> Optional[Path]:
+    """Animated GIF із фреймів (зменшений до 480p, max_frames кадрів для розміру)."""
+    try:
+        step = max(1, len(frame_paths) // max_frames)
+        selected = frame_paths[::step][:max_frames]
+        TARGET_W = 480
+        pil_frames = []
+        for p in selected:
+            img = Image.open(p).convert("RGB")
+            ratio = TARGET_W / img.width
+            thumb = img.resize((TARGET_W, int(img.height * ratio)), Image.LANCZOS)
+            pil_frames.append(thumb)
+
+        if not pil_frames:
+            return None
+        out = report_dir / f"{capture_id}_preview.gif"
+        pil_frames[0].save(
+            out, save_all=True, append_images=pil_frames[1:],
+            duration=int(1000 / fps), loop=0, optimize=False
+        )
+        return out
+    except Exception as e:
+        print(f"[warn] GIF failed: {e}")
+        return None
+
+
+def _make_annotated_frames(
+    anomalies: list[FrameAnomaly],
+    frames: list[np.ndarray],
+    frame_paths: list[Path],
+    report_dir: Path,
+    capture_id: str,
+) -> Optional[Path]:
+    """
+    Для кожної унікальної аномалії зберегти annotated PNG:
+    - Червона рамка навколо NPC зони
+    - Текст з типом аномалії і значенням
+    """
+    ann_dir = report_dir / "annotated"
+    ann_dir.mkdir(exist_ok=True)
+
+    # Унікальні фрейми з аномаліями (max 30)
+    seen_frames = set()
+    to_annotate = []
+    for a in anomalies:
+        if a.frame_a not in seen_frames and len(to_annotate) < 30:
+            seen_frames.add(a.frame_a)
+            to_annotate.append(a)
+
+    idx_map = {int(p.stem): i for i, p in enumerate(frame_paths)}
+
+    COLORS = {
+        "freeze":          (30, 144, 255),   # blue
+        "jump":            (148, 0, 211),    # purple
+        "sky_missing":     (255, 215, 0),    # gold
+        "npc_transparent": (255, 20, 147),   # pink
+        "twitch":          (255, 140, 0),    # orange
+        "npc_freeze":      (220, 20, 60),    # crimson
+    }
+
+    for anom in to_annotate:
+        fi = anom.frame_a
+        if fi not in idx_map:
+            continue
+        frame_arr = frames[idx_map[fi]]
+        H, W = frame_arr.shape[:2]
+
+        img = Image.fromarray((frame_arr * 255).astype(np.uint8))
+        draw = ImageDraw.Draw(img)
+        color = COLORS.get(anom.kind, (255, 0, 0))
+
+        # NPC bounding box (35-65% X, 20-80% Y)
+        x0, x1 = int(W * 0.35), int(W * 0.65)
+        y0, y1 = int(H * 0.20), int(H * 0.80)
+        for lw in range(3):
+            draw.rectangle([x0-lw, y0-lw, x1+lw, y1+lw], outline=color)
+
+        # Label
+        label = f"{anom.kind.upper()}  {anom.value:.2f}  #{fi:04d}"
+        draw.rectangle([0, 0, W, 32], fill=(0, 0, 0, 180))
+        draw.text((8, 6), label, fill=color)
+
+        out = ann_dir / f"{fi:04d}_{anom.kind}.png"
+        img.save(out)
+
+    if not list(ann_dir.iterdir()):
+        return None
+    return ann_dir
+
+
+def _make_delta_chart(deltas: list[float], npc_deltas: list[float],
+                      report_dir: Path, capture_id: str) -> Path:
     """PNG-графік frame-to-frame delta відсотків."""
     try:
         import matplotlib
@@ -223,26 +345,32 @@ def _make_delta_chart(deltas: list[float], report_dir: Path, capture_id: str) ->
         import matplotlib.pyplot as plt
         import matplotlib.patches as mpatches
 
-        fig, ax = plt.subplots(figsize=(14, 3), dpi=100)
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 5), dpi=100, sharex=True)
         x = list(range(len(deltas)))
+
+        # Top: full-frame delta
         colors = []
         for d in deltas:
-            if d < FREEZE_DELTA_PCT:
-                colors.append("#e74c3c")    # red — freeze
-            elif d > JUMP_DELTA_PCT:
-                colors.append("#9b59b6")    # purple — jump
-            elif d > TWITCH_DELTA_PCT:
-                colors.append("#f39c12")    # orange — twitch
-            else:
-                colors.append("#2ecc71")    # green — ok
+            if d < FREEZE_DELTA_PCT:   colors.append("#e74c3c")
+            elif d > JUMP_DELTA_PCT:   colors.append("#9b59b6")
+            elif d > TWITCH_DELTA_PCT: colors.append("#f39c12")
+            else:                      colors.append("#2ecc71")
+        ax1.bar(x, deltas, color=colors, width=1.0, linewidth=0)
+        ax1.axhline(FREEZE_DELTA_PCT, color="#e74c3c", lw=0.8, linestyle="--", alpha=0.7)
+        ax1.axhline(JUMP_DELTA_PCT,   color="#9b59b6", lw=0.8, linestyle="--", alpha=0.7)
+        ax1.set_ylabel("Delta % (full)")
+        ax1.set_title(f"Frame-to-frame delta — {capture_id}")
+        ax1.set_ylim(0, min(max(deltas) * 1.2 + 1, 100) if deltas else 10)
 
-        ax.bar(x, deltas, color=colors, width=1.0, linewidth=0)
-        ax.axhline(FREEZE_DELTA_PCT, color="#e74c3c", lw=0.8, linestyle="--", alpha=0.7)
-        ax.axhline(JUMP_DELTA_PCT,   color="#9b59b6", lw=0.8, linestyle="--", alpha=0.7)
-        ax.set_xlabel("Кадр")
-        ax.set_ylabel("Delta %")
-        ax.set_title(f"Frame-to-frame delta — {capture_id}")
-        ax.set_ylim(0, min(max(deltas) * 1.2 + 1, 100) if deltas else 10)
+        # Bottom: NPC region delta
+        npc_colors = ["#dc143c" if d < 0.3 else "#1e90ff" for d in npc_deltas]
+        ax2.bar(x[:len(npc_deltas)], npc_deltas, color=npc_colors, width=1.0, linewidth=0)
+        ax2.set_ylabel("Delta % (NPC zone)")
+        ax2.set_xlabel("Кадр")
+        ax2.set_ylim(0, min(max(npc_deltas) * 1.2 + 0.5, 50) if npc_deltas else 5)
+        ax2.axhline(0.3, color="#dc143c", lw=0.8, linestyle="--", alpha=0.7,
+                    label="NPC freeze threshold")
+        ax2.legend(loc="upper right", fontsize=7)
 
         patches = [
             mpatches.Patch(color="#e74c3c", label=f"Freeze (<{FREEZE_DELTA_PCT}%)"),
@@ -250,7 +378,7 @@ def _make_delta_chart(deltas: list[float], report_dir: Path, capture_id: str) ->
             mpatches.Patch(color="#9b59b6", label=f"Jump (>{JUMP_DELTA_PCT}%)"),
             mpatches.Patch(color="#2ecc71", label="OK"),
         ]
-        ax.legend(handles=patches, loc="upper right", fontsize=7)
+        ax1.legend(handles=patches, loc="upper right", fontsize=7)
         fig.tight_layout()
 
         out_path = report_dir / f"{capture_id}_delta.png"
@@ -315,7 +443,8 @@ def run_tests(binary: Path, timeout_s: int = 120) -> TestResults:
 
 def severity_icon(kind: str) -> str:
     return {"freeze": "🧊", "jump": "⚡", "sky_missing": "🌑",
-            "npc_transparent": "👻", "twitch": "🫨"}.get(kind, "⚠️")
+            "npc_transparent": "👻", "twitch": "🫨",
+            "npc_freeze": "🎭"}.get(kind, "⚠️")
 
 
 def gen_markdown(
@@ -358,7 +487,8 @@ def gen_markdown(
         f"| Кадрів | {cap.frame_count} |",
         f"| Роздільність | {cap.width}×{cap.height} |",
         f"| Аномалій (всього) | {total_anomalies} |",
-        f"| ❄️ Заморожені пари | {cap.freeze_pairs} |",
+        f"| ❄️ Сцена заморожена (пари) | {cap.freeze_pairs} |",
+        f"| 🎭 NPC не анімується (пари) | {cap.npc_freeze_pairs} |",
         f"| ⚡ Стрибки камери | {cap.jump_pairs} |",
         f"| 🫨 Тремтіння | {cap.twitch_pairs} |",
         f"| 🌑 Небо зникло (кадрів) | {cap.sky_missing_frames} |",
@@ -382,6 +512,15 @@ def gen_markdown(
                 f"",
             ]
 
+    # Animated GIF
+    if cap.gif_path:
+        lines += [
+            f"## 🎬 Preview GIF (4fps, до 60 кадрів)",
+            f"",
+            f"![Preview]({rel(cap.gif_path)})",
+            f"",
+        ]
+
     # Contact sheet
     if cap.contact_sheet_path:
         lines += [
@@ -400,12 +539,21 @@ def gen_markdown(
             lines.append("")
             lines.append("| Кадр | Значення | Опис |")
             lines.append("|------|----------|------|")
-            for a in alist[:10]:  # max 10 per category
+            for a in alist[:10]:
                 frame_ref = f"{a.frame_a:04d}" if a.frame_b < 0 else f"{a.frame_a:04d}→{a.frame_b:04d}"
                 lines.append(f"| {frame_ref} | {a.value:.2f} | {a.desc} |")
             if len(alist) > 10:
                 lines.append(f"| ... | | +{len(alist)-10} ще |")
             lines.append("")
+
+        # Annotated frames gallery
+        if cap.annotated_dir and cap.annotated_dir.exists():
+            ann_files = sorted(cap.annotated_dir.glob("*.png"))
+            if ann_files:
+                lines += [f"### 🖼️ Annotated Frames ({len(ann_files)})", ""]
+                for af in ann_files[:20]:
+                    lines.append(f"![{af.stem}](annotated/{af.name})")
+                lines.append("")
     else:
         lines += [f"## ✅ Аномалії не виявлено", f""]
 
@@ -444,8 +592,10 @@ def gen_markdown(
         recs.append("Небо зникає: Sky рендер повинен бути ПЕРШИМ у pass (depth_test=false)")
     if cap.twitch_pairs > 20:
         recs.append("Тремтіння анімації: перевірити breathing overlay weight та bone mask")
+    if cap.npc_freeze_pairs > 20:
+        recs.append("NPC не анімується (камера рухається, NPC стоїть): перевірити animation update, BT wander логіку")
     if cap.freeze_pairs > 50:
-        recs.append("NPC/анімація заморожені: перевірити animation update і QA сценарій руху")
+        recs.append("Вся сцена заморожена: перевірити QA сценарій і чи рухається камера")
     if cap.jump_pairs > 5:
         recs.append("Різкі стрибки камери: плавність orbit камери, interpolation")
 
