@@ -1280,13 +1280,12 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     // [2] = AbZ (not AbZ*AbFr): depth grows linear with Fr, same rate as Clavicle[2]=Sh*Fr.
     // Without vertex morphs, Fr² depth scale creates a 20% shoulder gap at Frame=120.
     for(int ji:{16,26}){ s_boneScales[ji][0]=H*AbFr; s_boneScales[ji][1]=H; s_boneScales[ji][2]=AbZ; }
-    float arm_pos = cl(Sh * comp(Ch, 0.45f));  // Kenshi RE line 264061: Sh * comp(Chest,0.45)
-    s_posScale[16][0] = arm_pos;
-    s_posScale[26][0] = arm_pos;
-    // [1] = along-clavicle (outward) direction: arm origin tracks clavicle expansion with Frame.
-    // Not in Kenshi RE (Kenshi uses artist morphs instead), but needed without them.
-    s_posScale[16][1] = cl(Sh * Fr);
-    s_posScale[26][1] = cl(Sh * Fr);
+    // pos_scales[16/26][0] = Sh*Fr: clavicle local-X = world-X (outward, verified from bind matrix).
+    // Clavicle s_boneScales[15][0]=Sh*Fr pushes shoulder outward; arm origin must follow.
+    // Kenshi uses Sh*comp(Ch,0.45) (no Frame) + artist broadshdr morph to fill the gap.
+    // Without the artist morph, Sh*Fr is needed to track the clavicle expansion exactly.
+    s_posScale[16][0] = cl(Sh * Fr);
+    s_posScale[26][0] = cl(Sh * Fr);
 
     // Forearm [17,27]: [2]=AbFr (linear, not AbFr²) for same reason as UpperArm
     for(int ji:{17,27}){ s_boneScales[ji][0]=H*AbFr; s_boneScales[ji][1]=H; s_boneScales[ji][2]=AbFr; }
