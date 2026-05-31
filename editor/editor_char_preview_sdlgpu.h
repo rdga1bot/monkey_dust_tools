@@ -1283,6 +1283,10 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     float arm_pos = cl(Sh * comp(Ch, 0.45f));  // Kenshi RE line 264061: Sh * comp(Chest,0.45)
     s_posScale[16][0] = arm_pos;
     s_posScale[26][0] = arm_pos;
+    // [1] = along-clavicle (outward) direction: arm origin tracks clavicle expansion with Frame.
+    // Not in Kenshi RE (Kenshi uses artist morphs instead), but needed without them.
+    s_posScale[16][1] = cl(Sh * Fr);
+    s_posScale[26][1] = cl(Sh * Fr);
 
     // Forearm [17,27]: [2]=AbFr (linear, not AbFr²) for same reason as UpperArm
     for(int ji:{17,27}){ s_boneScales[ji][0]=H*AbFr; s_boneScales[ji][1]=H; s_boneScales[ji][2]=AbFr; }
@@ -1306,15 +1310,18 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     // Jaw [23]: wy=FrH*Hd, wx=FrH*Hd*Hsp*jaw, wz=FrH*Hd   [line 264290]
     s_boneScales[23][0]=FrH*Hd; s_boneScales[23][1]=FrH*Hd*Hsp*jaw; s_boneScales[23][2]=FrH*Hd;
 
-    // Bone pose via OzzAnimator (same pipeline as in-game NPC render).
-    // SampleWorldMats gives world matrices before inv_bind — we apply
-    // s_posScale (positional) and s_boneScales (vertex) ourselves to keep
-    // the character-editor body-development formula intact.
-    float new_world[30][16];
+    // Use OzzAnimator::Sample with both bone_scales AND pos_scales.
+    // This applies ScaleSoATranslations (pos_scales) before LocalToModel,
+    // moving arm origins to track clavicle expansion — identical to game NPC path.
+    // Previously used SampleWorldMats which ignored s_posScale entirely.
     if (s_pose_ozz.IsLoaded() && s_pose_idle_clip >= 0) {
-        s_pose_ozz.SampleWorldMats(s_pose_idle_clip, 0.f, new_world);
+        static float ws_flat[OZZ_ANIM_MAX_BONES * 16];
+        s_pose_ozz.Sample(s_pose_idle_clip, 0.f, ws_flat,
+                          nullptr, s_boneScales, s_posScale);
+        memcpy(s_ws_mat, ws_flat, 30 * 16 * sizeof(float));
     } else {
         // Fallback: legacy custom FK (s_pose_rot[] loaded via cgltf).
+        float new_world[30][16];
         for (int i = 0; i < 30; i++) {
             float sl[16];
             float tp[3] = {
@@ -1328,13 +1335,13 @@ static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
             else
                 m4mul(new_world[i], new_world[(int)s_bone_parent[i]], sl);
         }
-    }
-    for (int i = 0; i < 30; i++) {
-        float sx=s_boneScales[i][0], sy=s_boneScales[i][1], sz=s_boneScales[i][2];
-        float S[16]={sx,0,0,0, 0,sy,0,0, 0,0,sz,0, 0,0,0,1};
-        float tmp[16];
-        m4mul(tmp, S, s_inv_bind[i]);
-        m4mul(s_ws_mat[i], new_world[i], tmp);
+        for (int i = 0; i < 30; i++) {
+            float sx=s_boneScales[i][0], sy=s_boneScales[i][1], sz=s_boneScales[i][2];
+            float S[16]={sx,0,0,0, 0,sy,0,0, 0,0,sz,0, 0,0,0,1};
+            float tmp[16];
+            m4mul(tmp, S, s_inv_bind[i]);
+            m4mul(s_ws_mat[i], new_world[i], tmp);
+        }
     }
 }
 
@@ -1398,8 +1405,9 @@ static void SetBodyMorphWeights(const float body[18], const float face[24]) {
     set("longlegs", pd(body[7], 100.f,15.f) * 0.3f);
     set("bighead",  pd(face[0], 100.f,10.f) * 0.3f);
 
+    // 0.6 instead of 0.3: without artist morphs, needs 2× weight to fill shoulder gap
     set("broadshdr",(pd(body[3], 100.f,20.f)*0.55f
-                   + pd(body[8], 100.f,10.f)*0.45f) * 0.3f);
+                   + pd(body[8], 100.f,10.f)*0.45f) * 0.6f);
 
     set("tall",     pd(body[2], 100.f,20.f) * 0.15f);
 
