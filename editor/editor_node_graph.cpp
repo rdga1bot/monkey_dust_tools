@@ -324,7 +324,13 @@ void EditorNodeGraphPanel::DrawNode(Node& n) {
 
     if (changed) SyncParamsToEngine((int)(&n - nodes_));
 
-    // Input pins (left side, coloured dot)
+    // Pin row: input on left, output on right.
+    // Right-align via SameLine(PIN_ROW_W - out_w): uses a FIXED node-relative
+    // offset, NOT GetContentRegionAvail() (which returns canvas width and breaks drag).
+    static constexpr float PIN_ROW_W = 148.f;
+    const float out_text_w = ImGui::CalcTextSize("Out ◀").x + 4.f;
+
+    bool drew_input = false;
     for (int i = 0; i < n.in_cnt; ++i) {
         const Pin& p = pins_[n.first_in + i];
         ed::BeginPin(ed::PinId(p.id), ed::PinKind::Input);
@@ -333,14 +339,19 @@ void EditorNodeGraphPanel::DrawNode(Node& n) {
             ImGui::Text("▶ %s", p.label);
             ImGui::PopStyleColor();
         ed::EndPin();
+        drew_input = true;
     }
 
-    // Output pin — left-aligned within node.
-    // DO NOT use SetCursorPosX(cursor + GetContentRegionAvail().x - w) here:
-    // inside ed::BeginPin(), GetContentRegionAvail() returns the CANVAS width,
-    // not the node width → bounding rect expands to ~700px → node drag fails.
     for (int i = 0; i < n.out_cnt; ++i) {
         const Pin& p = pins_[n.first_out + i];
+        if (drew_input) {
+            // Same row as last input: jump to right column
+            ImGui::SameLine(PIN_ROW_W - out_text_w);
+        } else {
+            // No inputs: just add a spacer so output sits at right
+            ImGui::Dummy(ImVec2(PIN_ROW_W - out_text_w, 1.f));
+            ImGui::SameLine();
+        }
         ed::BeginPin(ed::PinId(p.id), ed::PinKind::Output);
             md::PinColor c = md::PcgPinColor(p.data_type);
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(c.r,c.g,c.b,c.a));
