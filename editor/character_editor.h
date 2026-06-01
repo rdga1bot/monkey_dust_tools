@@ -559,8 +559,8 @@ static void StatBar(const char* stat_name, int val) {
 }
 
 // ── Main Draw ─────────────────────────────────────────────────────────────────
-static void Draw() {
-    PushKenshiTheme();
+static void Draw(bool kenshi_theme = true) {
+    if (kenshi_theme) PushKenshiTheme();
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {4.f, 4.f});
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,   {4.f, 3.f});
 
@@ -577,10 +577,10 @@ static void Draw() {
     // ═══════════════════════════════════════════════════════════════
     // LEFT PANEL
     // ═══════════════════════════════════════════════════════════════
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4{0.090f,0.070f,0.043f,1.f});
+    if (kenshi_theme) ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4{0.090f,0.070f,0.043f,1.f});
     ImGui::BeginChild("##cc_left", {left_w, total_h}, true,
                       ImGuiWindowFlags_NoScrollbar);
-    ImGui::PopStyleColor();
+    if (kenshi_theme) ImGui::PopStyleColor();
 
     // Name field
     ImGui::SetNextItemWidth(-1.f);
@@ -629,14 +629,78 @@ static void Draw() {
 
     // Clothes toggle
     {
-        static bool s_clothes = true;
+        bool& vis = CharPreviewSDLGPU::s_clothes_visible;
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {4.f, 2.f});
-        if (s_clothes) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.45f,0.35f,0.20f,1.f});
-        if (ImGui::Button(s_clothes ? u8"● CLOTHES" : "  CLOTHES",
+        if (vis) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.45f,0.35f,0.20f,1.f});
+        if (ImGui::Button(vis ? u8"● CLOTHES" : "  CLOTHES",
                           {ImGui::GetContentRegionAvail().x, 0.f}))
-            s_clothes = !s_clothes;
-        if (s_clothes) ImGui::PopStyleColor();
+            vis = !vis;
+        if (vis) ImGui::PopStyleColor();
         ImGui::PopStyleVar();
+    }
+
+    // ── Clothing slot pickers (only when clothes visible) ────────────────
+    if (CharPreviewSDLGPU::s_clothes_visible) {
+        ImGui::Spacing();
+
+        struct ClothItem { const char* label; int slot; int item_idx; };
+        static const ClothItem kClothMenu[] = {
+            // slot 0 — top
+            {"None",         0,  0},
+            {"Slave Shirt",  0,  1},
+            {"Drifter Coat", 0,  2},
+            {"Jacket",       0,  3},
+            {"Male Coat",    0,  4},
+            {"Monk Coat",    0,  5},
+            {"Samurai Top",  0,  6},
+            // slot 1 — bottom
+            {"None",         1,  7},
+            {"Drifter Pants",1,  8},
+            {"Cargo Pants",  1,  9},
+            {"Shorts",       1, 10},
+            {"Trousers",     1, 11},
+            {"Monk Pants",   1, 12},
+            {"Samurai Bot",  1, 13},
+            {"Slave Dress",  1, 14},
+        };
+        static constexpr int kMenuN = (int)(sizeof(kClothMenu)/sizeof(kClothMenu[0]));
+
+        static const char* kSlotLabel[2] = {"Top", "Bottom"};
+        for (int sl = 0; sl < 2; ++sl) {
+            float lw = 44.f;
+            ImGui::TextDisabled("%s", kSlotLabel[sl]);
+            ImGui::SameLine(lw);
+
+            // Current label
+            int cur_item = CharPreviewSDLGPU::s_cloth_sel[sl];
+            const char* cur_lbl = "None";
+            for (int i = 0; i < kMenuN; ++i)
+                if (kClothMenu[i].slot == sl && kClothMenu[i].item_idx == cur_item)
+                    { cur_lbl = kClothMenu[i].label; break; }
+
+            char cid[24]; snprintf(cid, sizeof(cid), "##csl%d", sl);
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 28.f);
+            if (ImGui::BeginCombo(cid, cur_lbl)) {
+                for (int i = 0; i < kMenuN; ++i) {
+                    if (kClothMenu[i].slot != sl) continue;
+                    bool sel = (kClothMenu[i].item_idx == cur_item);
+                    if (ImGui::Selectable(kClothMenu[i].label, sel))
+                        CharPreviewSDLGPU::SetClothingItem(kClothMenu[i].item_idx);
+                    if (sel) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+            // Color swatch for this slot
+            ImGui::SameLine(0.f, 3.f);
+            char ccid[24]; snprintf(ccid, sizeof(ccid), "##cc%d", sl);
+            if (ImGui::ColorEdit3(ccid, CharPreviewSDLGPU::s_cloth_color[sl],
+                    ImGuiColorEditFlags_NoLabel|ImGuiColorEditFlags_NoInputs|
+                    ImGuiColorEditFlags_NoTooltip)) {
+                // color changed — refresh slot with same item
+                int idx = CharPreviewSDLGPU::s_cloth_sel[sl];
+                CharPreviewSDLGPU::SetClothingItem(idx);
+            }
+        }
     }
 
     ImGui::Spacing();
@@ -651,19 +715,19 @@ static void Draw() {
     ImGui::Separator();
 
     // ── Race description ─────────────────────────────────────────
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.647f,0.510f,0.251f,1.f});
+    if (kenshi_theme) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.647f,0.510f,0.251f,1.f});
     ImGui::TextUnformatted("RACE DESCRIPTION");
-    ImGui::PopStyleColor();
+    if (kenshi_theme) ImGui::PopStyleColor();
 
     {
         float desc_h = total_h * 0.22f;
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4{0.07f,0.055f,0.033f,1.f});
+        if (kenshi_theme) ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4{0.07f,0.055f,0.033f,1.f});
         ImGui::BeginChild("##rc_desc", {0.f, desc_h}, false);
-        ImGui::PopStyleColor();
+        if (kenshi_theme) ImGui::PopStyleColor();
         ImGui::PushTextWrapPos(0.f);
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.73f,0.66f,0.51f,1.f});
+        if (kenshi_theme) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.73f,0.66f,0.51f,1.f});
         ImGui::TextWrapped("%s", kr.desc);
-        ImGui::PopStyleColor();
+        if (kenshi_theme) ImGui::PopStyleColor();
         ImGui::PopTextWrapPos();
         ImGui::EndChild();
     }
@@ -671,9 +735,9 @@ static void Draw() {
     ImGui::Separator();
 
     // ── Race stats ───────────────────────────────────────────────
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.647f,0.510f,0.251f,1.f});
+    if (kenshi_theme) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.647f,0.510f,0.251f,1.f});
     ImGui::TextUnformatted("RACE STATS");
-    ImGui::PopStyleColor();
+    if (kenshi_theme) ImGui::PopStyleColor();
 
     {
         float stats_h = total_h - ImGui::GetCursorPosY() - 4.f;
@@ -692,9 +756,9 @@ static void Draw() {
     // CENTER: 3D PREVIEW
     // ═══════════════════════════════════════════════════════════════
     ImGui::SameLine(0.f, spc);
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4{0.055f,0.043f,0.027f,1.f});
+    if (kenshi_theme) ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4{0.055f,0.043f,0.027f,1.f});
     ImGui::BeginChild("##cc_center", {center_w, total_h}, false);
-    ImGui::PopStyleColor();
+    if (kenshi_theme) ImGui::PopStyleColor();
 
     {
         static int s_prev_sex = -1;
@@ -708,6 +772,11 @@ static void Draw() {
                 : "game/data/textures/md_human_female_body.png";
 #ifdef MD_SDL_GPU
             CharPreviewSDLGPU::Init(glb, tex);
+            // Reload all active clothing slots with correct sex variant.
+            for (int sl = 0; sl < CharPreviewSDLGPU::CLOTH_MAX_SLOTS; ++sl) {
+                int idx = CharPreviewSDLGPU::s_cloth_sel[sl];
+                if (idx > 0) CharPreviewSDLGPU::SetClothingItem(idx);
+            }
 #else
             CharPreviewGL::Init(glb, tex);
 #endif
@@ -739,10 +808,10 @@ static void Draw() {
     // RIGHT PANEL: BODY / FACE / HAIR
     // ═══════════════════════════════════════════════════════════════
     ImGui::SameLine(0.f, spc);
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4{0.090f,0.070f,0.043f,1.f});
+    if (kenshi_theme) ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4{0.090f,0.070f,0.043f,1.f});
     ImGui::BeginChild("##cc_right", {right_w, total_h}, true,
                       ImGuiWindowFlags_NoScrollbar);
-    ImGui::PopStyleColor();
+    if (kenshi_theme) ImGui::PopStyleColor();
 
     // ── BODY / FACE / HAIR tab buttons ───────────────────────────
     {
@@ -751,7 +820,7 @@ static void Draw() {
         for (int t = 0; t < 3; ++t) {
             if (t > 0) ImGui::SameLine(0.f, spc);
             bool active = (s_tab == t);
-            if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.549f,0.431f,0.251f,1.f});
+            if (active && kenshi_theme) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.549f,0.431f,0.251f,1.f});
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {2.f, 4.f});
             if (ImGui::Button(kTabLbl[t], {bw3, 0.f})) {
                 if (s_tab != t) {
@@ -762,7 +831,7 @@ static void Draw() {
                 }
             }
             ImGui::PopStyleVar();
-            if (active) ImGui::PopStyleColor();
+            if (active && kenshi_theme) ImGui::PopStyleColor();
         }
     }
     ImGui::Separator();
@@ -787,21 +856,48 @@ static void Draw() {
         for (int i = 0; i < FACE_N; ++i)
             KenshiSlider(kFaceLbl[i], &s_def.face[i], kFaceLo[i], kFaceHi[i]);
     } else {
-        // HAIR tab: colour params (hair mesh not yet rendered — sliders are placeholders)
-        ImGui::TextDisabled("(hair mesh not implemented)");
+        // ── HAIR tab ──────────────────────────────────────────────────────────
+        // Style selector
+        ImGui::TextUnformatted("Hair Style");
+        ImGui::SameLine();
+        float avail = ImGui::GetContentRegionAvail().x;
+        float btnW  = (avail - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+        if (ImGui::Button("< Prev", {btnW, 0})) {
+            int ns = (CharPreviewSDLGPU::s_hair_style - 1 + CharPreviewSDLGPU::s_hair_style_count)
+                      % CharPreviewSDLGPU::s_hair_style_count;
+            CharPreviewSDLGPU::LoadHairStyle(ns);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Next >", {btnW, 0})) {
+            int ns = (CharPreviewSDLGPU::s_hair_style + 1)
+                      % CharPreviewSDLGPU::s_hair_style_count;
+            CharPreviewSDLGPU::LoadHairStyle(ns);
+        }
+        // Current style name
+        ImGui::SetNextItemWidth(-1.f);
+        int cur = CharPreviewSDLGPU::s_hair_style;
+        if (ImGui::BeginCombo("##hstyle", CharPreviewSDLGPU::s_hair_styles[cur])) {
+            for (int i=0; i<CharPreviewSDLGPU::s_hair_style_count; ++i) {
+                bool sel = (i == cur);
+                if (ImGui::Selectable(CharPreviewSDLGPU::s_hair_styles[i], sel))
+                    CharPreviewSDLGPU::LoadHairStyle(i);
+                if (sel) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
         ImGui::Spacing();
-        for (int i = 0; i < 3; ++i)
-            KenshiSlider(kHairLbl[i], &s_def.hair_f[i], 0.f, 100.f);
-        ImGui::Spacing();
-        ImGui::TextDisabled("Hair Colour");
+
+        // Hair colour
+        ImGui::TextUnformatted("Hair Colour");
         ImGui::SetNextItemWidth(-1.f);
         ImGui::ColorEdit3("##hcol", s_def.hair_rgb);
         ImGui::Spacing();
-        ImGui::TextDisabled("Skin Colour");
+
+        // Skin colour
+        ImGui::TextUnformatted("Skin Colour");
         ImGui::SetNextItemWidth(-1.f);
         ImGui::ColorEdit3("##scol", s_def.skin_rgb);
         ImGui::Spacing();
-        // Saturation / Brightness map to hair_f[3/4]
         KenshiSlider("Saturation", &s_def.hair_f[3], 0.f, 200.f);
         KenshiSlider("Brightness", &s_def.hair_f[4], 0.f, 100.f);
     }
@@ -863,7 +959,7 @@ static void Draw() {
     ImGui::EndChild();  // right
 
     ImGui::PopStyleVar(2);
-    PopKenshiTheme();
+    if (kenshi_theme) PopKenshiTheme();
 }
 
 } // namespace CharacterEditor

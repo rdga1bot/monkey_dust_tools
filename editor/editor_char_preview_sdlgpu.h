@@ -6,6 +6,8 @@
 // DrawInImGui() is called inside the Characters tab.
 
 #include "imgui.h"
+#include <monkey_dust/platform/window.h>   // _wnd::ptr() for SDL_WarpMouseInWindow
+#include <monkey_dust/render/hair_shading.h>
 #include <monkey_dust/render/gpu_device.h>
 #include <monkey_dust/render/gpu_hal.h>
 #include <monkey_dust/render/skin_mesh.h>
@@ -52,6 +54,23 @@ static SDL_GPUTexture* s_bones_tex     = nullptr;
 static SDL_GPUSampler* s_bones_sampler = nullptr;
 static int             s_ni  = 0;
 static bool            s_ok  = false;
+
+// ── Hair system ───────────────────────────────────────────────────────────────
+struct HairFU { float hair[3]; float pad; };   // set=3, 16 bytes
+static GpuPipeline     s_hair_pipeline;
+static GpuStaticBuffer s_hair_vbo;
+static GpuStaticBuffer s_hair_ibo;
+static int             s_hair_ni      = 0;     // index count of current style
+static int             s_hair_style   = 0;     // index into s_hair_styles
+static const char* const s_hair_styles[] = {
+    "hair01","hair02","hair03","hair04","hair05","hair06","hair07","hair08",
+    "haircut_male01","haircut_male02","haircut_male03","haircut_male04","haircut_male05",
+    "haircut_male06","haircut_male07","haircut_male08","haircut_male09","haircut_male10",
+    "haircut_female01","haircut_female02","haircut_female03","haircut_female04",
+    "haircut_female05","haircut_female06","haircut_female07","haircut_female08",
+    "hairlongbald","frizzhair","nutfro","afrohair",
+};
+static constexpr int s_hair_style_count = 30;
 
 // Per-bone scales — OGRE has two independent operations:
 //   s_boneScales = setBoneSize       → scales vertices around bone origin (vertex deformation only)
@@ -359,6 +378,50 @@ static void ensure_rtt(int w, int h) {
     ci.format=SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
     ci.usage=SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
     s_depth=SDL_CreateGPUTexture(dev,&ci);
+}
+
+// ── LoadHairStyle: load a hair GLB as pos+norm static mesh ───────────────────
+static bool LoadHairStyle(int style_idx) {
+    if (style_idx < 0 || style_idx >= s_hair_style_count) return false;
+    char path[256];
+    snprintf(path, sizeof(path), "game/data/hair/%s.glb", s_hair_styles[style_idx]);
+
+    cgltf_options opt{}; cgltf_data* d = nullptr;
+    if (cgltf_parse_file(&opt, path, &d) != cgltf_result_success) {
+        fprintf(stderr, "[Hair] missing: %s\n", path); return false;
+    }
+    cgltf_load_buffers(&opt, d, path);
+
+    auto& pr = d->meshes[0].primitives[0];
+    cgltf_accessor* ap = nullptr;
+    cgltf_accessor* an = nullptr;
+    for (int i=0; i<(int)pr.attributes_count; ++i) {
+        if (pr.attributes[i].type == cgltf_attribute_type_position) ap = pr.attributes[i].data;
+        if (pr.attributes[i].type == cgltf_attribute_type_normal)   an = pr.attributes[i].data;
+    }
+    if (!ap || !pr.indices) { cgltf_free(d); return false; }
+
+    int nv = (int)ap->count;
+    struct HV { float px,py,pz, nx,ny,nz; };
+    std::vector<HV> verts(nv);
+    for (int i=0; i<nv; ++i) {
+        float p[3]={0,0,0}, n[3]={0,1,0};
+        cgltf_accessor_read_float(ap, i, p, 3);
+        if (an) cgltf_accessor_read_float(an, i, n, 3);
+        verts[i] = {p[0],p[1],p[2], n[0],n[1],n[2]};
+    }
+    int ni = (int)pr.indices->count;
+    std::vector<uint16_t> idx(ni);
+    for (int i=0; i<ni; ++i)
+        idx[i] = (uint16_t)cgltf_accessor_read_index(pr.indices, i);
+    cgltf_free(d);
+
+    s_hair_vbo.Init(0x8892/*GL_ARRAY_BUFFER*/,   verts.data(), (uint32_t)(nv * sizeof(HV)));
+    s_hair_ibo.Init(0x8893/*GL_ELEMENT_ARRAY_BUFFER*/, idx.data(), (uint32_t)(ni * 2));
+    s_hair_ni = ni;
+    s_hair_style = style_idx;
+    fprintf(stdout, "[Hair] loaded %s (%dv %di)\n", s_hair_styles[style_idx], nv, ni/3);
+    return true;
 }
 
 // ── Init: load GLB (T-pose) + body texture + pipeline ─────────────────────────
@@ -948,6 +1011,34 @@ static bool Init(const char* glb_path, const char* tex_path) {
         }
     }
 
+    // ── Hair pipeline ─────────────────────────────────────────────────────────
+    {
+        GpuPipeline::Desc hpd;
+        hpd.vert_path = "shaders/char_hair.vert";
+        hpd.frag_path = "shaders/char_hair.frag";
+        hpd.layout.count  = 2;
+        hpd.layout.stride = 24;  // vec3 pos + vec3 norm = 24 bytes
+        hpd.layout.attribs[0] = {0,  0, GpuAttribFmt::F3};   // aPos
+        hpd.layout.attribs[1] = {1, 12, GpuAttribFmt::F3};   // aNorm
+        hpd.raster.depth_test  = true;
+        hpd.raster.depth_write = true;
+        hpd.raster.cull_back   = false;   // hair = double-sided
+        hpd.vert_samplers      = 1;       // set=0: uBoneMats
+        hpd.vert_uniform_bufs  = 1;       // set=1: VU (mvp)
+        hpd.frag_samplers      = 0;
+        hpd.frag_uniform_bufs  = 2;       // set=3 binding=0: HairFU, binding=1: HairShadingFU
+        hpd.color_format       = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+        hpd.has_depth_target   = true;
+        if (!s_hair_pipeline.Create(hpd))
+            fprintf(stderr, "[Hair] pipeline create failed\n");
+    }
+
+    // Load default hair style (hair01)
+    LoadHairStyle(0);
+
+    // Load hair shading params from file (falls back to defaults if missing)
+    HairShading::Load("game/data/chars/hair_shading.txt");
+
     s_ok=true;
     return true;
 }
@@ -1016,6 +1107,19 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
     float asp=(float)s_rtt_w/(float)s_rtt_h;
     M4 proj = m4_persp(0.78f, asp, 0.05f, 10.f);
     M4 mvp  = m4_mul(proj, m4_mul(view, model));
+
+    // Eye position in MODEL space for hair shader (V = normalize(eye_model - bone_pos)).
+    // eye_world = inv(view) translation column.
+    // eye_model = inv(model) * eye_world = eye_world + (0, +height*0.95, 0)
+    // because model = translate(0, -height*0.95, 0) so inv(model) = translate(0, +height*0.95, 0).
+    // This avoids passing a second mat4 in the vertex UB (would hit 128-byte push-constant limit).
+    {
+        float inv_v[16]; m4inv_rigid(inv_v, view.m);
+        HairShading::g_params.eye_pos[0] = inv_v[12];
+        HairShading::g_params.eye_pos[1] = inv_v[13] + s_height * 0.95f;
+        HairShading::g_params.eye_pos[2] = inv_v[14];
+        HairShading::g_params.eye_pos[3] = 0.f;
+    }
 
     // Render pass on RTT
     SDL_GPUColorTargetInfo ct={};
@@ -1116,7 +1220,41 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
     SDL_BindGPUFragmentSamplers(rp,0,ftb,4);
 
     SDL_DrawGPUIndexedPrimitives(rp,(uint32_t)s_ni,1,0,0,0);
+
+    // ── Hair render (same render pass, after character) ───────────────────────
+    if (s_hair_pipeline.SDLPipeline() && s_hair_vbo.SDLBuffer() &&
+        s_hair_ibo.SDLBuffer() && s_hair_ni > 0) {
+        SDL_BindGPUGraphicsPipeline(rp, s_hair_pipeline.SDLPipeline());
+        // Vertex: bone matrices texture (same as character)
+        SDL_GPUTextureSamplerBinding hvtb = { s_bones_tex, s_bones_sampler };
+        SDL_BindGPUVertexSamplers(rp, 0, &hvtb, 1);
+        // Vertex uniform: MVP only (64 bytes — safe on Intel HD 520).
+        // eye_pos is passed in model space via frag UB so no second matrix needed.
+        VU hvu; memcpy(hvu.mvp, mvp.m, 64);
+        SDL_PushGPUVertexUniformData(cmd, 0, &hvu, sizeof(hvu));
+        // Fragment uniform slot 0: hair color
+        HairFU hfu; hfu.hair[0]=s_hair[0]; hfu.hair[1]=s_hair[1]; hfu.hair[2]=s_hair[2]; hfu.pad=0;
+        SDL_PushGPUFragmentUniformData(cmd, 0, &hfu, sizeof(hfu));
+        // Fragment uniform slot 1: hair shading params (eye_pos updated each frame above)
+        SDL_PushGPUFragmentUniformData(cmd, 1, &HairShading::g_params, sizeof(HairShadingFU));
+        // Geometry
+        SDL_GPUBufferBinding hvb{s_hair_vbo.SDLBuffer(), 0u};
+        SDL_BindGPUVertexBuffers(rp, 0, &hvb, 1);
+        SDL_GPUBufferBinding hib{s_hair_ibo.SDLBuffer(), 0u};
+        SDL_BindGPUIndexBuffer(rp, &hib, SDL_GPU_INDEXELEMENTSIZE_16BIT);
+        SDL_DrawGPUIndexedPrimitives(rp, (uint32_t)s_hair_ni, 1, 0, 0, 0);
+    }
+
     SDL_EndGPURenderPass(rp);
+}
+
+// ── Hot-reload: recreate all char-preview pipelines from current SPV files ───
+static void ReloadPipelines() {
+    s_bg_pipeline.Reload();
+    s_scene_pipeline.Reload();
+    s_pipeline.Reload();
+    s_hair_pipeline.Reload();
+    fprintf(stdout, "[CharPreview] Pipelines reloaded\n");
 }
 
 // ── Bone scale CPU → GPU: call once per frame before DrawInImGui ─────────────
@@ -1561,11 +1699,14 @@ static void DrawInImGui(float W, float H,
         s_pit = ((float)(fr % 252) / 1000.f - 0.083f) * 3.14159f * 0.25f;
     }
 
-    // RMB drag = yaw only (no pitch) — interrupts auto-rotation
-    if (hov && io.MouseClicked[1]) { s_drag=true; s_d0=io.MousePos; s_y0=s_yaw; }
+    // RMB drag = yaw rotation via ImGui mouse delta (reliable on both X11 and Wayland).
+    if (hov && io.MouseClicked[1])
+        s_drag = true;
     if (s_drag) {
-        if (io.MouseDown[1]) s_yaw = s_y0 + (io.MousePos.x - s_d0.x) * 0.007f;
-        else s_drag = false;
+        if (io.MouseDown[1])
+            s_yaw += io.MouseDelta.x * 0.007f;
+        else
+            s_drag = false;
     }
     // Scroll = zoom
     if (hov && io.MouseWheel!=0.f) {
@@ -1585,6 +1726,45 @@ static void DrawInImGui(float W, float H,
     if (hov)
         ImGui::GetWindowDrawList()->AddRect(origin,{origin.x+W,origin.y+H},
             IM_COL32(80,120,200,120),2.f);
+
+    // ── GPU debug overlay — toggle with Ctrl+D ────────────────────────────────
+    // Shows real-time uniform values and pipeline state. Helps diagnose shader bugs
+    // without RenderDoc: if hair_color shows white here → HairFU binding is wrong.
+    {
+        static bool s_show_debug = false;
+        if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_D)) s_show_debug = !s_show_debug;
+        if (s_show_debug) {
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            ImVec2 p = {origin.x + 4.f, origin.y + 4.f};
+            auto txt = [&](const char* t, ImU32 col = IM_COL32(255,255,100,230)) {
+                dl->AddText(p, IM_COL32(0,0,0,200), t);  // shadow
+                p.y -= 1.f; auto pp = ImVec2{p.x-1,p.y};
+                dl->AddText(pp, col, t);
+                p.y += 14.f;
+            };
+            char buf[128];
+            txt("[Ctrl+D] GPU Debug");
+            snprintf(buf,sizeof(buf),"hair_color: %.2f %.2f %.2f",s_hair[0],s_hair[1],s_hair[2]);
+            bool bad_hair = (s_hair[0]>0.9f && s_hair[1]>0.9f && s_hair[2]>0.9f);
+            txt(buf, bad_hair ? IM_COL32(255,80,80,230) : IM_COL32(100,255,100,230));
+            snprintf(buf,sizeof(buf),"eye_model: %.2f %.2f %.2f",
+                HairShading::g_params.eye_pos[0],
+                HairShading::g_params.eye_pos[1],
+                HairShading::g_params.eye_pos[2]);
+            txt(buf);
+            snprintf(buf,sizeof(buf),"pipeline: %s  hair_pipe: %s",
+                s_pipeline.SDLPipeline() ? "OK" : "FAIL",
+                s_hair_pipeline.SDLPipeline() ? "OK" : "FAIL");
+            bool bad_pipe = !s_pipeline.SDLPipeline() || !s_hair_pipeline.SDLPipeline();
+            txt(buf, bad_pipe ? IM_COL32(255,80,80,230) : IM_COL32(100,255,100,230));
+            snprintf(buf,sizeof(buf),"bone21 diag: %.2f  hair_ni: %d",
+                s_ws_mat[21][0], s_hair_ni);
+            txt(buf);
+            snprintf(buf,sizeof(buf),"dist:%.2f yaw:%.1f pit:%.1f",
+                s_dist, s_yaw*57.3f, s_pit*57.3f);
+            txt(buf);
+        }
+    }
 
     // ── Height ruler overlay (right edge) ────────────────────────────────────
     // project (0, world_y, 0) → screen_y using the same view+proj as RenderFrame

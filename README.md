@@ -55,6 +55,42 @@ Fuzzy-scored command search (+1 prefix · +4 acronym · +2 substring) across all
 
 ---
 
+### Shader hot-reload — zero-restart shader iteration
+
+```bash
+# Terminal 2: auto-recompile on .vert/.frag/.comp save
+bash tools/shader_watch.sh
+
+# In editor console after compilation:
+/reload-shaders   # reloads all GPU pipelines without restart
+```
+
+`tools/shader_watch.sh` uses `inotifywait` (inotify-tools) to watch `shaders/`; falls back to 5-second polling if not available.
+`/reload-shaders` calls `GpuPipeline::Reload()` on all char-preview pipelines after running `compile_shaders.sh`.
+
+**RenderDoc integration:**
+```bash
+SDL_GPU_DEBUGMODE=1 renderdoc build/tools/monkey_dust_editor   # editor
+SDL_GPU_DEBUGMODE=1 renderdoc build/game/monkey_dust            # game
+# F12 = capture frame → inspect uniform buffers, depth texture, per-draw state
+```
+
+**GPU debug overlay** (Ctrl+D in Characters tab): real-time `hair_color`, `eye_pos`, pipeline status, bone21 diagonal. Red highlight when `hair_color` = white (HairFU binding error).
+
+---
+
+### `tools/qa/char_preview_qa.sh` — Character Preview Visual Regression
+
+```bash
+bash tools/qa/char_preview_qa.sh --save    hair_front   # baseline from latest screenshot
+bash tools/qa/char_preview_qa.sh --compare hair_front   # pixel diff (ImageMagick RMSE)
+bash tools/qa/char_preview_qa.sh --list                 # list saved baselines
+```
+
+Baselines stored in `tools/qa/baselines/char_preview/`. Threshold: RMSE < 0.02.
+
+---
+
 ### `ozz_bake` — GLB → ozz Animation Converter
 
 Offline converter: reads a GLB file with embedded skeleton and animations, writes `.ozz` skeleton + per-clip animation files consumed by `OzzAnimPlayer`.

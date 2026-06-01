@@ -3,8 +3,10 @@
 // Loads: game/data/terrain_config.txt, game/data/md_world.json
 // Saves: game/data/terrain_config.txt, game/data/factions_override.cfg, game/data/towns.cfg
 
+// MD_KENSHI_TMP: override at cmake time with -DMD_KENSHI_TMP=<path> for dev asset import.
+// Default points to repo-relative temp dir — does NOT break runtime if absent.
 #ifndef MD_KENSHI_TMP
-#  define MD_KENSHI_TMP "/home/rdga1/rdga1prj/monkeydust/tmp_/kenshi"
+#  define MD_KENSHI_TMP "tmp_/kenshi"
 #endif
 
 #ifndef MD_SDL_GPU

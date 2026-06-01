@@ -93,7 +93,7 @@ if [[ $NO_CAPTURE -eq 0 ]] && [[ $FAIL -eq 0 ]]; then
     sleep 1
 
     CAPTURE_OUT=$(python3 scripts/game_capture.py \
-        --no-launch --record-fps 10 \
+        --no-launch --record-fps 10 --frame-fps 1 \
         --output-dir "${CAPTURE_DIR}/frames" 2>&1) || true
 
     wait $GAME_PID 2>/dev/null || true

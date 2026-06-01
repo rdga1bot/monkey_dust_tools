@@ -54,7 +54,7 @@ inline void SetupTheme() {
     c[ImGuiCol_Text]                  = {0.87f, 0.89f, 0.95f, 1.00f};
     c[ImGuiCol_TextDisabled]          = {0.42f, 0.46f, 0.58f, 1.00f};
     c[ImGuiCol_WindowBg]              = {0.09f, 0.11f, 0.17f, 1.00f};
-    c[ImGuiCol_ChildBg]               = {0.07f, 0.09f, 0.14f, 1.00f};
+    c[ImGuiCol_ChildBg]               = {0.09f, 0.11f, 0.17f, 1.00f};  // matches WindowBg — no panel contrast
     c[ImGuiCol_PopupBg]               = {0.09f, 0.11f, 0.17f, 0.96f};
     c[ImGuiCol_Border]                = {0.20f, 0.24f, 0.38f, 1.00f};
     c[ImGuiCol_BorderShadow]          = {0.00f, 0.00f, 0.00f, 0.00f};

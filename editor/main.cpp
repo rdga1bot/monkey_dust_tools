@@ -1,4 +1,5 @@
 #include <monkey_dust/platform/window.h>
+#include <monkey_dust/platform/font_loader.h>
 #include <monkey_dust/platform/input.h>
 #include <monkey_dust/render/gpu_device.h>
 #include <monkey_dust/render/gpu_hal.h>
@@ -26,6 +27,12 @@
 #include "editor_layout.h"
 #include "bug_capture.h"
 #include <cstdio>
+
+// ── Hot-reload: called by /reload-shaders console command ─────────────────────
+void EditorReloadAllShaderPipelines() {
+    CharPreviewSDLGPU::ReloadPipelines();
+    fprintf(stdout, "[Editor] Shader pipelines reloaded\n");
+}
 
 // ── Bridge: PCG terrain upload (defined here — only TU that includes W3D header) ─
 void EditorW3D_UploadTerrainHeightmap(const float* hmap, int W, int H,
@@ -71,19 +78,14 @@ int main(void) {
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;
     io.Fonts->Clear();
-    static const ImWchar ranges[] = { 0x0020,0x00FF, 0x0400,0x04FF, 0 };
-
-    SettingsEditor::Load(CFG_PATH);
-    auto& cfg = SettingsEditor::g_cfg;
-    float sc = EditorUI::ui_scale;
-    auto lf = [&](const char* p, float s) -> ImFont* {
-        float sz = s*sc; if (sz<8.f) sz=8.f;
-        ImFont* f = io.Fonts->AddFontFromFileTTF(p, sz, nullptr, ranges);
-        return f ? f : io.Fonts->AddFontDefault();
-    };
-    EditorUI::font_regular = lf(cfg.label.path,  (float)cfg.label.size);
-    EditorUI::font_bold    = lf(cfg.header.path, (float)cfg.header.size);
-    EditorUI::font_mono    = lf(cfg.mono.path,   (float)cfg.mono.size);
+    SettingsEditor::Load(CFG_PATH);  // load saved sizes (path/font fields removed)
+    float sc      = EditorUI::ui_scale;
+    float ui_sz   = (float)SettingsEditor::g_cfg.ui_size   * sc; if (ui_sz   < 8.f) ui_sz   = 8.f;
+    float mono_sz = (float)SettingsEditor::g_cfg.mono_size * sc; if (mono_sz < 8.f) mono_sz = 8.f;
+    MdFonts::Load(ui_sz, mono_sz);  // embedded Arimo + UbuntuMono — no system dependency
+    EditorUI::font_regular = MdFonts::regular;
+    EditorUI::font_bold    = MdFonts::bold;
+    EditorUI::font_mono    = MdFonts::mono;
 
     ImGui_ImplSDL3_InitForSDLGPU(_wnd::ptr());
     ImGui_ImplSDLGPU3_InitInfo info = {};
@@ -285,7 +287,7 @@ int main(void) {
             if (ImGui::BeginTabItem("Characters")) {
                 s_charpreview_active = true;
                 ImGui::SetCursorPos({8,ImGui::GetCursorPosY()+4});
-                CharacterEditor::Draw();
+                CharacterEditor::Draw(false);  // tools editor uses EditorUI navy theme
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Settings")) {

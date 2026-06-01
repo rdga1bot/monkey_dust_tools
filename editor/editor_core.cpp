@@ -1,5 +1,6 @@
 #ifdef MONKEY_DUST_EDITOR
 #include "editor_core.h"
+#include "editor_characters_panel.h"
 #include "editor_toolbar.h"
 #include "editor_hierarchy.h"
 #include "editor_inspector.h"
@@ -15,6 +16,9 @@
 #include "editor_node_graph.h"
 #include <monkey_dust/world/world_transform.h>
 #include <monkey_dust/platform/input.h>
+#include <monkey_dust/platform/window.h>  // _wnd::ptr() for RelativeMouseMode
+#include "editor_char_mouse.h"
+#include <SDL3/SDL.h>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -125,14 +129,16 @@ void EditorCore::Update(float dt) {
 
     // If the active tab's panel is floating, make ##f3editor transparent so the
     // game is visible behind the detached panel (one-frame lag is imperceptible).
-    static int s_f3_active_tab = 0;
-    const bool det6[6] = { g_det_scene, g_det_ai, g_det_anim, g_det_flow, g_det_debug, g_det_cam };
+    static int  s_f3_active_tab = 0;
+    static bool g_det_char = false;
+    static ImVec2 f3_pos_char{400.f,200.f}, f3_size_char{420.f,280.f};
+    const bool det7[7] = { g_det_scene, g_det_ai, g_det_anim, g_det_flow, g_det_debug, g_det_cam, g_det_char };
     ImGuiWindowFlags f3_flags =
         ImGuiWindowFlags_NoTitleBar  | ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoMove      | ImGuiWindowFlags_NoScrollbar |
         ImGuiWindowFlags_NoScrollWithMouse |
         ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoSavedSettings;
-    if (det6[s_f3_active_tab]) f3_flags |= ImGuiWindowFlags_NoBackground;
+    if (s_f3_active_tab < 7 && det7[s_f3_active_tab]) f3_flags |= ImGuiWindowFlags_NoBackground;
     if (f3_passthrough)        f3_flags |= ImGuiWindowFlags_NoMouseInputs;
 
     ImGui::SetNextWindowPos({0.f, toolbar_h});
@@ -322,6 +328,24 @@ void EditorCore::Update(float dt) {
             }
             ImGui::EndTabItem();
         }
+        if (ImGui::BeginTabItem("Characters")) { s_f3_active_tab = 6;
+            if (!g_det_char) {
+                if (ImGui::SmallButton("Detach##chr")) g_det_char = true;
+                ImGui::Separator();
+                EditorCharactersPanel::Get().DrawContent();
+            } else {
+                if (f3_pos_char.y < min_y) f3_pos_char.y = min_y;
+                ImGui::SetNextWindowPos(f3_pos_char, ImGuiCond_Appearing);
+                ImGui::SetNextWindowSize(f3_size_char, ImGuiCond_Appearing);
+                if (ImGui::Begin("Characters##float", &g_det_char, FLOAT_FLAGS)) {
+                    if (ImGui::Button("Dock##chr")) g_det_char = false;
+                    ImGui::Separator();
+                    EditorCharactersPanel::Get().DrawContent();
+                }
+                f3_end(f3_pos_char, f3_size_char);
+            }
+            ImGui::EndTabItem();
+        }
         ImGui::EndTabBar();
     }
     ImGui::End();
@@ -377,10 +401,24 @@ void EditorCore::UpdateEditorCamera(float dt, bool viewport_hovered) {
 
     ImGuiIO& io = ImGui::GetIO();
 
+    // Relative mouse mode for unlimited 360° rotation on RMB (no window-edge clamping).
+    bool rmb_down = io.MouseDown[ImGuiMouseButton_Right];
+    {
+        static bool s_rel = false;
+        if (rmb_down != s_rel) {
+            SDL_SetWindowRelativeMouseMode(_wnd::ptr(), rmb_down);
+            s_rel = rmb_down;
+        }
+    }
+    // SDL raw delta — unlimited, not clamped to window edges.
+    float rdx = 0.f, rdy = 0.f;
+    SDL_GetRelativeMouseState(&rdx, &rdy);
+    if (!rmb_down) { rdx = 0.f; rdy = 0.f; }
+
     if (cam_flying) {
-        if (io.MouseDown[ImGuiMouseButton_Right]) {
-            cam_yaw   -= io.MouseDelta.x * 0.3f;
-            cam_pitch  += io.MouseDelta.y * 0.3f;
+        if (rmb_down) {
+            cam_yaw   -= rdx * 0.3f;
+            cam_pitch  += rdy * 0.3f;
             if (cam_pitch >  89.f) cam_pitch =  89.f;
             if (cam_pitch < -89.f) cam_pitch = -89.f;
 
@@ -400,10 +438,10 @@ void EditorCore::UpdateEditorCamera(float dt, bool viewport_hovered) {
             if (input_key_down(KEY_D)) cam_target = vec3_add(cam_target, vec3_scale(right,-speed));
         }
     } else {
-        // Orbit mode
-        if (io.MouseDown[ImGuiMouseButton_Right]) {
-            cam_yaw   -= io.MouseDelta.x * 0.4f;
-            cam_pitch  += io.MouseDelta.y * 0.4f;
+        // Orbit mode — unlimited yaw (360°), pitch clamped near-vertical.
+        if (rmb_down) {
+            cam_yaw   -= rdx * 0.4f;
+            cam_pitch  += rdy * 0.4f;
             if (cam_pitch >  89.f) cam_pitch =  89.f;
             if (cam_pitch < -89.f) cam_pitch = -89.f;
         }

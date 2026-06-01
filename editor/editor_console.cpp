@@ -57,13 +57,26 @@ void EditorConsole::ExecCommand(const char* raw) {
     const char* cmd = (raw[0] == '/') ? raw + 1 : raw;
 
     if (strncmp(cmd, "help", 4) == 0) {
-        Log(MD_LOG_INFO, "/reload  /spawn N x z  /kill N  /save  /load");
-        Log(MD_LOG_INFO, "/navmesh  /ai N cmd  /faction a b v  /quest N  /fps  /help");
+        Log(MD_LOG_INFO, "/reload-shaders — hot-reload SPIR-V without restart");
+        Log(MD_LOG_INFO, "/spawn N x z  /kill N  /save  /load  /navmesh  /fps");
+        Log(MD_LOG_INFO, "/ai N cmd  /faction a b v  /quest N  /help");
         return;
     }
 
+    if (strncmp(cmd, "reload-shaders", 14) == 0) {
+        Log(MD_LOG_INFO, "[Shaders] Compiling SPIR-V (blocking ~3s)...");
+        int ret = system("bash scripts/compile_shaders.sh 2>&1 | tail -3");
+        if (ret == 0) {
+            extern void EditorReloadAllShaderPipelines();
+            EditorReloadAllShaderPipelines();
+            Log(MD_LOG_INFO, "[Shaders] Reloaded OK — restart not required");
+        } else {
+            Log(MD_LOG_WARNING, "[Shaders] Compilation FAILED — check compile_shaders.sh output");
+        }
+        return;
+    }
     if (strncmp(cmd, "reload", 6) == 0) {
-        Log(MD_LOG_INFO, "[Console] Hot-reload: use scene load to refresh data");
+        Log(MD_LOG_INFO, "[Console] /reload-shaders — hot-reload SPIR-V without restart");
         return;
     }
 

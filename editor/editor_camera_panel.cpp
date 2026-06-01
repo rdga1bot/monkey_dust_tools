@@ -38,12 +38,25 @@ void EditorCameraPanel::DrawContent() {
 
     // ── Camera Mode ───────────────────────────────────────────────────────
     if (ImGui::CollapsingHeader("Camera Mode", ImGuiTreeNodeFlags_DefaultOpen)) {
-        bool orbit = !ec.cam_flying;
-        if (ImGui::RadioButton("Orbit##cam",      orbit))  ec.cam_flying = false;
+        bool orbit = !ec.cam_flying && !ec.cam_game_mode;
+        bool fly   =  ec.cam_flying && !ec.cam_game_mode;
+        bool game  =  ec.cam_game_mode;
+        if (ImGui::RadioButton("Orbit##cam",      orbit)) {
+            if (ec.cam_game_mode) ec.cam_target = ec.last_game_cam_target;
+            ec.cam_flying=false; ec.cam_game_mode=false;
+        }
         ImGui::SameLine();
-        if (ImGui::RadioButton("Flythrough##cam", ec.cam_flying)) ec.cam_flying = true;
-        ImGui::TextDisabled("Orbit:  RMB=rotate  MMB=pan  Scroll=zoom");
-        ImGui::TextDisabled("Fly:    RMB+WASD");
+        if (ImGui::RadioButton("Flythrough##cam", fly)) {
+            if (ec.cam_game_mode) ec.cam_target = ec.last_game_cam_target;
+            ec.cam_flying=true;  ec.cam_game_mode=false;
+        }
+        ImGui::SameLine();
+        if (ImGui::RadioButton("Game##cam",       game))
+            { ec.cam_game_mode=true; ec.cam_flying=false; }
+        ImGui::Spacing();
+        if      (orbit) ImGui::TextDisabled("RMB=rotate  MMB=pan  Scroll=zoom");
+        else if (fly)   ImGui::TextDisabled("RMB+WASD=fly  Scroll=speed");
+        else            ImGui::TextDisabled("WASD=рух гравця  RMB=камера");
     }
 
     // ── Viewport Info ─────────────────────────────────────────────────────

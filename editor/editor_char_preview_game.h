@@ -6,6 +6,7 @@
 // vert_storage_bufs + frag_samplers binding bug).  Same public API as CharPreviewSDLGPU.
 
 #include "imgui.h"
+#include <monkey_dust/render/hair_shading.h>
 #include <monkey_dust/render/gpu_device.h>
 #include <monkey_dust/render/gpu_hal.h>
 #include <monkey_dust/render/skin_mesh.h>
@@ -14,6 +15,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_gpu.h>
 #include "stb_image.h"
+#include "cgltf.h"
 #include <cstring>
 #include <cstdio>
 #include <cmath>
@@ -62,6 +64,69 @@ static float s_skin_str    = 0.55f;
 static float s_sat         = 1.f, s_bri = 0.f;
 static float s_muscle      = 0.f;
 static float s_hair[3]     = {0.25f, 0.15f, 0.08f};
+
+// ── Hair state ────────────────────────────────────────────────────────────────
+struct HairFU { float hair[3]; float pad; };
+static GpuPipeline     s_hair_pipeline;
+static GpuStaticBuffer s_hair_vbo;
+static GpuStaticBuffer s_hair_ibo;
+static int             s_hair_ni          = 0;
+static int             s_hair_style       = 0;
+static const char* const s_hair_styles[] = {
+    "hair01","hair02","hair03","hair04","hair05","hair06","hair07","hair08",
+    "haircut_male01","haircut_male02","haircut_male03","haircut_male04","haircut_male05",
+    "haircut_male06","haircut_male07","haircut_male08","haircut_male09","haircut_male10",
+    "haircut_female01","haircut_female02","haircut_female03","haircut_female04",
+    "haircut_female05","haircut_female06","haircut_female07","haircut_female08",
+    "hairlongbald","frizzhair","nutfro","afrohair",
+};
+constexpr int          s_hair_style_count = 30;
+
+// ── Clothes state ─────────────────────────────────────────────────────────────
+struct ClothFU { float color[3]; float pad; };
+struct ClothSlot {
+    GpuStaticBuffer vbo, ibo;
+    int ni = 0;
+    bool loaded = false;
+};
+static constexpr int CLOTH_MAX_SLOTS = 3;   // top, bottom, accessory
+static ClothSlot       s_cloth[CLOTH_MAX_SLOTS];
+static GpuPipeline     s_cloth_pipeline;
+static bool            s_clothes_visible = true;
+
+static int s_sex = 0;  // 0=Male 1=Female — set by Init(), drives cloth path selection
+
+struct ClothItemDef {
+    const char* name;
+    const char* path_m;   // game/data/clothes/*_m.clothbin or shared
+    const char* path_f;   // nullptr = fall back to path_m
+    float       color[3];
+    int         slot;
+};
+static const ClothItemDef s_cloth_items[] = {
+    // slot 0 — top
+    {"None",         nullptr,                                          nullptr,                                       {0,0,0},             0},
+    {"Slave Shirt",  "game/data/clothes/slave_shirt.clothbin",        "game/data/clothes/slave_shirt_f.clothbin",   {0.62f,0.59f,0.53f}, 0},
+    {"Drifter Coat", "game/data/clothes/drifter_coat.clothbin",       "game/data/clothes/drifter_coat_f.clothbin",  {0.25f,0.20f,0.14f}, 0},
+    {"Jacket",       "game/data/clothes/jacket.clothbin",             "game/data/clothes/jacket_f.clothbin",        {0.30f,0.22f,0.15f}, 0},
+    {"Male Coat",    "game/data/clothes/male_coat.clothbin",          "game/data/clothes/drifter_coat2_f.clothbin", {0.20f,0.16f,0.10f}, 0},
+    {"Monk Coat",    "game/data/clothes/monk_coat.clothbin",          "game/data/clothes/monk_coat_f.clothbin",     {0.18f,0.14f,0.09f}, 0},
+    {"Samurai Top",  "game/data/clothes/samurai_top.clothbin",        "game/data/clothes/samurai_top_f.clothbin",   {0.15f,0.12f,0.08f}, 0},
+    // slot 1 — bottom
+    {"None",         nullptr,                                          nullptr,                                       {0,0,0},             1},
+    {"Drifter Pants","game/data/clothes/drifter_pants.clothbin",      "game/data/clothes/drifter_pants_f.clothbin", {0.22f,0.18f,0.12f}, 1},
+    {"Cargo Pants",  "game/data/clothes/cargopants.clothbin",         "game/data/clothes/cargopants_f.clothbin",    {0.28f,0.22f,0.14f}, 1},
+    {"Shorts",       "game/data/clothes/shorts.clothbin",             "game/data/clothes/shorts_f.clothbin",        {0.35f,0.28f,0.18f}, 1},
+    {"Half Pants",   "game/data/clothes/trousers.clothbin",           "game/data/clothes/halfpants_f.clothbin",     {0.20f,0.16f,0.10f}, 1},
+    {"Monk Pants",   "game/data/clothes/monk_pants.clothbin",         "game/data/clothes/monk_pants_f.clothbin",    {0.18f,0.14f,0.09f}, 1},
+    {"Samurai Bot",  "game/data/clothes/samurai_bot.clothbin",        "game/data/clothes/samurai_bot_f.clothbin",   {0.15f,0.12f,0.08f}, 1},
+    {"Slave Dress",  "game/data/clothes/slave_dress.clothbin",        "game/data/clothes/slave_dress_f.clothbin",   {0.62f,0.59f,0.53f}, 1},
+};
+static constexpr int CLOTH_ITEM_COUNT = (int)(sizeof(s_cloth_items)/sizeof(s_cloth_items[0]));
+static int  s_cloth_sel[CLOTH_MAX_SLOTS] = {0, 7, 0};
+static float s_cloth_color[CLOTH_MAX_SLOTS][3] = {
+    {0.62f,0.59f,0.53f}, {0.22f,0.18f,0.12f}, {0.3f,0.3f,0.3f}
+};
 
 // ── Math helpers ──────────────────────────────────────────────────────────────
 static void m4_persp(float* m, float fovy, float asp, float zn, float zf) {
@@ -113,6 +178,89 @@ static void upload_morphed() {
     s_morphs_dirty=false;
 }
 
+// ── LoadHairStyle ─────────────────────────────────────────────────────────────
+static bool LoadHairStyle(int idx) {
+    if(idx<0||idx>=s_hair_style_count) return false;
+    char path[256];
+    snprintf(path,sizeof(path),"game/data/hair/%s.glb",s_hair_styles[idx]);
+    cgltf_options opt{}; cgltf_data* d=nullptr;
+    if(cgltf_parse_file(&opt,path,&d)!=cgltf_result_success){
+        fprintf(stderr,"[Hair] missing: %s\n",path); return false;
+    }
+    cgltf_load_buffers(&opt,d,path);
+    auto& pr=d->meshes[0].primitives[0];
+    cgltf_accessor* ap=nullptr; cgltf_accessor* an=nullptr;
+    for(int i=0;i<(int)pr.attributes_count;++i){
+        if(pr.attributes[i].type==cgltf_attribute_type_position) ap=pr.attributes[i].data;
+        if(pr.attributes[i].type==cgltf_attribute_type_normal)   an=pr.attributes[i].data;
+    }
+    if(!ap||!pr.indices){cgltf_free(d);return false;}
+    int nv=(int)ap->count;
+    struct HV{float px,py,pz,nx,ny,nz;};
+    static HV vbuf[8192]; if(nv>(int)(sizeof(vbuf)/sizeof(HV))) nv=(int)(sizeof(vbuf)/sizeof(HV));
+    for(int i=0;i<nv;++i){
+        float p[3]={0,0,0},n[3]={0,1,0};
+        cgltf_accessor_read_float(ap,i,p,3);
+        if(an) cgltf_accessor_read_float(an,i,n,3);
+        vbuf[i]={p[0],p[1],p[2],n[0],n[1],n[2]};
+    }
+    int ni=(int)pr.indices->count;
+    static uint16_t ibuf[32768]; if(ni>(int)(sizeof(ibuf)/sizeof(uint16_t))) ni=(int)(sizeof(ibuf)/sizeof(uint16_t));
+    for(int i=0;i<ni;++i) ibuf[i]=(uint16_t)cgltf_accessor_read_index(pr.indices,i);
+    cgltf_free(d);
+    s_hair_vbo.Shutdown(); s_hair_ibo.Shutdown();
+    s_hair_vbo.Init(0x8892u,vbuf,(uint32_t)(nv*sizeof(HV)));
+    s_hair_ibo.Init(0x8893u,ibuf,(uint32_t)(ni*2));
+    s_hair_ni=ni; s_hair_style=idx;
+    fprintf(stdout,"[Hair] %s (%dv %di)\n",s_hair_styles[idx],nv,ni/3);
+    return true;
+}
+
+// ── LoadClothingSlot: load .clothbin into a ClothSlot ────────────────────────
+//   .clothbin: magic(4) + nv(4) + ni(4) + flags(4) + nv*SkinVertex(52) + ni*u16
+static bool LoadClothingSlot(int slot, const char* path) {
+    if(slot<0||slot>=CLOTH_MAX_SLOTS) return false;
+    s_cloth[slot].vbo.Shutdown(); s_cloth[slot].ibo.Shutdown();
+    s_cloth[slot].ni=0; s_cloth[slot].loaded=false;
+    if(!path) return true;  // "None" clears the slot
+
+    FILE* f=fopen(path,"rb"); if(!f){fprintf(stderr,"[Cloth] missing: %s\n",path);return false;}
+    uint32_t hdr[4]; fread(hdr,4,4,f);
+    if(hdr[0]!=0x544F4C43u){fclose(f);fprintf(stderr,"[Cloth] bad magic\n");return false;}
+    uint32_t nv=hdr[1], ni=hdr[2], flags=hdr[3];
+    bool u32_idx=(flags&1)!=0;
+
+    static char vtmp[20000*52]; // max 20k verts
+    if(nv>20000){fclose(f);fprintf(stderr,"[Cloth] too many verts\n");return false;}
+    fread(vtmp,52,nv,f);
+    s_cloth[slot].vbo.Shutdown();
+    s_cloth[slot].vbo.Init(0x8892u,vtmp,(uint32_t)(nv*52));
+
+    uint32_t idx_bytes=ni*(u32_idx?4:2);
+    static char itmp[65536*2];
+    if(idx_bytes>sizeof(itmp)){fclose(f);fprintf(stderr,"[Cloth] too many indices\n");return false;}
+    fread(itmp,1,idx_bytes,f);
+    fclose(f);
+    s_cloth[slot].ibo.Shutdown();
+    s_cloth[slot].ibo.Init(0x8893u,itmp,idx_bytes);
+    s_cloth[slot].ni=(int)ni;
+    s_cloth[slot].loaded=true;
+    fprintf(stdout,"[Cloth] slot%d: %s (%uv %ut)\n",slot,path,nv,ni/3);
+    return true;
+}
+
+// ── SetClothingItem: select item for slot, update color ───────────────────────
+static void SetClothingItem(int item_idx) {
+    if(item_idx<0||item_idx>=CLOTH_ITEM_COUNT) return;
+    const ClothItemDef& d=s_cloth_items[item_idx];
+    int slot=d.slot;
+    s_cloth_sel[slot]=item_idx;
+    s_cloth_color[slot][0]=d.color[0]; s_cloth_color[slot][1]=d.color[1]; s_cloth_color[slot][2]=d.color[2];
+    // Choose female path when female body is loaded; fall back to male if no female variant.
+    const char* path = (s_sex==1 && d.path_f) ? d.path_f : d.path_m;
+    LoadClothingSlot(slot, path);
+}
+
 // ── RTT ───────────────────────────────────────────────────────────────────────
 static void ensure_rtt(int w, int h) {
     if(s_rtt_w==w&&s_rtt_h==h) return;
@@ -135,6 +283,8 @@ static void ensure_rtt(int w, int h) {
 static bool Init(const char* glb_path, const char* tex_path) {
     s_ok=false;
     s_skin_vbo.Shutdown();
+    // Detect sex from path — drives clothing variant selection.
+    s_sex = (glb_path && strstr(glb_path, "female")) ? 1 : 0;
 
     if(!s_mesh.LoadGLB(glb_path)){
         fprintf(stderr,"[CharPreviewGame] LoadGLB failed: %s\n",glb_path); return false;
@@ -320,7 +470,52 @@ static bool Init(const char* glb_path, const char* tex_path) {
 
     for(int i=0;i<CHARCC_BODY_N;i++) s_body_cache[i]=100.f;
     for(int i=0;i<CHARCC_FACE_N;i++) s_face_cache[i]=100.f;
-    s_morphs_dirty=true; s_ok=true;
+    s_morphs_dirty=true;
+
+    // ── Hair pipeline: char_hair.vert + char_hair.frag ───────────────────────
+    {
+        GpuPipeline::Desc hpd;
+        hpd.vert_path="shaders/char_hair.vert"; hpd.frag_path="shaders/char_hair.frag";
+        hpd.layout.count=2; hpd.layout.stride=24;
+        hpd.layout.attribs[0]={0, 0,GpuAttribFmt::F3};   // aPos
+        hpd.layout.attribs[1]={1,12,GpuAttribFmt::F3};   // aNorm
+        hpd.vert_samplers    =1;   // set=0: uBoneMats
+        hpd.vert_uniform_bufs=1;   // set=1: VU
+        hpd.frag_samplers    =0;
+        hpd.frag_uniform_bufs=2;   // set=3 binding=0: HairFU, binding=1: HairShadingFU
+        hpd.raster.depth_test=true; hpd.raster.depth_write=true; hpd.raster.cull_back=false;
+        hpd.has_depth_target=true;
+        hpd.color_format=SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+        if(!s_hair_pipeline.Create(hpd))
+            fprintf(stderr,"[Hair] pipeline create failed\n");
+    }
+    LoadHairStyle(0);
+
+    // ── Clothes pipeline: char_preview.vert + char_clothes.frag ──────────────
+    {
+        GpuPipeline::Desc cpd;
+        cpd.vert_path="shaders/char_preview.vert"; cpd.frag_path="shaders/char_clothes.frag";
+        cpd.layout.count=5; cpd.layout.stride=52;   // SkinVertex layout
+        cpd.layout.attribs[0]={0, 0,  GpuAttribFmt::F3   };  // aPos
+        cpd.layout.attribs[1]={1, 12, GpuAttribFmt::F3   };  // aNorm
+        cpd.layout.attribs[2]={2, 24, GpuAttribFmt::F2   };  // aUV (unused in frag)
+        cpd.layout.attribs[3]={3, 32, GpuAttribFmt::U8x4 };  // aJoints
+        cpd.layout.attribs[4]={4, 36, GpuAttribFmt::F4   };  // aWeights
+        cpd.vert_samplers    =1;   // set=0: uBoneMats
+        cpd.vert_uniform_bufs=1;   // set=1: VU (mvp)
+        cpd.frag_samplers    =0;
+        cpd.frag_uniform_bufs=1;   // set=3: ClothFU
+        cpd.raster.depth_test=true; cpd.raster.depth_write=true; cpd.raster.cull_back=true;
+        cpd.has_depth_target=true;
+        cpd.color_format=SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+        if(!s_cloth_pipeline.Create(cpd))
+            fprintf(stderr,"[Cloth] pipeline create failed\n");
+    }
+    // Load default clothes (slave shirt + cargo pants)
+    SetClothingItem(1);   // slot0: Slave Shirt
+    SetClothingItem(9);   // slot1: Cargo Pants
+
+    s_ok=true;
     return true;
 }
 
@@ -449,6 +644,43 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
 
         SDL_DrawGPUIndexedPrimitives(rp,s_mesh.index_count,1,0,0,0);
     }
+
+    // ── Clothing mesh (all slots) ─────────────────────────────────────────────
+    if(s_clothes_visible && s_cloth_pipeline.SDLPipeline()) {
+        for(int sl=0; sl<CLOTH_MAX_SLOTS; ++sl) {
+            if(!s_cloth[sl].loaded || s_cloth[sl].ni==0) continue;
+            SDL_BindGPUGraphicsPipeline(rp, s_cloth_pipeline.SDLPipeline());
+            SDL_GPUTextureSamplerBinding cbsb{s_bones_tex, s_bones_sampler};
+            SDL_BindGPUVertexSamplers(rp, 0, &cbsb, 1);
+            SDL_PushGPUVertexUniformData(cmd, 0, vp, 64);
+            ClothFU cfu;
+            cfu.color[0]=s_cloth_color[sl][0]; cfu.color[1]=s_cloth_color[sl][1];
+            cfu.color[2]=s_cloth_color[sl][2]; cfu.pad=0;
+            SDL_PushGPUFragmentUniformData(cmd, 0, &cfu, sizeof(cfu));
+            SDL_GPUBufferBinding cvb{s_cloth[sl].vbo.SDLBuffer(), 0};
+            SDL_BindGPUVertexBuffers(rp, 0, &cvb, 1);
+            SDL_GPUBufferBinding cib{s_cloth[sl].ibo.SDLBuffer(), 0};
+            SDL_BindGPUIndexBuffer(rp, &cib, SDL_GPU_INDEXELEMENTSIZE_16BIT);
+            SDL_DrawGPUIndexedPrimitives(rp, (uint32_t)s_cloth[sl].ni, 1, 0, 0, 0);
+        }
+    }
+
+    // ── Hair mesh ─────────────────────────────────────────────────────────────
+    if(s_hair_pipeline.SDLPipeline()&&s_hair_vbo.SDLBuffer()&&s_hair_ni>0){
+        SDL_BindGPUGraphicsPipeline(rp,s_hair_pipeline.SDLPipeline());
+        SDL_GPUTextureSamplerBinding hbsb{s_bones_tex,s_bones_sampler};
+        SDL_BindGPUVertexSamplers(rp,0,&hbsb,1);
+        SDL_PushGPUVertexUniformData(cmd,0,vp,64);
+        HairFU hfu; hfu.hair[0]=s_hair[0]; hfu.hair[1]=s_hair[1]; hfu.hair[2]=s_hair[2]; hfu.pad=0;
+        SDL_PushGPUFragmentUniformData(cmd,0,&hfu,sizeof(hfu));
+        SDL_PushGPUFragmentUniformData(cmd,1,&HairShading::g_params,sizeof(HairShadingFU));
+        SDL_GPUBufferBinding hvb{s_hair_vbo.SDLBuffer(),0};
+        SDL_BindGPUVertexBuffers(rp,0,&hvb,1);
+        SDL_GPUBufferBinding hib{s_hair_ibo.SDLBuffer(),0};
+        SDL_BindGPUIndexBuffer(rp,&hib,SDL_GPU_INDEXELEMENTSIZE_16BIT);
+        SDL_DrawGPUIndexedPrimitives(rp,(uint32_t)s_hair_ni,1,0,0,0);
+    }
+
     SDL_EndGPURenderPass(rp);
 }
 
@@ -490,6 +722,16 @@ static void DrawInImGui(float W, float H,
     s_height=height_scale; s_muscle=muscle;
     if(hair){s_hair[0]=hair[0];s_hair[1]=hair[1];s_hair[2]=hair[2];}
     ensure_rtt(iw,ih);
+    // Render character preview into RTT using a dedicated command buffer.
+    // Safe to acquire/submit here: SDL_GPU allows multiple in-flight CMDs;
+    // the preview texture is ready before ImGui renders to swapchain.
+    {
+        SDL_GPUDevice* dev=md::GpuDevice::Get().SDLDevice();
+        if(dev){
+            SDL_GPUCommandBuffer* cmd=SDL_AcquireGPUCommandBuffer(dev);
+            if(cmd){ RenderFrame(cmd); SDL_SubmitGPUCommandBuffer(cmd); }
+        }
+    }
     ImVec2 org=ImGui::GetCursorScreenPos();
     ImGui::InvisibleButton("##cpgv",{W,H},ImGuiButtonFlags_MouseButtonRight);
     bool hov=ImGui::IsItemHovered();
