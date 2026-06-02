@@ -48,7 +48,14 @@ void EditorW3D_UploadTerrainHeightmap(const float* hmap, int W, int H,
 static constexpr const char* CFG_PATH    = "data/editor_config.json";
 static constexpr const char* LAYOUT_PATH = "data/editor_layout.json";
 
+// Extra Y offset when running under RenderDoc (overlay occupies top ~50px).
+// Set via env var MD_OVERLAY_TOP_OFFSET=50 in .cap file or mde.sh --rd.
+float s_overlay_top = 0.f;
+
 int main(void) {
+    const char* ov = getenv("MD_OVERLAY_TOP_OFFSET");
+    if (ov) s_overlay_top = (float)atof(ov);
+
     // ── Window ────────────────────────────────────────────────────────────────
     window_init(0, 0, "monkey_dust EDITOR v1.0");
     input_init();
@@ -207,7 +214,7 @@ int main(void) {
         s_charpreview_active = false;
         s_mapview_active     = false;
         EditorCore::Get().Update(dt);
-        float toolbar_h = ImGui::GetFrameHeight() + 30.f;
+        float toolbar_h = s_overlay_top + ImGui::GetFrameHeight() + 30.f;
 
         ImGui::SetNextWindowPos({0, toolbar_h});
         ImGui::SetNextWindowSize({fio.DisplaySize.x, fio.DisplaySize.y - toolbar_h});

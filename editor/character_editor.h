@@ -631,7 +631,7 @@ static void Draw(bool kenshi_theme = true) {
     {
         bool& vis = CharPreviewSDLGPU::s_clothes_visible;
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {4.f, 2.f});
-        if (vis) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.45f,0.35f,0.20f,1.f});
+        if (vis) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.19f,0.35f,0.65f,1.f});
         if (ImGui::Button(vis ? u8"● CLOTHES" : "  CLOTHES",
                           {ImGui::GetContentRegionAvail().x, 0.f}))
             vis = !vis;

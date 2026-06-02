@@ -750,6 +750,7 @@ static void SetCameraForTab(int tab) {
     else      {s_dist=0.85f; s_pit=0.f; s_yaw=0.f; s_lookat_y=1.76f;}
 }
 static void ResetAnimPhase() {}
+static void ReloadPipelines() {}  // no-op: game path recreates pipelines via Init()
 static void DumpState(FILE* f=stdout) { fprintf(f,"[CharPreviewGame] ok=%d idle=%d verts=%u morphs=%d\n",
                                        (int)s_ok,s_idle_clip,s_mesh.VertCount(),s_mesh.MorphCount()); }
 

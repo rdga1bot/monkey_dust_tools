@@ -848,8 +848,11 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active = f
             float alt_scale = fmaxf(1.f, s_cy / 400.f);
             float d3sq = (18000.f * alt_scale) * (18000.f * alt_scale);
 
-            static const TerrainChunk* lod_chunks[3][EDITOR_TNKN * EDITOR_TNKN];
-            int lod_count[3] = {0, 0, 0};
+            // VBfA pattern: bitmask presence table replaces lod_count[]+pointer arrays.
+            // 64×64=4096 chunks → 64 uint64_t per LOD tier (one bit per chunk slot).
+            // ctzll iteration is branch-free and cache-friendly for sparse visible sets.
+            static constexpr int LOD_WORDS = (EDITOR_TNKN * EDITOR_TNKN + 63) / 64; // 64
+            uint64_t lod_mask[3][LOD_WORDS] = {};
 
             for (int cz = 0; cz < EDITOR_TNKN; ++cz) {
                 for (int cx = 0; cx < EDITOR_TNKN; ++cx) {
@@ -860,49 +863,58 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active = f
                     float d2  = ddx*ddx + ddz*ddz;
                     if (d2 > d3sq) continue;
                     if (d2 < d0sq) {
-                        // VT: use high-res local composite for close POM terrain.
-                        if (s_vt_ready && s_vt_composite.SDLTexture())
-                            s_terrain.UseColourOverride(s_vt_composite.SDLTexture(),
-                                                        s_vt_composite.SDLSampler());
-                        float vt_ox  = s_vt_ready ? s_vt_comp_ox + 4000.f : WCX;
-                        float vt_oz  = s_vt_ready ? s_vt_comp_oz + 4000.f : WCZ;
-                        float vt_uv  = s_vt_ready ? 1.f / 8000.f          : W2UV;
+                        // Use global kenshi colour map (WCX/WCZ/W2UV) for correct vivid colours.
+                        // VT composite is built for future height-based detail but not applied
+                        // for colour — the local 8km patch can land on muted/grey kenshi zones.
                         s_terrain.DrawRawPOM(rp, cmd, ch, vp.m,
-                                            sun, eye_x, eye_y, eye_z, vt_ox, vt_oz, vt_uv, 0);
-                        s_terrain.UseColourOverride(nullptr, nullptr);
+                                            sun, eye_x, eye_y, eye_z, WCX, WCZ, W2UV, 0);
+                    } else {
+                        int flat = cz * EDITOR_TNKN + cx;
+                        int tier = (d2 < d1sq) ? 0 : (d2 < d2sq) ? 1 : 2;
+                        lod_mask[tier][flat >> 6] |= 1ULL << (flat & 63);
                     }
-                    else if (d2 < d1sq)
-                        lod_chunks[0][lod_count[0]++] = &ch;
-                    else if (d2 < d2sq)
-                        lod_chunks[1][lod_count[1]++] = &ch;
-                    else
-                        lod_chunks[2][lod_count[2]++] = &ch;
                 }
             }
-            // LOD1: batch API
-            if (lod_count[0] > 0) {
-                s_terrain.BeginRawBatch(rp, cmd, vp.m, sun, WCX, WCZ, W2UV, 1);
-                for (int i = 0; i < lod_count[0]; ++i)
-                    s_terrain.DrawRawChunk(rp, cmd, *lod_chunks[0][i]);
+            // LOD1: iterate bitmask → DrawRawChunk per visible chunk.
+            {
+                bool batch_open = false;
+                for (int w = 0; w < LOD_WORDS; ++w) {
+                    uint64_t bits = lod_mask[0][w];
+                    while (bits) {
+                        if (!batch_open) {
+                            s_terrain.BeginRawBatch(rp, cmd, vp.m, sun, WCX, WCZ, W2UV, 1);
+                            batch_open = true;
+                        }
+                        int bit  = __builtin_ctzll(bits);
+                        int flat = w * 64 + bit;
+                        s_terrain.DrawRawChunk(rp, cmd, s_chunks[flat / EDITOR_TNKN][flat % EDITOR_TNKN]);
+                        bits &= bits - 1;
+                    }
+                }
             }
-            // LOD2/LOD3: compact VBO (all-chunks, stable slots, no per-frame rebuild).
-            // slot = cz*EDITOR_TNKN + cx → vertex_offset = slot * vpc
+            // LOD2/LOD3: compact VBO — bitmask → DrawGPUIndexedPrimitives by flat slot.
             static const int IDX_N[2] = { 16*16*6, 8*8*6 };  // 1536, 384
             for (int li = 0; li < 2; ++li) {
-                int lod_li = li + 1;
-                int n = lod_count[lod_li];
-                if (n == 0 || !s_cvbo_built[li] || !s_cvbo_ibo[li].SDLBuffer()) continue;
-                s_terrain.BeginRawBatch(rp, cmd, vp.m, sun, WCX, WCZ, W2UV, li + 2);
-                SDL_GPUBufferBinding cib { s_cvbo_ibo[li].SDLBuffer(), 0u };
-                SDL_BindGPUIndexBuffer(rp, &cib, SDL_GPU_INDEXELEMENTSIZE_16BIT);
-                SDL_GPUBufferBinding vb { s_cvbo[li].SDLBuffer(), 0u };
-                SDL_BindGPUVertexBuffers(rp, 0, &vb, 1);
+                if (!s_cvbo_built[li] || !s_cvbo_ibo[li].SDLBuffer()) continue;
+                bool batch_open = false;
                 const int vpc = CVBO_VPC[li];
-                for (int i = 0; i < n; ++i) {
-                    const TerrainChunk* ch = lod_chunks[lod_li][i];
-                    int flat = (int)(ch - &s_chunks[0][0]);
-                    SDL_DrawGPUIndexedPrimitives(rp, (uint32_t)IDX_N[li],
-                                                 1, 0, (Sint32)(flat * vpc), 0);
+                SDL_GPUBufferBinding cib { s_cvbo_ibo[li].SDLBuffer(), 0u };
+                SDL_GPUBufferBinding vb  { s_cvbo[li].SDLBuffer(), 0u };
+                for (int w = 0; w < LOD_WORDS; ++w) {
+                    uint64_t bits = lod_mask[li + 1][w];
+                    while (bits) {
+                        if (!batch_open) {
+                            s_terrain.BeginRawBatch(rp, cmd, vp.m, sun, WCX, WCZ, W2UV, li + 2);
+                            SDL_BindGPUIndexBuffer(rp, &cib, SDL_GPU_INDEXELEMENTSIZE_16BIT);
+                            SDL_BindGPUVertexBuffers(rp, 0, &vb, 1);
+                            batch_open = true;
+                        }
+                        int bit  = __builtin_ctzll(bits);
+                        int flat = w * 64 + bit;
+                        SDL_DrawGPUIndexedPrimitives(rp, (uint32_t)IDX_N[li],
+                                                     1, 0, (Sint32)(flat * vpc), 0);
+                        bits &= bits - 1;
+                    }
                 }
             }
             } // else chunk-based

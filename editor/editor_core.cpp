@@ -125,11 +125,15 @@ void EditorCore::Update(float dt) {
     bool& g_det_flow  = f3_det_flow,  &g_det_debug = f3_det_debug, &g_det_cam   = f3_det_cam;
 
     ImGuiIO& io = ImGui::GetIO();
-    float toolbar_h = ImGui::GetFrameHeight() + 30.f;
+    // s_overlay_top: shared with editor_toolbar.cpp (extern float).
+    // Defined in main.cpp; editor_core.cpp just reads it.
+    extern float s_overlay_top;
+    float toolbar_h = s_overlay_top + ImGui::GetFrameHeight() + 30.f;
 
     // If the active tab's panel is floating, make ##f3editor transparent so the
     // game is visible behind the detached panel (one-frame lag is imperceptible).
     static int  s_f3_active_tab = 0;
+    active_tab = s_f3_active_tab;
     static bool g_det_char = false;
     static ImVec2 f3_pos_char{400.f,200.f}, f3_size_char{420.f,280.f};
     const bool det7[7] = { g_det_scene, g_det_ai, g_det_anim, g_det_flow, g_det_debug, g_det_cam, g_det_char };
@@ -165,10 +169,16 @@ void EditorCore::Update(float dt) {
     // A detached panel's floating window is created INSIDE its BeginTabItem scope —
     // so it only exists (and is visible) while that tab is active.  Switching to
     // another tab makes ImGui hide the floating window automatically.
+    // Right-align Detach/Dock buttons in every panel.
+    auto det_right = [](const char* lbl) -> bool {
+        float bw = ImGui::CalcTextSize(lbl).x + ImGui::GetStyle().FramePadding.x * 2 + 2;
+        ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - bw);
+        return ImGui::SmallButton(lbl);
+    };
     if (ImGui::BeginTabBar("##f3tabs")) {
         if (ImGui::BeginTabItem("Scene")) { s_f3_active_tab = 0;
             if (!g_det_scene) {
-                if (ImGui::SmallButton("Detach##scene")) g_det_scene = true;
+                if (det_right("Detach##scene")) g_det_scene = true;
                 ImGui::Separator();
                 ImVec2 av = ImGui::GetContentRegionAvail();
                 ImGui::BeginChild("##f3h", {300.f, av.y}, false);
@@ -183,7 +193,7 @@ void EditorCore::Update(float dt) {
                 ImGui::SetNextWindowPos(f3_pos_scene, ImGuiCond_Appearing);
                 ImGui::SetNextWindowSize(f3_size_scene, ImGuiCond_Appearing);
                 if (ImGui::Begin("Scene##float", &g_det_scene, FLOAT_FLAGS)) {
-                    if (ImGui::Button("Dock##scene")) g_det_scene = false;
+                    if (det_right("Dock##scene")) g_det_scene = false;
                     ImGui::Separator();
                     ImVec2 av = ImGui::GetContentRegionAvail();
                     ImGui::BeginChild("##fh", {av.x * 0.30f, av.y}, false);
@@ -200,7 +210,7 @@ void EditorCore::Update(float dt) {
         }
         if (ImGui::BeginTabItem("AI")) { s_f3_active_tab = 1;
             if (!g_det_ai) {
-                if (ImGui::SmallButton("Detach##ai")) g_det_ai = true;
+                if (det_right("Detach##ai")) g_det_ai = true;
                 ImGui::Separator();
                 ImVec2 av = ImGui::GetContentRegionAvail();
                 ImGui::BeginChild("##f3dir", {av.x * 0.50f, av.y}, false);
@@ -215,7 +225,7 @@ void EditorCore::Update(float dt) {
                 ImGui::SetNextWindowPos(f3_pos_ai, ImGuiCond_Appearing);
                 ImGui::SetNextWindowSize(f3_size_ai, ImGuiCond_Appearing);
                 if (ImGui::Begin("AI##float", &g_det_ai, FLOAT_FLAGS)) {
-                    if (ImGui::Button("Dock##ai")) g_det_ai = false;
+                    if (det_right("Dock##ai")) g_det_ai = false;
                     ImGui::Separator();
                     ImVec2 av = ImGui::GetContentRegionAvail();
                     ImGui::BeginChild("##fdir", {av.x * 0.50f, av.y}, false);
@@ -232,7 +242,7 @@ void EditorCore::Update(float dt) {
         }
         if (ImGui::BeginTabItem("Animation")) { s_f3_active_tab = 2;
             if (!g_det_anim) {
-                if (ImGui::SmallButton("Detach##anim")) g_det_anim = true;
+                if (det_right("Detach##anim")) g_det_anim = true;
                 ImGui::Separator();
                 ImVec2 av = ImGui::GetContentRegionAvail();
                 ImGui::BeginChild("##f3an", {av.x, 180.f}, false);
@@ -246,7 +256,7 @@ void EditorCore::Update(float dt) {
                 ImGui::SetNextWindowPos(f3_pos_anim, ImGuiCond_Appearing);
                 ImGui::SetNextWindowSize(f3_size_anim, ImGuiCond_Appearing);
                 if (ImGui::Begin("Animation##float", &g_det_anim, FLOAT_FLAGS)) {
-                    if (ImGui::Button("Dock##anim")) g_det_anim = false;
+                    if (det_right("Dock##anim")) g_det_anim = false;
                     ImGui::Separator();
                     ImVec2 av = ImGui::GetContentRegionAvail();
                     ImGui::BeginChild("##fan", {av.x, 180.f}, false);
@@ -262,7 +272,7 @@ void EditorCore::Update(float dt) {
         }
         if (ImGui::BeginTabItem("FlowGraph")) { s_f3_active_tab = 3;
             if (!g_det_flow) {
-                if (ImGui::SmallButton("Detach##flow")) g_det_flow = true;
+                if (det_right("Detach##flow")) g_det_flow = true;
                 ImGui::Separator();
                 EditorFlowGraphPanel::Get().DrawContent();
             } else {
@@ -270,7 +280,7 @@ void EditorCore::Update(float dt) {
                 ImGui::SetNextWindowPos(f3_pos_flow, ImGuiCond_Appearing);
                 ImGui::SetNextWindowSize(f3_size_flow, ImGuiCond_Appearing);
                 if (ImGui::Begin("FlowGraph##float", &g_det_flow, FLOAT_FLAGS)) {
-                    if (ImGui::Button("Dock##flow")) g_det_flow = false;
+                    if (det_right("Dock##flow")) g_det_flow = false;
                     ImGui::Separator();
                     EditorFlowGraphPanel::Get().DrawContent();
                 }
@@ -280,7 +290,7 @@ void EditorCore::Update(float dt) {
         }
         if (ImGui::BeginTabItem("Debug")) { s_f3_active_tab = 4;
             if (!g_det_debug) {
-                if (ImGui::SmallButton("Detach##debug")) g_det_debug = true;
+                if (det_right("Detach##debug")) g_det_debug = true;
                 ImGui::Separator();
                 ImVec2 av = ImGui::GetContentRegionAvail();
                 ImGui::BeginChild("##f3con", {av.x * 0.60f, av.y}, false);
@@ -295,7 +305,7 @@ void EditorCore::Update(float dt) {
                 ImGui::SetNextWindowPos(f3_pos_debug, ImGuiCond_Appearing);
                 ImGui::SetNextWindowSize(f3_size_debug, ImGuiCond_Appearing);
                 if (ImGui::Begin("Debug##float", &g_det_debug, FLOAT_FLAGS)) {
-                    if (ImGui::Button("Dock##debug")) g_det_debug = false;
+                    if (det_right("Dock##debug")) g_det_debug = false;
                     ImGui::Separator();
                     ImVec2 av = ImGui::GetContentRegionAvail();
                     ImGui::BeginChild("##fcon", {av.x * 0.60f, av.y}, false);
@@ -312,7 +322,7 @@ void EditorCore::Update(float dt) {
         }
         if (ImGui::BeginTabItem("Camera")) { s_f3_active_tab = 5;
             if (!g_det_cam) {
-                if (ImGui::SmallButton("Detach##cam")) g_det_cam = true;
+                if (det_right("Detach##cam")) g_det_cam = true;
                 ImGui::Separator();
                 EditorCameraPanel::Get().DrawContent();
             } else {
@@ -320,7 +330,7 @@ void EditorCore::Update(float dt) {
                 ImGui::SetNextWindowPos(f3_pos_cam, ImGuiCond_Appearing);
                 ImGui::SetNextWindowSize(f3_size_cam, ImGuiCond_Appearing);
                 if (ImGui::Begin("Camera##float", &g_det_cam, FLOAT_FLAGS)) {
-                    if (ImGui::Button("Dock##cam")) g_det_cam = false;
+                    if (det_right("Dock##cam")) g_det_cam = false;
                     ImGui::Separator();
                     EditorCameraPanel::Get().DrawContent();
                 }
@@ -330,7 +340,7 @@ void EditorCore::Update(float dt) {
         }
         if (ImGui::BeginTabItem("Characters")) { s_f3_active_tab = 6;
             if (!g_det_char) {
-                if (ImGui::SmallButton("Detach##chr")) g_det_char = true;
+                if (det_right("Detach##chr")) g_det_char = true;
                 ImGui::Separator();
                 EditorCharactersPanel::Get().DrawContent();
             } else {
@@ -338,7 +348,7 @@ void EditorCore::Update(float dt) {
                 ImGui::SetNextWindowPos(f3_pos_char, ImGuiCond_Appearing);
                 ImGui::SetNextWindowSize(f3_size_char, ImGuiCond_Appearing);
                 if (ImGui::Begin("Characters##float", &g_det_char, FLOAT_FLAGS)) {
-                    if (ImGui::Button("Dock##chr")) g_det_char = false;
+                    if (det_right("Dock##chr")) g_det_char = false;
                     ImGui::Separator();
                     EditorCharactersPanel::Get().DrawContent();
                 }

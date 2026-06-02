@@ -53,7 +53,7 @@ target_compile_definitions(monkey_dust_editor PRIVATE
 target_link_libraries(monkey_dust_editor PRIVATE
     monkey_dust::engine
     Recast Detour DetourCrowd
-    SDL3::SDL3
+    $<IF:$<BOOL:${MD_STATIC_DEPS}>,SDL3::SDL3-static,SDL3::SDL3>
 )
 target_include_directories(monkey_dust_editor PRIVATE
     editor/
@@ -74,6 +74,38 @@ target_include_directories(monkey_dust_editor PRIVATE
 # (third-party sources already added above)
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     target_compile_options(monkey_dust_editor PRIVATE -O2 -march=native)
+endif()
+
+# ── PCH for editor own sources ───────────────────────────────────────────────
+# PCH on engine lib (PRIVATE) doesn't propagate to editor .cpp files.
+# We add it separately here. Third-party sources (imgui-node-editor, imnodes,
+# ImGuiColorTextEdit, imguizmo) are excluded via SET_SOURCE_FILES_PROPERTIES
+# SKIP_PRECOMPILE_HEADERS to avoid conflicts with their own internal defines.
+if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.16")
+    target_precompile_headers(monkey_dust_editor PRIVATE
+        <cstdint> <cstdlib> <cstring> <cstdio>
+        <entt/entt.hpp>
+        <imgui.h>
+        <SDL3/SDL_gpu.h>
+    )
+    # Third-party ImGui panels have conflicting macros — skip PCH for them.
+    set(_EDITOR_THIRDPARTY_CPP
+        ${CMAKE_SOURCE_DIR}/third_party/imnodes/imnodes.cpp
+        ${CMAKE_SOURCE_DIR}/third_party/ImGuiColorTextEdit/TextEditor.cpp
+        ${CMAKE_SOURCE_DIR}/third_party/imgui-flame-graph/imgui_widget_flamegraph.cpp
+        ${CMAKE_SOURCE_DIR}/third_party/imguizmo/src/ImSequencer.cpp
+        ${CMAKE_SOURCE_DIR}/third_party/imguizmo/src/ImGradient.cpp
+        ${CMAKE_SOURCE_DIR}/third_party/imgui-node-editor/imgui_node_editor.cpp
+        ${CMAKE_SOURCE_DIR}/third_party/imgui-node-editor/imgui_node_editor_api.cpp
+        ${CMAKE_SOURCE_DIR}/third_party/imgui-node-editor/imgui_canvas.cpp
+        ${CMAKE_SOURCE_DIR}/third_party/imgui-node-editor/crude_json.cpp
+        ${CMAKE_SOURCE_DIR}/engine/src/vendor/glad_impl.cpp
+        ${CMAKE_SOURCE_DIR}/engine/src/vendor/stb_image_impl.cpp
+        ${CMAKE_SOURCE_DIR}/engine/src/render/cgltf_impl.cpp
+    )
+    set_source_files_properties(${_EDITOR_THIRDPARTY_CPP} PROPERTIES
+        SKIP_PRECOMPILE_HEADERS ON)
+    message(STATUS "[monkey_dust_editor] PCH: ENABLED (entt + imgui + SDL_GPU)")
 endif()
 
 # ── md_flare_convert ─────────────────────────────────────
@@ -105,7 +137,7 @@ target_compile_definitions(md_flare_demo PRIVATE
 target_link_libraries(md_flare_demo PRIVATE
     monkey_dust::engine
     Recast Detour
-    SDL3::SDL3
+    $<IF:$<BOOL:${MD_STATIC_DEPS}>,SDL3::SDL3-static,SDL3::SDL3>
 )
 target_include_directories(md_flare_demo PRIVATE
     ${CMAKE_SOURCE_DIR}/engine/src/vendor

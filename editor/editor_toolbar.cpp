@@ -50,7 +50,27 @@ void EditorToolbar::Draw(float dt) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 void EditorToolbar::DrawMenuBar() {
-    if (!ImGui::BeginMainMenuBar()) return;
+    // BeginMainMenuBar always renders at Y=0 and cannot be offset.
+    // When MD_OVERLAY_TOP_OFFSET is set (RenderDoc mode), use an explicit window
+    // positioned below the overlay so it is not covered by the RenderDoc text.
+    extern float s_overlay_top;   // defined in main.cpp / editor_core.cpp
+    float menu_h = ImGui::GetFrameHeight();
+    if (s_overlay_top > 0.f) {
+        ImGui::SetNextWindowPos({0.f, s_overlay_top});
+        ImGui::SetNextWindowSize({ImGui::GetIO().DisplaySize.x, menu_h});
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding,  0.f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.f, 0.f});
+        bool open = ImGui::Begin("##MainMenuBarOffset", nullptr,
+            ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoMove |
+            ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoSavedSettings |
+            ImGuiWindowFlags_MenuBar);
+        ImGui::PopStyleVar(3);
+        if (!open || !ImGui::BeginMenuBar()) { ImGui::End(); return; }
+    } else {
+        if (!ImGui::BeginMainMenuBar()) return;
+    }
 
     // ── File ─────────────────────────────────────────────────
     if (ImGui::BeginMenu("File")) {
@@ -211,13 +231,15 @@ void EditorToolbar::DrawMenuBar() {
         ImGui::EndMenu();
     }
 
-    ImGui::EndMainMenuBar();
+    if (s_overlay_top > 0.f) { ImGui::EndMenuBar(); ImGui::End(); }
+    else                     { ImGui::EndMainMenuBar(); }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 void EditorToolbar::DrawButtonBar() {
+    extern float s_overlay_top;
     float menu_h = ImGui::GetFrameHeight();
-    ImGui::SetNextWindowPos(ImVec2(0, menu_h));
+    ImGui::SetNextWindowPos(ImVec2(0, s_overlay_top + menu_h));
     ImGui::SetNextWindowSize(ImVec2(ImGui::GetIO().DisplaySize.x, 30));
     ImGui::SetNextWindowBgAlpha(0.85f);
     ImGui::Begin("##EditorToolbar", nullptr,
