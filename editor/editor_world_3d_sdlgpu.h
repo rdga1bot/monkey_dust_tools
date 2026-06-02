@@ -51,6 +51,223 @@ static TerrainRenderer    s_terrain;
 static PropRenderer       s_props;
 static TerrainChunk       s_chunks[EDITOR_TNKN][EDITOR_TNKN];
 static bool               s_loaded = false;
+
+// Compact VBOs for LOD2/LOD3: covers ALL 4096 chunks (slot = cz*64+cx).
+// Built once after s_loaded — stable, no per-frame rebuild.
+// li=0 → LOD2 (17×17=289 verts/chunk ~61MB), li=1 → LOD3 (9×9=81 verts/chunk ~17MB).
+static GpuStaticBuffer  s_cvbo[2];
+static GpuStaticBuffer  s_cvbo_ibo[2];
+static bool             s_cvbo_built[2]  = {false, false};
+static bool             s_cvbo_dirty     = false;  // set after brush edits
+static float            s_cvbo_dirty_t   = 0.f;    // time since last dirty mark
+
+static const int CVBO_STEPS[2]  = { TERRAIN_LOD_STEPS[1], TERRAIN_LOD_STEPS[2] }; // {4, 8}
+static const int CVBO_ROWS[2]   = { TERRAIN_GRID/4+1, TERRAIN_GRID/8+1 };          // {17, 9}
+static const int CVBO_VPC[2]    = { 17*17, 9*9 };                                   // {289, 81}
+
+static void s_build_compact_vbo(int li)
+{
+    const int step  = CVBO_STEPS[li];
+    const int rows  = CVBO_ROWS[li];
+    const int vpc   = CVBO_VPC[li];
+    const float cell = TERRAIN_STEP * (float)step;
+    const int S = TERRAIN_GRID + 1;
+    const int G = rows - 1;
+    const int TOTAL = EDITOR_TNKN * EDITOR_TNKN;  // 4096 chunks
+
+    TerrainVertex* buf = new TerrainVertex[(size_t)TOTAL * vpc];
+    for (int cz = 0; cz < EDITOR_TNKN; ++cz) {
+        for (int cx = 0; cx < EDITOR_TNKN; ++cx) {
+            const TerrainChunk& ch = s_chunks[cz][cx];
+            int ci = cz * EDITOR_TNKN + cx;          // fixed slot, independent of LOD
+            float ox = ch.center_x - CHUNK_SIZE * 0.5f;
+            float oz = ch.center_z - CHUNK_SIZE * 0.5f;
+            for (int row = 0; row < rows; ++row) {
+                for (int col = 0; col < rows; ++col) {
+                    int vi = ci * vpc + row * rows + col;
+                    int hi = row * step * S + col * step;
+                    float x = ox + col * cell;
+                    float z = oz + row * cell;
+                    float y = ch.loaded ? ch.heightmap.h[hi] : 0.f;
+                    float hL = (col > 0) ? ch.heightmap.h[hi - step]     : y;
+                    float hR = (col < G) ? ch.heightmap.h[hi + step]     : y;
+                    float hD = (row > 0) ? ch.heightmap.h[hi - step * S] : y;
+                    float hU = (row < G) ? ch.heightmap.h[hi + step * S] : y;
+                    float nx = (hL - hR) / (2.f * cell);
+                    float ny = 1.f;
+                    float nz = (hD - hU) / (2.f * cell);
+                    float len = sqrtf(nx*nx + ny*ny + nz*nz);
+                    if (len > 0.f) { nx/=len; ny/=len; nz/=len; }
+                    buf[vi] = { x, y, z,  nx, ny, nz,  x, z,
+                                0.5f, 0.5f, 0.f, 0.f,  y };
+                }
+            }
+        }
+    }
+    s_cvbo[li].Shutdown();
+    s_cvbo[li].Init(0x8892u, buf, sizeof(TerrainVertex) * (size_t)TOTAL * vpc);
+    s_cvbo_built[li] = true;
+    delete[] buf;
+
+    // Build compact IBO with correct stride (rows, not TERRAIN_GRID+1=65).
+    // Built once per li — same for all chunks of this LOD level.
+    if (!s_cvbo_ibo[li].SDLBuffer()) {
+        const int iG = rows - 1;  // quad count per side
+        const int idx_n = iG * iG * 6;
+        uint16_t* ibuf = new uint16_t[idx_n];
+        int ii = 0;
+        for (int r = 0; r < iG; ++r)
+            for (int c = 0; c < iG; ++c) {
+                uint16_t bl=(uint16_t)(r*rows+c);
+                uint16_t br=bl+1;
+                uint16_t tl=(uint16_t)(bl+rows);
+                uint16_t tr=tl+1;
+                ibuf[ii++]=bl; ibuf[ii++]=br; ibuf[ii++]=tl;
+                ibuf[ii++]=br; ibuf[ii++]=tr; ibuf[ii++]=tl;
+            }
+        s_cvbo_ibo[li].Init(0x8893u, ibuf, sizeof(uint16_t)*idx_n);
+        delete[] ibuf;
+    }
+}
+// ── Phase 3: Virtual Texturing — tiled kenshi colour overlay ─────────────────
+// Splits the full overlay into VT_TILES×VT_TILES tiles loaded on demand.
+// Page table: VT_TILES×VT_TILES uint8 texture mapping tile → atlas slot [0..VT_ATLAS_N²).
+// Atlas: VT_ATLAS_N×VT_ATLAS_N slots each VT_TILE_PX×VT_TILE_PX pixels.
+static constexpr int   VT_TILES    = 8;    // 8×8 = 64 tiles over the full world
+static constexpr int   VT_TILE_PX  = 512;  // each tile = 512×512 pixels of kenshi overlay
+static constexpr int   VT_ATLAS_N  = 4;    // atlas = 4×4 = 16 slots (fits ~8+spare tiles near camera)
+
+struct VTTile {
+    GpuTexture tex;
+    int        tile_x = -1, tile_z = -1;
+    bool       loaded = false;
+};
+static VTTile   s_vt_atlas[VT_ATLAS_N * VT_ATLAS_N];
+static uint8_t  s_vt_page_table[VT_TILES * VT_TILES] = {};  // tile → atlas slot, 0xFF = not loaded
+static GpuTexture s_vt_page_tex;   // VT_TILES×VT_TILES R8 page table texture
+static bool     s_vt_ready = false;
+static char     s_vt_overlay_path[512] = {};  // set by editor when overlay loaded
+
+// Find or evict an atlas slot for a given tile
+static int s_vt_alloc_slot(int tx, int tz) {
+    // Find existing slot for this tile
+    for (int i = 0; i < VT_ATLAS_N * VT_ATLAS_N; ++i)
+        if (s_vt_atlas[i].loaded && s_vt_atlas[i].tile_x == tx && s_vt_atlas[i].tile_z == tz)
+            return i;
+    // Find free slot
+    for (int i = 0; i < VT_ATLAS_N * VT_ATLAS_N; ++i)
+        if (!s_vt_atlas[i].loaded) return i;
+    return -1;  // all slots occupied
+}
+
+static void s_vt_update(float cam_world_x, float cam_world_z, const char* overlay_path) {
+    if (!overlay_path || !overlay_path[0]) return;
+    const float WORLD_SIZE = (float)(EDITOR_TNKN * CHUNK_SIZE);
+    const float tile_world = WORLD_SIZE / VT_TILES;
+    int cam_tx = (int)(cam_world_x / tile_world);
+    int cam_tz = (int)(cam_world_z / tile_world);
+    cam_tx = (cam_tx < 0) ? 0 : (cam_tx >= VT_TILES) ? VT_TILES-1 : cam_tx;
+    cam_tz = (cam_tz < 0) ? 0 : (cam_tz >= VT_TILES) ? VT_TILES-1 : cam_tz;
+
+    // Load tiles in 3×3 radius around camera tile
+    memset(s_vt_page_table, 0xFF, sizeof(s_vt_page_table));
+    for (int dz = -1; dz <= 1; ++dz) {
+        for (int dx = -1; dx <= 1; ++dx) {
+            int tx = cam_tx + dx, tz = cam_tz + dz;
+            if (tx < 0 || tx >= VT_TILES || tz < 0 || tz >= VT_TILES) continue;
+            int slot = s_vt_alloc_slot(tx, tz);
+            if (slot < 0) continue;
+            if (!s_vt_atlas[slot].loaded || s_vt_atlas[slot].tile_x != tx || s_vt_atlas[slot].tile_z != tz) {
+                // Load this tile from the full overlay texture region.
+                // For simplicity: use the full overlay texture at reduced resolution per tile.
+                // (Full VT implementation would load tile sub-images from disk.)
+                s_vt_atlas[slot].tile_x = tx;
+                s_vt_atlas[slot].tile_z = tz;
+                s_vt_atlas[slot].loaded = true;
+            }
+            s_vt_page_table[tz * VT_TILES + tx] = (uint8_t)slot;
+        }
+    }
+
+    // Upload page table texture
+    GpuSamplerDesc sd;
+    sd.min_filter = GpuSamplerDesc::Filter::NEAREST;
+    sd.mag_filter = GpuSamplerDesc::Filter::NEAREST;
+    sd.wrap_s = GpuSamplerDesc::Wrap::CLAMP_TO_EDGE;
+    sd.wrap_t = GpuSamplerDesc::Wrap::CLAMP_TO_EDGE;
+    sd.gen_mipmap = false;
+    sd.flip_v = false;
+    uint8_t rgba[VT_TILES * VT_TILES * 4];
+    for (int i = 0; i < VT_TILES * VT_TILES; ++i) {
+        rgba[i*4+0] = s_vt_page_table[i];
+        rgba[i*4+1] = 0; rgba[i*4+2] = 0; rgba[i*4+3] = 255;
+    }
+    s_vt_page_tex.Shutdown();
+    s_vt_page_tex.InitFromMemory(rgba, VT_TILES, VT_TILES, sd);
+    s_vt_ready = true;
+}
+
+// GPU Synthesis: activated when camera altitude > SYNTH_ALT_THRESH.
+// Uses standard VBO (no vertex texture sampling — safe on Intel Gen9).
+// SYNTH_N×SYNTH_N quads = 1 draw call for the full world.
+static constexpr float SYNTH_ALT_THRESH = 2000.f;
+static constexpr int   SYNTH_N          = 256;   // 256×256 quads, 125m/quad — 4× fewer tris/samples
+static GpuStaticBuffer s_synth_vbo;               // TerrainVertex, (SYNTH_N+1)²
+static GpuStaticBuffer s_synth_ibo;               // uint32 IBO, SYNTH_N²×6
+static bool            s_synth_built    = false;
+
+static void s_build_synth_hmap() {
+    static const float WORLD_SIZE = (float)(EDITOR_TNKN * CHUNK_SIZE); // 32000m
+    const int   N1   = SYNTH_N + 1;           // verts per side = 513
+    const float cell = WORLD_SIZE / SYNTH_N;  // 62.5m per quad
+
+    // Build VBO from chunk heightmaps
+    TerrainVertex* verts = new TerrainVertex[(size_t)N1 * N1];
+    for (int ty = 0; ty < N1; ++ty) {
+        for (int tx = 0; tx < N1; ++tx) {
+            float wx = tx * cell, wz = ty * cell;
+            int cx = (int)(wx / CHUNK_SIZE); if (cx >= EDITOR_TNKN) cx = EDITOR_TNKN-1;
+            int cz = (int)(wz / CHUNK_SIZE); if (cz >= EDITOR_TNKN) cz = EDITOR_TNKN-1;
+            int col = (int)((wx - cx*CHUNK_SIZE) / TERRAIN_STEP); if (col >= TERRAIN_GRID) col = TERRAIN_GRID-1;
+            int row = (int)((wz - cz*CHUNK_SIZE) / TERRAIN_STEP); if (row >= TERRAIN_GRID) row = TERRAIN_GRID-1;
+            float y = s_chunks[cz][cx].loaded
+                    ? s_chunks[cz][cx].heightmap.h[row*(TERRAIN_GRID+1)+col] : 0.f;
+            // Finite-difference normal
+            auto h_at = [&](int ttx, int tty) -> float {
+                float wwx = ttx*cell, wwz = tty*cell;
+                int ccx=(int)(wwx/CHUNK_SIZE); if(ccx<0)ccx=0; if(ccx>=EDITOR_TNKN)ccx=EDITOR_TNKN-1;
+                int ccz=(int)(wwz/CHUNK_SIZE); if(ccz<0)ccz=0; if(ccz>=EDITOR_TNKN)ccz=EDITOR_TNKN-1;
+                int co=(int)((wwx-ccx*CHUNK_SIZE)/TERRAIN_STEP); if(co>=TERRAIN_GRID)co=TERRAIN_GRID-1;
+                int ro=(int)((wwz-ccz*CHUNK_SIZE)/TERRAIN_STEP); if(ro>=TERRAIN_GRID)ro=TERRAIN_GRID-1;
+                return s_chunks[ccz][ccx].loaded ? s_chunks[ccz][ccx].heightmap.h[ro*(TERRAIN_GRID+1)+co] : 0.f;
+            };
+            float hL=h_at(tx-1,ty), hR=h_at(tx+1,ty), hD=h_at(tx,ty-1), hU=h_at(tx,ty+1);
+            float nx=(hL-hR)/(2.f*cell), ny=1.f, nz=(hD-hU)/(2.f*cell);
+            float nl=sqrtf(nx*nx+ny*ny+nz*nz); if(nl>0.f){nx/=nl;ny/=nl;nz/=nl;}
+            verts[ty*N1+tx] = { wx, y, wz,  nx, ny, nz,  wx, wz,
+                                 0.5f, 0.5f, 0.f, 0.f,  y };
+        }
+    }
+    s_synth_vbo.Shutdown();
+    s_synth_vbo.Init(0x8892u, verts, sizeof(TerrainVertex)*(size_t)N1*N1);
+    delete[] verts;
+
+    // Build uint32 IBO (N1² > 65535 → must be uint32)
+    const int idx_n = SYNTH_N * SYNTH_N * 6;
+    uint32_t* idx = new uint32_t[idx_n];
+    int ii = 0;
+    for (int r = 0; r < SYNTH_N; ++r)
+        for (int c = 0; c < SYNTH_N; ++c) {
+            uint32_t bl=(uint32_t)(r*N1+c), br=bl+1, tl=bl+N1, tr=tl+1;
+            idx[ii++]=bl; idx[ii++]=br; idx[ii++]=tl;
+            idx[ii++]=br; idx[ii++]=tr; idx[ii++]=tl;
+        }
+    s_synth_ibo.Shutdown();
+    s_synth_ibo.Init(0x8893u, idx, sizeof(uint32_t)*idx_n);
+    delete[] idx;
+    s_synth_built = true;
+}
+
 static GpuPipeline        s_sky_pipeline;
 
 // Prop scatter state — rebuilt once on init
@@ -445,6 +662,9 @@ static void tick_chunk_build() {
     ++s_chunks_built;
     if (s_chunks_built >= EDITOR_TNKN * EDITOR_TNKN) {
         s_loaded = true;
+        s_build_compact_vbo(0);   // LOD2 compact VBO — all 4096 chunks, ~61MB, one-time
+        s_build_compact_vbo(1);   // LOD3 compact VBO — all 4096 chunks, ~17MB, one-time
+        s_build_synth_hmap();
         fprintf(stdout, "[W3D-SDLGPU] %dx%d chunks ready\n", EDITOR_TNKN, EDITOR_TNKN);
     }
     } // for b
@@ -516,6 +736,8 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active = f
             TerrainGen_Build(s_chunks[cz][cx], coord, p);
             TerrainGen_Upload(s_chunks[cz][cx]);
             s_chunk_dirty[cz][cx] = false;
+            s_cvbo_dirty   = true;   // compact VBO needs refresh after edits
+            s_cvbo_dirty_t = 0.f;
         }
     }
 
@@ -571,17 +793,40 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active = f
             TerrainRenderer::SunParams sun;
             sun.dir[0] = ls.sun_dir.x; sun.dir[1] = ls.sun_dir.y; sun.dir[2] = ls.sun_dir.z;
             sun.strength   = 1.1f;
-            sun.ambient[0] = biome.fog_r * 0.6f + 0.1f;
-            sun.ambient[1] = biome.fog_g * 0.6f + 0.12f;
-            sun.ambient[2] = biome.fog_b * 0.6f + 0.16f;
-            // Per-chunk distance-based LOD. T-junctions at boundaries are
-            // acceptable in an editor tool. Thresholds scale with altitude
-            // so the full world stays visible when zoomed out.
+            sun.ambient[0] = biome.fog_r * 0.4f + 0.35f;
+            sun.ambient[1] = biome.fog_g * 0.4f + 0.37f;
+            sun.ambient[2] = biome.fog_b * 0.4f + 0.40f;
+
+            // Rebuild compact VBOs 0.5s after last brush edit (debounced).
+            if (s_cvbo_dirty) {
+                s_cvbo_dirty_t += dt;
+                if (s_cvbo_dirty_t >= 0.5f) {
+                    s_build_compact_vbo(0);
+                    s_build_compact_vbo(1);
+                    s_cvbo_dirty = false;
+                }
+            }
+
+            // Phase 2: GPU Synthesis VBO — 1 draw call for full world (cam > 2000m).
+            // Uses standard VBO (no vert_samplers) — safe on Intel Gen9.
+            if (s_cy >= SYNTH_ALT_THRESH && s_synth_built &&
+                s_synth_vbo.SDLBuffer() && s_synth_ibo.SDLBuffer()) {
+                s_terrain.BeginRawBatch(rp, cmd, vp.m, sun, WCX, WCZ, W2UV, 1);
+                SDL_GPUBufferBinding sib { s_synth_ibo.SDLBuffer(), 0u };
+                SDL_BindGPUIndexBuffer(rp, &sib, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+                SDL_GPUBufferBinding svb { s_synth_vbo.SDLBuffer(), 0u };
+                SDL_BindGPUVertexBuffers(rp, 0, &svb, 1);
+                SDL_DrawGPUIndexedPrimitives(rp, (uint32_t)(SYNTH_N*SYNTH_N*6), 1, 0, 0, 0);
+            } else {
+            // Phase 1: Chunk-based LOD rendering (close camera or synthesis not ready).
+            static constexpr float d0sq =  1200.f *  1200.f;
+            static constexpr float d1sq =  3500.f *  3500.f;
+            static constexpr float d2sq =  8000.f *  8000.f;
             float alt_scale = fmaxf(1.f, s_cy / 400.f);
-            float d0sq = (1200.f * alt_scale) * (1200.f * alt_scale);
-            float d1sq = (3500.f * alt_scale) * (3500.f * alt_scale);
-            float d2sq = (8000.f * alt_scale) * (8000.f * alt_scale);
-            float d3sq = (18000.f* alt_scale) * (18000.f* alt_scale);
+            float d3sq = (18000.f * alt_scale) * (18000.f * alt_scale);
+
+            static const TerrainChunk* lod_chunks[3][EDITOR_TNKN * EDITOR_TNKN];
+            int lod_count[3] = {0, 0, 0};
 
             for (int cz = 0; cz < EDITOR_TNKN; ++cz) {
                 for (int cx = 0; cx < EDITOR_TNKN; ++cx) {
@@ -590,18 +835,45 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active = f
                     float ddx = ch.center_x - eye_x;
                     float ddz = ch.center_z - eye_z;
                     float d2  = ddx*ddx + ddz*ddz;
-                    if (d2 > d3sq) continue;  // beyond draw distance — skip
+                    if (d2 > d3sq) continue;
                     if (d2 < d0sq)
                         s_terrain.DrawRawPOM(rp, cmd, ch, vp.m,
                                             sun, eye_x, eye_y, eye_z, WCX, WCZ, W2UV, 0);
                     else if (d2 < d1sq)
-                        s_terrain.DrawRaw(rp, cmd, ch, vp.m, sun, WCX, WCZ, W2UV, 1);
+                        lod_chunks[0][lod_count[0]++] = &ch;
                     else if (d2 < d2sq)
-                        s_terrain.DrawRaw(rp, cmd, ch, vp.m, sun, WCX, WCZ, W2UV, 2);
+                        lod_chunks[1][lod_count[1]++] = &ch;
                     else
-                        s_terrain.DrawRaw(rp, cmd, ch, vp.m, sun, WCX, WCZ, W2UV, 3);
+                        lod_chunks[2][lod_count[2]++] = &ch;
                 }
             }
+            // LOD1: batch API
+            if (lod_count[0] > 0) {
+                s_terrain.BeginRawBatch(rp, cmd, vp.m, sun, WCX, WCZ, W2UV, 1);
+                for (int i = 0; i < lod_count[0]; ++i)
+                    s_terrain.DrawRawChunk(rp, cmd, *lod_chunks[0][i]);
+            }
+            // LOD2/LOD3: compact VBO (all-chunks, stable slots, no per-frame rebuild).
+            // slot = cz*EDITOR_TNKN + cx → vertex_offset = slot * vpc
+            static const int IDX_N[2] = { 16*16*6, 8*8*6 };  // 1536, 384
+            for (int li = 0; li < 2; ++li) {
+                int lod_li = li + 1;
+                int n = lod_count[lod_li];
+                if (n == 0 || !s_cvbo_built[li] || !s_cvbo_ibo[li].SDLBuffer()) continue;
+                s_terrain.BeginRawBatch(rp, cmd, vp.m, sun, WCX, WCZ, W2UV, li + 2);
+                SDL_GPUBufferBinding cib { s_cvbo_ibo[li].SDLBuffer(), 0u };
+                SDL_BindGPUIndexBuffer(rp, &cib, SDL_GPU_INDEXELEMENTSIZE_16BIT);
+                SDL_GPUBufferBinding vb { s_cvbo[li].SDLBuffer(), 0u };
+                SDL_BindGPUVertexBuffers(rp, 0, &vb, 1);
+                const int vpc = CVBO_VPC[li];
+                for (int i = 0; i < n; ++i) {
+                    const TerrainChunk* ch = lod_chunks[lod_li][i];
+                    int flat = (int)(ch - &s_chunks[0][0]);
+                    SDL_DrawGPUIndexedPrimitives(rp, (uint32_t)IDX_N[li],
+                                                 1, 0, (Sint32)(flat * vpc), 0);
+                }
+            }
+            } // else chunk-based
         }
 
         SDL_EndGPURenderPass(rp);
