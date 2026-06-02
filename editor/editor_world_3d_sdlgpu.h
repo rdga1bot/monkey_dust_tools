@@ -791,7 +791,8 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active = f
             static constexpr float WCX  = 32.f * CHUNK_SIZE;
             static constexpr float WCZ  = 32.f * CHUNK_SIZE;
             TerrainRenderer::SunParams sun;
-            sun.dir[0] = ls.sun_dir.x; sun.dir[1] = ls.sun_dir.y; sun.dir[2] = ls.sun_dir.z;
+            // terrain shaders expect surface→sun (positive Y up); LightSystem = sun→surface → negate.
+            sun.dir[0] = -ls.sun_dir.x; sun.dir[1] = -ls.sun_dir.y; sun.dir[2] = -ls.sun_dir.z;
             sun.strength   = 1.1f;
             sun.ambient[0] = biome.fog_r * 0.4f + 0.35f;
             sun.ambient[1] = biome.fog_g * 0.4f + 0.37f;
