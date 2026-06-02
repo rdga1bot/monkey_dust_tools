@@ -137,74 +137,92 @@ static constexpr int   VT_TILES    = 8;    // 8×8 = 64 tiles over the full worl
 static constexpr int   VT_TILE_PX  = 512;  // each tile = 512×512 pixels of kenshi overlay
 static constexpr int   VT_ATLAS_N  = 4;    // atlas = 4×4 = 16 slots (fits ~8+spare tiles near camera)
 
-struct VTTile {
-    GpuTexture tex;
-    int        tile_x = -1, tile_z = -1;
-    bool       loaded = false;
-};
-static VTTile   s_vt_atlas[VT_ATLAS_N * VT_ATLAS_N];
-static uint8_t  s_vt_page_table[VT_TILES * VT_TILES] = {};  // tile → atlas slot, 0xFF = not loaded
-static GpuTexture s_vt_page_tex;   // VT_TILES×VT_TILES R8 page table texture
-static bool     s_vt_ready = false;
-static char     s_vt_overlay_path[512] = {};  // set by editor when overlay loaded
+// Virtual Texturing state — CPU overlay + local composite GPU texture.
+// Composite: 1024×1024px covering 8000m×8000m centered on camera.
+// Built from CPU overlay when camera moves; swapped in for close terrain render.
+static uint8_t*   s_vt_img       = nullptr;  // full overlay CPU (4096×4096×4 = 64MB)
+static int        s_vt_img_w     = 0;
+static int        s_vt_img_h     = 0;
+static GpuTexture s_vt_composite;             // 1024×1024 local composite GPU texture
+static float      s_vt_comp_ox   = -1e9f;     // world origin X of current composite
+static float      s_vt_comp_oz   = -1e9f;
+static bool       s_vt_ready     = false;
 
-// Find or evict an atlas slot for a given tile
-static int s_vt_alloc_slot(int tx, int tz) {
-    // Find existing slot for this tile
-    for (int i = 0; i < VT_ATLAS_N * VT_ATLAS_N; ++i)
-        if (s_vt_atlas[i].loaded && s_vt_atlas[i].tile_x == tx && s_vt_atlas[i].tile_z == tz)
-            return i;
-    // Find free slot
-    for (int i = 0; i < VT_ATLAS_N * VT_ATLAS_N; ++i)
-        if (!s_vt_atlas[i].loaded) return i;
-    return -1;  // all slots occupied
+// stb_image forward declarations (implementation in engine stb_image_impl.cpp)
+extern "C" {
+    extern unsigned char* stbi_load(const char* filename, int* x, int* y,
+                                     int* channels_in_file, int desired_channels);
+    extern void stbi_image_free(void* retval_from_stbi_load);
 }
 
-static void s_vt_update(float cam_world_x, float cam_world_z, const char* overlay_path) {
-    if (!overlay_path || !overlay_path[0]) return;
-    const float WORLD_SIZE = (float)(EDITOR_TNKN * CHUNK_SIZE);
-    const float tile_world = WORLD_SIZE / VT_TILES;
-    int cam_tx = (int)(cam_world_x / tile_world);
-    int cam_tz = (int)(cam_world_z / tile_world);
-    cam_tx = (cam_tx < 0) ? 0 : (cam_tx >= VT_TILES) ? VT_TILES-1 : cam_tx;
-    cam_tz = (cam_tz < 0) ? 0 : (cam_tz >= VT_TILES) ? VT_TILES-1 : cam_tz;
+static void s_vt_load_source(const char* overlay_path) {
+    if (s_vt_img) { stbi_image_free(s_vt_img); s_vt_img = nullptr; }
+    int ch = 0;
+    s_vt_img = stbi_load(overlay_path, &s_vt_img_w, &s_vt_img_h, &ch, 4);
+    if (!s_vt_img)
+        fprintf(stderr, "[VT] failed to load overlay: %s\n", overlay_path);
+    else
+        fprintf(stdout, "[VT] overlay loaded CPU: %dx%d\n", s_vt_img_w, s_vt_img_h);
+}
 
-    // Load tiles in 3×3 radius around camera tile
-    memset(s_vt_page_table, 0xFF, sizeof(s_vt_page_table));
-    for (int dz = -1; dz <= 1; ++dz) {
-        for (int dx = -1; dx <= 1; ++dx) {
-            int tx = cam_tx + dx, tz = cam_tz + dz;
-            if (tx < 0 || tx >= VT_TILES || tz < 0 || tz >= VT_TILES) continue;
-            int slot = s_vt_alloc_slot(tx, tz);
-            if (slot < 0) continue;
-            if (!s_vt_atlas[slot].loaded || s_vt_atlas[slot].tile_x != tx || s_vt_atlas[slot].tile_z != tz) {
-                // Load this tile from the full overlay texture region.
-                // For simplicity: use the full overlay texture at reduced resolution per tile.
-                // (Full VT implementation would load tile sub-images from disk.)
-                s_vt_atlas[slot].tile_x = tx;
-                s_vt_atlas[slot].tile_z = tz;
-                s_vt_atlas[slot].loaded = true;
-            }
-            s_vt_page_table[tz * VT_TILES + tx] = (uint8_t)slot;
+// Build 1024×1024 composite from CPU overlay, covering [cx-4000 .. cx+4000] world space.
+static void s_vt_build_composite(float cam_x, float cam_z) {
+    if (!s_vt_img) return;
+    static const int COMP_PX  = 1024;           // composite pixel size
+    static const float HALF_W = 4000.f;          // half world coverage = 4km
+    static const float WORLD  = (float)(EDITOR_TNKN * CHUNK_SIZE); // 32000m
+
+    float ox = cam_x - HALF_W;  // world-space left edge
+    float oz = cam_z - HALF_W;
+
+    // Map world coords to source image pixels
+    float px_per_m = (float)s_vt_img_w / WORLD;  // typically 4096/32000 = 0.128
+    int src_x0 = (int)(ox * px_per_m);
+    int src_z0 = (int)(oz * px_per_m);
+    int src_sz = (int)(HALF_W * 2.f * px_per_m);  // typically 8000*0.128 = 1024
+
+    uint8_t* comp = new uint8_t[(size_t)COMP_PX * COMP_PX * 4];
+
+    // Nearest-neighbour resample src_sz×src_sz → COMP_PX×COMP_PX
+    for (int cy = 0; cy < COMP_PX; ++cy) {
+        for (int cx2 = 0; cx2 < COMP_PX; ++cx2) {
+            int sx = src_x0 + (int)((float)cx2 / COMP_PX * src_sz);
+            int sz = src_z0 + (int)((float)cy / COMP_PX * src_sz);
+            // clamp to source bounds
+            sx = (sx < 0) ? 0 : (sx >= s_vt_img_w) ? s_vt_img_w-1 : sx;
+            sz = (sz < 0) ? 0 : (sz >= s_vt_img_h) ? s_vt_img_h-1 : sz;
+            int si = (sz * s_vt_img_w + sx) * 4;
+            int di = (cy * COMP_PX + cx2) * 4;
+            comp[di+0] = s_vt_img[si+0];
+            comp[di+1] = s_vt_img[si+1];
+            comp[di+2] = s_vt_img[si+2];
+            comp[di+3] = s_vt_img[si+3];
         }
     }
 
-    // Upload page table texture
     GpuSamplerDesc sd;
-    sd.min_filter = GpuSamplerDesc::Filter::NEAREST;
-    sd.mag_filter = GpuSamplerDesc::Filter::NEAREST;
+    sd.min_filter = GpuSamplerDesc::Filter::LINEAR_MIPMAP;
+    sd.mag_filter = GpuSamplerDesc::Filter::LINEAR;
     sd.wrap_s = GpuSamplerDesc::Wrap::CLAMP_TO_EDGE;
     sd.wrap_t = GpuSamplerDesc::Wrap::CLAMP_TO_EDGE;
-    sd.gen_mipmap = false;
+    sd.gen_mipmap = true;
     sd.flip_v = false;
-    uint8_t rgba[VT_TILES * VT_TILES * 4];
-    for (int i = 0; i < VT_TILES * VT_TILES; ++i) {
-        rgba[i*4+0] = s_vt_page_table[i];
-        rgba[i*4+1] = 0; rgba[i*4+2] = 0; rgba[i*4+3] = 255;
-    }
-    s_vt_page_tex.Shutdown();
-    s_vt_page_tex.InitFromMemory(rgba, VT_TILES, VT_TILES, sd);
-    s_vt_ready = true;
+    s_vt_composite.Shutdown();
+    s_vt_composite.InitFromMemory(comp, COMP_PX, COMP_PX, sd);
+    delete[] comp;
+
+    s_vt_comp_ox = ox;
+    s_vt_comp_oz = oz;
+    s_vt_ready   = true;
+}
+
+// Call per-frame when camera moves; rebuilds composite if camera crossed 1km boundary.
+static void s_vt_update(float cam_x, float cam_z) {
+    if (!s_vt_img) return;
+    float dx = cam_x - (s_vt_comp_ox + 4000.f);  // distance from composite center
+    float dz = cam_z - (s_vt_comp_oz + 4000.f);
+    if (dx*dx + dz*dz > 1000.f*1000.f)            // rebuild if moved >1km from center
+        s_vt_build_composite(cam_x, cam_z);
 }
 
 // GPU Synthesis: activated when camera altitude > SYNTH_ALT_THRESH.
@@ -604,6 +622,7 @@ static bool Init(const char* overlay_path, int /*zone_ox*/ = 28, int /*zone_oz*/
     }
 
     const char* op = overlay_path;
+    s_vt_load_source(op);  // load overlay CPU-side for VT composite (64MB, one-time)
     s_loader_thread = std::thread([op]() {
         if (!s_terrain.Init()) {
             fprintf(stderr, "[W3D-SDLGPU] TerrainRenderer init failed\n"); return;
@@ -808,6 +827,9 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active = f
                 }
             }
 
+            // Phase 3: Virtual Texturing — update local composite (1km threshold).
+            s_vt_update(eye_x, eye_z);
+
             // Phase 2: GPU Synthesis VBO — 1 draw call for full world (cam > 2000m).
             // Uses standard VBO (no vert_samplers) — safe on Intel Gen9.
             if (s_cy >= SYNTH_ALT_THRESH && s_synth_built &&
@@ -837,9 +859,18 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active = f
                     float ddz = ch.center_z - eye_z;
                     float d2  = ddx*ddx + ddz*ddz;
                     if (d2 > d3sq) continue;
-                    if (d2 < d0sq)
+                    if (d2 < d0sq) {
+                        // VT: use high-res local composite for close POM terrain.
+                        if (s_vt_ready && s_vt_composite.SDLTexture())
+                            s_terrain.UseColourOverride(s_vt_composite.SDLTexture(),
+                                                        s_vt_composite.SDLSampler());
+                        float vt_ox  = s_vt_ready ? s_vt_comp_ox + 4000.f : WCX;
+                        float vt_oz  = s_vt_ready ? s_vt_comp_oz + 4000.f : WCZ;
+                        float vt_uv  = s_vt_ready ? 1.f / 8000.f          : W2UV;
                         s_terrain.DrawRawPOM(rp, cmd, ch, vp.m,
-                                            sun, eye_x, eye_y, eye_z, WCX, WCZ, W2UV, 0);
+                                            sun, eye_x, eye_y, eye_z, vt_ox, vt_oz, vt_uv, 0);
+                        s_terrain.UseColourOverride(nullptr, nullptr);
+                    }
                     else if (d2 < d1sq)
                         lod_chunks[0][lod_count[0]++] = &ch;
                     else if (d2 < d2sq)
