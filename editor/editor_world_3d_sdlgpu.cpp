@@ -693,14 +693,28 @@ static void tick_chunk_build() {
 // ── Camera input (original free-fly) ─────────────────────────────────────────
 static void handle_input(float dt) {
     ImGuiIO& io = ImGui::GetIO();
+    // Relative mouse mode toggle — tracks state across calls.
+    static bool s_rel_active = false;
     if (io.MouseDown[1]) {
+        if (!s_rel_active) {
+            SDL_SetWindowRelativeMouseMode(SDL_GetMouseFocus(), true);
+            float _dx, _dy;
+            SDL_GetRelativeMouseState(&_dx, &_dy); // drain stale delta on enter
+            s_rel_active = true;
+        }
         s_rmb = true;
         ImGui::SetMouseCursor(ImGuiMouseCursor_None);
-        s_yaw   -= io.MouseDelta.x * 0.003f;
-        s_pitch += io.MouseDelta.y * 0.002f;
+        float rdx = 0.f, rdy = 0.f;
+        SDL_GetRelativeMouseState(&rdx, &rdy);
+        s_yaw   -= rdx * 0.003f;
+        s_pitch += rdy * 0.002f;
         if (s_pitch < -0.3f) s_pitch = -0.3f;
         if (s_pitch >  1.3f) s_pitch =  1.3f;
     } else {
+        if (s_rel_active) {
+            SDL_SetWindowRelativeMouseMode(SDL_GetMouseFocus(), false);
+            s_rel_active = false;
+        }
         s_rmb = false;
     }
     float sp = s_cy * dt;
@@ -956,7 +970,7 @@ void DrawImGui(float W, float H, float dt) {
     // Invisible button for input capture
     ImGui::InvisibleButton("##w3dsgpu", {W, H},
         ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
-    bool hov = ImGui::IsItemHovered();
+    bool hov = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
     if (ImGui::IsItemClicked(ImGuiMouseButton_Left) || ImGui::IsItemClicked(ImGuiMouseButton_Right))
         s_focused = true;
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !hov)

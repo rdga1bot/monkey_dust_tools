@@ -1,5 +1,5 @@
 #pragma once
-// kenshi_data_parser.h — Kenshi FCS binary format parser (gamedata.base, *.mod)
+// ken_data_parser.h — FCS binary format parser (gamedata.base, *.mod)
 // Phase 4, Task 4.1
 //
 // Binary format (reconstructed from hex analysis of gamedata.base):

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-re_kenshi_charstruct.py — Targeted struct reconstruction for Kenshi char editor.
+re_ken_charstruct.py — Targeted struct reconstruction for char editor.
 
 Extracts param_1/param_2 offset accesses from FUN_140015b63 (char editor function)
 and nearby string constants to reconstruct the CharacterDef / CharacterEditor struct.
 
 Usage:
-  python3 tools/re_analysis/re_kenshi_charstruct.py \
+  python3 tools/re_analysis/re_ken_charstruct.py \
     tmp_md/kenshi/kenshi_x64.exe.c \
     --output tmp_md/kenshi/re_charstruct.md
 """

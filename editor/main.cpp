@@ -234,6 +234,8 @@ int main(void) {
                     if (sc >= 0 && sc < SDL_SCANCODE_COUNT)
                         _sdl3_input::s_next[sc] = true;
                 }
+                if (ev.type == SDL_EVENT_WINDOW_DISPLAY_CHANGED)
+                    SDL_MaximizeWindow(_wnd::ptr());
             }
             input_begin_frame();
         }
