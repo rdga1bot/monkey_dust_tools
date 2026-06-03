@@ -186,7 +186,10 @@ if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.16")
     message(STATUS "[monkey_dust_editor] PCH: ENABLED (entt + imgui + SDL_GPU)")
 endif()
 
+endif() # MONKEY_DUST_TOOLS_NEED_SDL3 — editor + hot-reload panels end here
+
 # ── md_flare_convert ─────────────────────────────────────
+# Standalone INI→JSON converter — no SDL3, no engine, no third_party.
 add_executable(md_flare_convert
     flare_convert/flare_ini_converter.cpp
     flare_convert/flare_convert_main.cpp
@@ -198,10 +201,9 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
     target_compile_options(md_flare_convert PRIVATE -O2 -march=native)
 endif()
 
+if(MONKEY_DUST_TOOLS_NEED_SDL3)
 # ── md_flare_demo ─────────────────────────────────────────
 # Pure SDL_GPU demo: plain SDL3 window, no OpenGL context, no Raylib.
-# glad_impl + stb_image_impl compiled directly (not via engine lib) to resolve
-# GL symbols from the dual-backend engine and provide stb_image texture loading.
 add_executable(md_flare_demo
     flare_demo/main.cpp
     ${CMAKE_SOURCE_DIR}/engine/src/vendor/glad_impl.cpp
@@ -225,5 +227,4 @@ target_include_directories(md_flare_demo PRIVATE
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     target_compile_options(md_flare_demo PRIVATE -O2 -march=native)
 endif()
-
-endif() # MONKEY_DUST_TOOLS_NEED_SDL3
+endif() # MONKEY_DUST_TOOLS_NEED_SDL3 — md_flare_demo
