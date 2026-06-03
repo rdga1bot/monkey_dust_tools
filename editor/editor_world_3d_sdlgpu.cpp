@@ -736,7 +736,17 @@ static void handle_input(float dt) {
     static constexpr float ATLAS_MAX = 63.f * CHUNK_SIZE;
     if (s_cx < 0.f) s_cx = 0.f; if (s_cx > ATLAS_MAX) s_cx = ATLAS_MAX;
     if (s_cz < 0.f) s_cz = 0.f; if (s_cz > ATLAS_MAX) s_cz = ATLAS_MAX;
-    if (s_cy < 5.f) s_cy = 5.f; if (s_cy > 150000.f) s_cy = 150000.f;
+    if (s_cy > 150000.f) s_cy = 150000.f;
+
+    // Terrain floor clamp — prevent camera clipping through surface.
+    // TerrainMaster gives world-space height; add clearance so viewport stays above.
+    static constexpr float MIN_ABOVE_TERRAIN = 2.f;
+    if (TerrainMaster_Loaded()) {
+        float th = TerrainMaster_SampleWorld(s_cx, s_cz);
+        if (s_cy < th + MIN_ABOVE_TERRAIN) s_cy = th + MIN_ABOVE_TERRAIN;
+    } else {
+        if (s_cy < 5.f) s_cy = 5.f;
+    }
 }
 
 // ── Render terrain to RTT (call AFTER ImGui build, BEFORE ImGui present) ────────

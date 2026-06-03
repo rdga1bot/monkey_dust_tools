@@ -18,6 +18,7 @@
 #include <monkey_dust/platform/input.h>
 #include <monkey_dust/platform/window.h>  // _wnd::ptr() for RelativeMouseMode
 #include "editor_char_mouse.h"
+#include <monkey_dust/world/terrain_gen.h>
 #include <SDL3/SDL.h>
 #include <cmath>
 #include <cstdio>
@@ -477,6 +478,17 @@ void EditorCore::UpdateEditorCamera(float dt, bool viewport_hovered) {
         cam_target.y + cam_dist * sinf(pitch_r),
         cam_target.z + cam_dist * cosf(pitch_r) * cosf(yaw_r)
     };
+    // Terrain floor clamp — prevent eye clipping through surface in both
+    // Flythrough (cam_target moves via WASD) and Orbit (cam_dist shrinks) modes.
+    if (TerrainMaster_Loaded()) {
+        static constexpr float MIN_ABOVE_TERRAIN = 1.5f;
+        float th = TerrainMaster_SampleWorld(editor_cam.pos.x, editor_cam.pos.z);
+        if (editor_cam.pos.y < th + MIN_ABOVE_TERRAIN) {
+            float dy = (th + MIN_ABOVE_TERRAIN) - editor_cam.pos.y;
+            editor_cam.pos.y = th + MIN_ABOVE_TERRAIN;
+            cam_target.y    += dy;  // shift target with eye so look direction is preserved
+        }
+    }
     editor_cam.target = cam_target;
     editor_cam.up     = { 0.f, 1.f, 0.f };
 }
