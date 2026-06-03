@@ -25,7 +25,7 @@ void EditorCameraPanel::DrawContent() {
     if (ImGui::CollapsingHeader("Editor Camera", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::SliderFloat("FOV##cam",          &cam.fovy,      20.f, 120.f);
         ImGui::SliderFloat("Orbit Dist##cam",   &ec.cam_dist,   2.f,  500.f);
-        ImGui::SliderFloat("Move Speed##cam",   &ec.cam_speed,  5.f,  200.f);
+        ImGui::SliderFloat("Move Speed##cam",   &ec.cam_speed,  5.f,  5000.f, "%.0f m/s", ImGuiSliderFlags_Logarithmic);
 
         if (ImGui::Button("Reset Camera##cam")) {
             ec.cam_yaw   = -45.f;
@@ -55,7 +55,7 @@ void EditorCameraPanel::DrawContent() {
             { ec.cam_game_mode=true; ec.cam_flying=false; }
         ImGui::Spacing();
         if      (orbit) ImGui::TextDisabled("RMB=rotate  MMB=pan  Scroll=zoom");
-        else if (fly)   ImGui::TextDisabled("RMB+WASD=fly  Scroll=speed");
+        else if (fly)   ImGui::TextDisabled("WASD=fly  Q/E=up/down  RMB=look  Shift=turbo×5");
         else            ImGui::TextDisabled("WASD=рух гравця  RMB=камера");
     }
 

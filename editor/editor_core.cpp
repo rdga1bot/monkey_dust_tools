@@ -427,12 +427,15 @@ void EditorCore::UpdateEditorCamera(float dt, bool viewport_hovered) {
     if (!rmb_down) { rdx = 0.f; rdy = 0.f; }
 
     if (cam_flying) {
+        // Mouse look — RMB held
         if (rmb_down) {
             cam_yaw   -= rdx * 0.3f;
             cam_pitch  += rdy * 0.3f;
             if (cam_pitch >  89.f) cam_pitch =  89.f;
             if (cam_pitch < -89.f) cam_pitch = -89.f;
-
+        }
+        // WASD movement always works in flythrough (no RMB required)
+        {
             float yaw_r   = cam_yaw   * DEG2R;
             float pitch_r = cam_pitch * DEG2R;
             Vec3 fwd = {
@@ -441,12 +444,18 @@ void EditorCore::UpdateEditorCamera(float dt, bool viewport_hovered) {
                 cosf(pitch_r) * cosf(yaw_r)
             };
             Vec3 right = vec3_norm(vec3_cross(fwd, {0.f, 1.f, 0.f}));
-
-            float speed = cam_speed * dt;
-            if (input_key_down(KEY_W)) cam_target = vec3_add(cam_target, vec3_scale(fwd, -speed));
-            if (input_key_down(KEY_S)) cam_target = vec3_add(cam_target, vec3_scale(fwd,  speed));
-            if (input_key_down(KEY_A)) cam_target = vec3_add(cam_target, vec3_scale(right, speed));
-            if (input_key_down(KEY_D)) cam_target = vec3_add(cam_target, vec3_scale(right,-speed));
+            Vec3 up    = {0.f, 1.f, 0.f};
+            const bool* kb = (const bool*)SDL_GetKeyboardState(nullptr);
+            float boost = (kb[SDL_SCANCODE_LSHIFT]||kb[SDL_SCANCODE_RSHIFT]) ? 5.f : 1.f;
+            float speed = cam_speed * boost * dt;
+            if (kb[SDL_SCANCODE_W]) cam_target = vec3_add(cam_target, vec3_scale(fwd, -speed));
+            if (kb[SDL_SCANCODE_S]) cam_target = vec3_add(cam_target, vec3_scale(fwd,  speed));
+            if (kb[SDL_SCANCODE_A]) cam_target = vec3_add(cam_target, vec3_scale(right, speed));
+            if (kb[SDL_SCANCODE_D]) cam_target = vec3_add(cam_target, vec3_scale(right,-speed));
+            if (kb[SDL_SCANCODE_Q]||kb[SDL_SCANCODE_PAGEDOWN])
+                cam_target = vec3_add(cam_target, vec3_scale(up, -speed));
+            if (kb[SDL_SCANCODE_E]||kb[SDL_SCANCODE_PAGEUP])
+                cam_target = vec3_add(cam_target, vec3_scale(up,  speed));
         }
     } else {
         // Orbit mode — unlimited yaw (360°), pitch clamped near-vertical.

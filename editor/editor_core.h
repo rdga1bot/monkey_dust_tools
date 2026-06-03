@@ -64,7 +64,7 @@ public:
     Vec3     cam_target  = { 0.f, 2.f, 0.f };
     bool     cam_flying   = false;
     bool     cam_game_mode = false;  // true = use normal game camera (player moves, RMB rotates)
-    float    cam_speed    = 30.0f;
+    float    cam_speed    = 500.0f;  // m/s; Shift=5× turbo
     Vec3     last_game_cam_target = { 0.f, 2.f, 0.f }; // updated each frame in game mode
 
     void UpdateEditorCamera(float dt, bool viewport_hovered);
