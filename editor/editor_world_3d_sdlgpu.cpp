@@ -375,7 +375,7 @@ static float s_cam_dist = 22.f;
 // Free-fly state
 static float s_cx = 16000.f, s_cy = 1500.f, s_cz = 14000.f;
 static float s_yaw = 0.f, s_pitch = 0.38f;
-static float s_speed = 500.f;
+static float s_speed = 1000.f;  // m/s; Shift+Scroll to adjust
 static bool  s_rmb      = false;
 static bool  s_focused  = false;
 
@@ -720,9 +720,9 @@ static void handle_input(float dt) {
     float sy = sinf(s_yaw), cy2 = cosf(s_yaw);
     // SDL raw key state — always works regardless of ImGui keyboard focus.
     const bool* kb = (const bool*)SDL_GetKeyboardState(nullptr);
-    // Speed: s_speed base, Shift = 5× turbo. Independent of camera altitude.
-    float boost = (kb[SDL_SCANCODE_LSHIFT]||kb[SDL_SCANCODE_RSHIFT]) ? 5.f : 1.f;
-    float sp = s_speed * boost * dt;
+    bool shift = kb[SDL_SCANCODE_LSHIFT] || kb[SDL_SCANCODE_RSHIFT];
+    // Shift adjusts s_speed (Ctrl+Scroll also works); WASD uses s_speed * dt.
+    float sp = s_speed * dt;
     if (kb[SDL_SCANCODE_W]||kb[SDL_SCANCODE_UP])   { s_cx+=sp*sy; s_cz+=sp*cy2; }
     if (kb[SDL_SCANCODE_S]||kb[SDL_SCANCODE_DOWN]) { s_cx-=sp*sy; s_cz-=sp*cy2; }
     if (kb[SDL_SCANCODE_A])  { s_cx+=sp*cy2; s_cz-=sp*sy; }
@@ -732,9 +732,17 @@ static void handle_input(float dt) {
     if (ImGui::IsKeyPressed(ImGuiKey_R)) rebuild_inplace();
     if (ImGui::IsKeyPressed(ImGuiKey_T)) { s_cx=16000.f; s_cy=8000.f; s_cz=16000.f; }
     if (io.MouseWheel != 0.f) {
-        // Scroll: adjust move speed (×1.2 or ×0.83 per notch)
-        if (io.MouseWheel > 0) s_speed = fminf(s_speed * 1.20f, 50000.f);
-        else                   s_speed = fmaxf(s_speed * 0.83f,    10.f);
+        if (shift) {
+            // Shift+Scroll = adjust WASD speed
+            if (io.MouseWheel > 0) s_speed = fminf(s_speed * 1.25f, 80000.f);
+            else                   s_speed = fmaxf(s_speed * 0.80f,    10.f);
+        } else {
+            // Scroll = zoom (move forward + change altitude), original behaviour
+            float step = s_cy * 0.08f * io.MouseWheel;
+            s_cx += step * sy; s_cz += step * cy2;
+            if (io.MouseWheel > 0) s_cy = fmaxf(s_cy * 0.88f, 10.f);
+            else                   s_cy = fminf(s_cy * 1.12f, 150000.f);
+        }
     }
     static constexpr float ATLAS_MAX = 63.f * CHUNK_SIZE;
     if (s_cx < 0.f) s_cx = 0.f; if (s_cx > ATLAS_MAX) s_cx = ATLAS_MAX;
@@ -1094,7 +1102,7 @@ void DrawImGui(float W, float H, float dt) {
         ImGui::Text("Zone: %d,%d  Alt: %.0fm  Speed: %.0fm/s  LOD: %s",
             cur_zx, cur_zy, s_cy, s_speed,
             s_cy > 4000.f ? "8x8" : s_cy > 1500.f ? "16x16" : s_cy > 500.f ? "32x32" : "64x64");
-    ImGui::Text("RMB=look  WASD=fly  Q/E=up/down  Scroll=speed  Shift=turbo  T=reset");
+    ImGui::Text("RMB=look  WASD=fly  Q/E=up/down  Scroll=zoom  Shift+Scroll=speed  T=reset");
     ImGui::PopStyleColor();
 
 }
