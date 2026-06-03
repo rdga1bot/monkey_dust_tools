@@ -1,183 +1,281 @@
 #!/usr/bin/env python3
 """
-md_srtm_terrain.py — Build world_hmap.r32 from real NASA SRTM elevation data.
+md_srtm_terrain.py — Build world_hmap.r32 from real NASA SRTM elevation data,
+using a different real-world region for EACH biome from terrain_config.txt.
 
-Downloads public-domain SRTM3 tiles (90m resolution) for a chosen region,
-blends with high-frequency procedural noise for sub-90m detail, outputs
-a TerrainAtlas compatible with monkey_dust engine.
-
-Preset regions (--region flag):
-  hoggar    : Hoggar/Ahaggar mountains, Algeria (volcanic peaks + flat Sahara)
-  zagros    : Zagros mountains, Iran/Iraq (long ridges + plateau)
-  atlas     : Atlas mountains, Morocco (dramatic ranges)
-  sinai     : Sinai peninsula, Egypt (triangular peninsula, desert + peaks)
-  karakum   : Karakum desert, Turkmenistan (flat with gentle dunes)
-  oman      : Hajar mountains, Oman (dramatic coast + interior)
+Each biome is sampled from a geographically appropriate location:
+  desert    → Libyan Sahara       (flat, sandy, gently rolling dunes)
+  canyon    → Wadi Rum, Jordan    (eroded sandstone cliffs, dramatic drops)
+  volcanic  → Hoggar, Algeria     (volcanic massif, jagged peaks)
+  swamp     → Mesopotamian marshes (flat delta, near sea-level)
+  scrubland → Syrian steppe       (gently rolling open plains)
+  highlands → Zagros Mts, Iran    (long high ridgelines, deep valleys)
+  highland  → Zagros foothills    (same range, lower elevation band)
+  ashlands  → Sinai plateau, Egypt (barren elevated plateau, harsh)
+  coast     → Red Sea coast       (low coastal flat, gentle slopes)
 
 Usage:
-  python3 tools/md_srtm_terrain.py [--region hoggar] [--seed 42] [--preview]
+  python3 tools/md_srtm_terrain.py [--cfg game/data/terrain_config.txt]
+                                    [--seed 42] [--preview] [--no-cache]
+                                    [--out game/data/terrain/world_hmap.r32]
 """
 
 import argparse, os, struct, math
 import numpy as np
-from scipy.ndimage import gaussian_filter, zoom
+from scipy.ndimage import gaussian_filter, zoom as sci_zoom
+from scipy.spatial import cKDTree
 from PIL import Image
 
-# ── Atlas format ──────────────────────────────────────────────────────────────
-ATLAS_ZONES  = 64
-ATLAS_VERTS  = 65
-ATLAS_MAGIC  = 0x414D4800
-CHUNK_SIZE   = 500.0  # m per zone
-WORLD_KM     = ATLAS_ZONES * CHUNK_SIZE / 1000.0  # 32 km
+# ── Atlas constants ────────────────────────────────────────────────────────────
+ATLAS_ZONES = 64
+ATLAS_VERTS = 65
+ATLAS_MAGIC = 0x414D4800
 
-# ── Presets: (center_lat, center_lon, region_km, description) ────────────────
-REGIONS = {
-    'hoggar':  (23.30,  5.60, 200, 'Hoggar/Ahaggar — volcanic peaks + flat Sahara'),
-    'zagros':  (33.50, 47.00, 250, 'Zagros mountains — long ridgelines, Iran'),
-    'atlas':   (31.50, -5.00, 180, 'Atlas mountains — dramatic N.Africa ridges'),
-    'sinai':   (29.00, 34.00, 160, 'Sinai peninsula — desert plateau + peaks'),
-    'karakum': (39.50, 59.00, 300, 'Karakum desert — flat expanses'),
-    'oman':    (23.60, 57.80, 180, 'Hajar mountains — coast to interior'),
+# ── Biome → SRTM source region (lat, lon, km_radius, description) ─────────────
+BIOME_SRTM = {
+    'desert':    (26.00, 15.00, 220, 'Libyan Sahara — flat sandy desert'),
+    'canyon':    (29.60, 35.40, 120, 'Wadi Rum Jordan — eroded sandstone canyon'),
+    'volcanic':  (23.30,  5.60, 200, 'Hoggar/Ahaggar Algeria — volcanic massif'),
+    'swamp':     (31.20, 47.50, 180, 'Mesopotamian marshes Iraq — flat delta'),
+    'scrubland': (36.50, 38.00, 200, 'Syrian steppe — gently rolling plains'),
+    'highlands': (33.50, 47.00, 250, 'Zagros mountains Iran — high ridgelines'),
+    'highland':  (32.00, 46.00, 200, 'Zagros foothills Iran — lower elevation'),
+    'ashlands':  (29.00, 34.00, 160, 'Sinai plateau Egypt — barren elevated plateau'),
+    'coast':     (28.50, 34.70, 150, 'Red Sea coast Jordan — low coastal terrain'),
 }
 
-def deg_per_km_lat(): return 1.0 / 111.0
-def deg_per_km_lon(lat): return 1.0 / (111.0 * math.cos(math.radians(lat)))
+# ── Biome → game height range [min_m, max_m] ──────────────────────────────────
+BIOME_HEIGHT = {
+    'desert':    (  0.0,  55.0),
+    'canyon':    ( 40.0, 150.0),
+    'volcanic':  ( 60.0, 200.0),
+    'swamp':     (  0.0,  22.0),
+    'scrubland': ( 15.0,  75.0),
+    'highlands': ( 80.0, 200.0),
+    'highland':  ( 50.0, 140.0),
+    'ashlands':  ( 30.0,  90.0),
+    'coast':     (  0.0,  38.0),
+    '_default':  (  0.0, 120.0),
+}
 
-def download_srtm_grid(center_lat, center_lon, region_km, n=ATLAS_ZONES):
-    """Download SRTM3 elevations for an n×n grid covering region_km × region_km."""
-    import srtm
-    print(f"[srtm] downloading elevation data around ({center_lat:.2f}°N, {center_lon:.2f}°E)…")
-    print(f"[srtm] region: {region_km}km × {region_km}km → sampling {n}×{n} = {n*n} points")
-    print(f"[srtm] NOTE: first run downloads ~10-50 MB of SRTM tiles, cached afterwards.")
+# ── Biome boundary blend radius (in zone cells) ────────────────────────────────
+BLEND_RADIUS = 4.0   # zones; wider = softer biome transitions
 
-    data = srtm.get_data()
+def deg_per_km_lat():         return 1.0 / 111.0
+def deg_per_km_lon(lat):      return 1.0 / (111.0 * math.cos(math.radians(lat)))
 
-    half_lat = (region_km / 2.0) * deg_per_km_lat()
-    half_lon = (region_km / 2.0) * deg_per_km_lon(center_lat)
 
-    lat_start = center_lat - half_lat
-    lon_start = center_lon - half_lon
-    lat_step  = (2.0 * half_lat) / n
-    lon_step  = (2.0 * half_lon) / n
+# ── SRTM download (with per-biome numpy cache) ─────────────────────────────────
+
+def srtm_cache_path(biome, cache_dir):
+    return os.path.join(cache_dir, f'srtm_{biome}.npy')
+
+
+def download_srtm_grid(biome, center_lat, center_lon, region_km,
+                       n=ATLAS_ZONES, cache_dir=None):
+    if cache_dir:
+        cp = srtm_cache_path(biome, cache_dir)
+        if os.path.exists(cp):
+            grid = np.load(cp)
+            print(f"[srtm] {biome:12s} — loaded from cache ({grid.min():.0f}–{grid.max():.0f}m)")
+            return grid
+
+    import srtm as _srtm
+    print(f"[srtm] {biome:12s} — downloading {region_km}km area around "
+          f"({center_lat:.1f}°N, {center_lon:.1f}°E) …")
+    data   = _srtm.get_data()
+    hlat   = (region_km / 2.0) * deg_per_km_lat()
+    hlon   = (region_km / 2.0) * deg_per_km_lon(center_lat)
+    ls, lo = center_lat - hlat, center_lon - hlon
+    dlat, dlon = 2*hlat/n, 2*hlon/n
 
     grid = np.zeros((n, n), dtype=np.float32)
-    for row in range(n):
-        lat = lat_start + row * lat_step
-        for col in range(n):
-            lon = lon_start + col * lon_step
-            h = data.get_elevation(lat, lon)
-            grid[row, col] = float(h) if h is not None else 0.0
-        if row % 8 == 0:
-            print(f"[srtm]   row {row}/{n}…")
+    for r in range(n):
+        lat = ls + r * dlat
+        for c in range(n):
+            h = data.get_elevation(lat, lo + c * dlon)
+            grid[r, c] = float(h) if h is not None else 0.0
+        if r % 16 == 0:
+            print(f"[srtm]   {biome}: row {r}/{n}")
 
-    # Fix any voids (SRTM has occasional missing pixels → set to nearest valid)
-    mask = grid == 0
-    if mask.sum() > 0:
+    # Fill SRTM voids (no-data pixels)
+    voids = (grid == 0)
+    if voids.sum() > 0:
         from scipy.ndimage import distance_transform_edt
-        idx   = distance_transform_edt(mask, return_distances=False, return_indices=True)
-        grid[mask] = grid[tuple(idx[:,mask])]
+        ind = distance_transform_edt(voids, return_distances=False, return_indices=True)
+        grid[voids] = grid[tuple(ind[:, voids])]
 
-    print(f"[srtm] done. elevation: {grid.min():.0f}m – {grid.max():.0f}m "
-          f"(mean={grid.mean():.0f}m)")
+    print(f"[srtm] {biome:12s} — done: {grid.min():.0f}–{grid.max():.0f}m")
+    if cache_dir:
+        os.makedirs(cache_dir, exist_ok=True)
+        np.save(srtm_cache_path(biome, cache_dir), grid)
     return grid
 
 
-def normalize_to_world(grid, target_min=0.0, target_max=180.0):
-    """Normalize elevation grid to game height range, preserving relative relief."""
-    lo = float(np.percentile(grid, 2))
-    hi = float(np.percentile(grid, 98))
-    if hi <= lo: hi = lo + 1.0
-    norm = (grid - lo) / (hi - lo)
-    norm = np.clip(norm, 0.0, 1.0)
-    return norm * (target_max - target_min) + target_min
+# ── terrain_config.txt parser ─────────────────────────────────────────────────
+
+def load_zone_biomes(cfg_path):
+    """Returns {(grid_x, grid_z): biome_str}."""
+    zones, cur = {}, {}
+    with open(cfg_path) as f:
+        for raw in f:
+            s = raw.strip()
+            if s.startswith('zone='):
+                if cur.get('gx') is not None and cur.get('biome'):
+                    zones[(cur['gx'], cur.get('gz', 0))] = cur['biome']
+                cur = {}
+            elif '=' in s and not s.startswith('#'):
+                k, v = s.split('=', 1)
+                k, v = k.strip(), v.strip()
+                if k == 'grid_x':  cur['gx']    = int(v)
+                elif k == 'grid_z': cur['gz']   = int(v)
+                elif k == 'biome':  cur['biome'] = v
+    if cur.get('gx') is not None and cur.get('biome'):
+        zones[(cur['gx'], cur.get('gz', 0))] = cur['biome']
+    return zones
 
 
-def build_zones_from_macro(macro_64, seed=42):
+# ── Voronoi biome fill ────────────────────────────────────────────────────────
+
+def voronoi_biome_grid(zone_biomes, grid_size=ATLAS_ZONES):
+    """Return (grid_size×grid_size) array of biome strings via Voronoi fill."""
+    pts  = np.array([(gz, gx) for (gx, gz) in zone_biomes if 0 <= gx < grid_size and 0 <= gz < grid_size])
+    biom = np.array([zone_biomes[(gx, gz)] for (gx, gz) in zone_biomes if 0 <= gx < grid_size and 0 <= gz < grid_size])
+    tree = cKDTree(pts)
+    yi, xi = np.mgrid[0:grid_size, 0:grid_size]
+    coords = np.stack([yi.ravel(), xi.ravel()], axis=1)
+    _, idx = tree.query(coords)
+    return biom[idx].reshape(grid_size, grid_size)
+
+
+# ── Normalise SRTM to game height range ───────────────────────────────────────
+
+def normalize_srtm(grid, lo, hi, p_lo=2, p_hi=98):
+    """Stretch percentile range [p_lo..p_hi] of grid to [lo..hi]."""
+    vlo = float(np.percentile(grid, p_lo))
+    vhi = float(np.percentile(grid, p_hi))
+    if vhi <= vlo: vhi = vlo + 1.0
+    n = np.clip((grid - vlo) / (vhi - vlo), 0.0, 1.0)
+    return n * (hi - lo) + lo
+
+
+# ── Build 64×64 macro elevation grid from biome SRTM data ────────────────────
+
+def build_macro_grid(biome_grid, srtm_grids):
     """
-    Build 64×64×65×65 atlas from:
-      - macro_64 : 64×64 zone-resolution real terrain (SRTM derived)
-      - per-zone procedural detail noise (sub-SRTM-resolution detail)
-
-    Result: realistic macro shape + visible local variation at ground level.
+    Compose the 64×64 macro elevation grid:
+      1. Assign each cell its biome's normalised SRTM height.
+      2. Compute distance-from-nearest-other-biome for each cell.
+      3. Blend across biome boundaries (Gaussian-weighted transition).
     """
-    rng = np.random.default_rng(seed)
+    G = ATLAS_ZONES
+    unique_biomes = list(dict.fromkeys(biome_grid.ravel()))   # preserve order
 
-    # Upsample macro to (ATLAS_ZONES*(ATLAS_VERTS-1)+1) for seamless zone extraction
-    # Each zone shares its edge with the next → need ATLAS_ZONES*64+1 = 4097 pixels
-    target = ATLAS_ZONES * (ATLAS_VERTS - 1) + 1  # 4097
-    print(f"[build] upsampling macro 64→{target}…")
-    macro_full = zoom(macro_64, target / ATLAS_ZONES, order=3)
-    if macro_full.shape[0] < target:  # ensure exact size
-        macro_full = np.pad(macro_full, ((0, target-macro_full.shape[0]),
-                                          (0, target-macro_full.shape[1])), mode='edge')
+    # Per-biome normalised height grids
+    height_layers = {}
+    for b in unique_biomes:
+        sg = srtm_grids.get(b)
+        if sg is None:
+            print(f"[build] WARNING: no SRTM data for biome '{b}' — using flat 50m")
+            sg = np.full((G, G), 50.0, dtype=np.float32)
+        lo, hi = BIOME_HEIGHT.get(b, BIOME_HEIGHT['_default'])
+        height_layers[b] = normalize_srtm(sg, lo, hi)
+
+    # Biome index grid
+    biome_list = sorted(set(biome_grid.ravel()))
+    b2i = {b: i for i, b in enumerate(biome_list)}
+    idx_grid = np.vectorize(b2i.get)(biome_grid).astype(np.int32)
+
+    # Blended macro: for each biome, weight = exp(-dist²/(2σ²))
+    sigma  = BLEND_RADIUS
+    macro  = np.zeros((G, G), dtype=np.float32)
+    w_sum  = np.zeros((G, G), dtype=np.float32)
+
+    for b in biome_list:
+        bi  = b2i[b]
+        mask = (idx_grid == bi).astype(np.float32)
+        # Gaussian blur of the mask gives the blending weight
+        w   = gaussian_filter(mask, sigma=sigma)
+        macro  += height_layers[b] * w
+        w_sum  += w
+
+    macro /= np.maximum(w_sum, 1e-6)
+
+    # Final light smoothing to remove any pixel-level discontinuities
+    macro = gaussian_filter(macro, sigma=1.5)
+    macro = np.maximum(macro, 0.0)
+    return macro
+
+
+# ── Global FBM detail noise ────────────────────────────────────────────────────
+
+def global_fbm(rng, res, octaves=7, freq0=0.006, persist=0.52):
+    out = np.zeros((res, res), dtype=np.float32)
+    amp = 1.0; f = freq0; norm = 0.0
+    for _ in range(octaves):
+        gs  = max(3, int(res * f) + 2)
+        g   = rng.random((gs, gs)).astype(np.float32)
+        xs  = np.linspace(0, gs-1, res, endpoint=False)
+        R, C  = np.meshgrid(xs, xs, indexing='ij')
+        RI  = R.astype(int); RF = R-RI; RI1 = (RI+1) % gs
+        CI  = C.astype(int); CF = C-CI; CI1 = (CI+1) % gs
+        v = (g[RI,CI]*(1-RF)*(1-CF) + g[RI,CI1]*(1-RF)*CF +
+             g[RI1,CI]*RF*(1-CF)    + g[RI1,CI1]*RF*CF)
+        out += amp * v; norm += amp; amp *= persist; f *= 2.0
+    return out / norm
+
+
+# ── Build full zone atlas from 64×64 macro ────────────────────────────────────
+
+def build_atlas_from_macro(macro_64, biome_grid, seed=42):
+    rng    = np.random.default_rng(seed)
+    target = ATLAS_ZONES * (ATLAS_VERTS - 1) + 1          # 4097
+
+    print(f"[build] upsampling macro 64×64 → {target}×{target}…")
+    macro_full = sci_zoom(macro_64, target / ATLAS_ZONES, order=3)
+    if macro_full.shape[0] < target:
+        macro_full = np.pad(macro_full,
+                            ((0, target - macro_full.shape[0]),
+                             (0, target - macro_full.shape[1])), mode='edge')
     macro_full = gaussian_filter(macro_full, sigma=2.0)
 
-    # Detail FBM noise (zone-scale, ~20–80m features)
-    def zone_fbm(rng_local, octaves=6, freq0=0.45, persist=0.52):
-        N   = ATLAS_VERTS
-        out = np.zeros((N, N), dtype=np.float32)
-        amp = 1.0; f = freq0; norm = 0.0
-        for _ in range(octaves):
-            gs  = max(3, int(N * f) + 2)
-            g   = rng_local.random((gs, gs)).astype(np.float32)
-            xs  = np.linspace(0, gs-1, N, endpoint=False)
-            R, C   = np.meshgrid(xs, xs, indexing='ij')
-            RI     = R.astype(int); RF = R-RI; RI1 = (RI+1)%gs
-            CI     = C.astype(int); CF = C-CI; CI1 = (CI+1)%gs
-            v = (g[RI,CI]*(1-RF)*(1-CF)+g[RI,CI1]*(1-RF)*CF+
-                 g[RI1,CI]*RF*(1-CF)+g[RI1,CI1]*RF*CF)
-            out += amp*v; norm += amp; amp *= persist; f *= 2.0
-        return out / norm  # [0,1]
-
-    # Global detail noise at full resolution — eliminates zone seam artifacts
-    print("[build] generating global detail noise (no seams)…")
-    N_full = target
-    def global_fbm(rng_g, res, octaves=7, freq0=0.005, persist=0.52):
-        out = np.zeros((res, res), dtype=np.float32)
-        amp = 1.0; f = freq0; norm = 0.0
-        for _ in range(octaves):
-            gs  = max(3, int(res * f) + 2)
-            g   = rng_g.random((gs, gs)).astype(np.float32)
-            xs  = np.linspace(0, gs-1, res, endpoint=False)
-            R, C  = np.meshgrid(xs, xs, indexing='ij')
-            RI    = R.astype(int); RF = R-RI; RI1 = (RI+1)%gs
-            CI    = C.astype(int); CF = C-CI; CI1 = (CI+1)%gs
-            v = (g[RI,CI]*(1-RF)*(1-CF)+g[RI,CI1]*(1-RF)*CF+
-                 g[RI1,CI]*RF*(1-CF)+g[RI1,CI1]*RF*CF)
-            out += amp*v; norm += amp; amp *= persist; f *= 2.0
-        return out / norm  # [0,1]
-
-    detail_global = global_fbm(rng, N_full, octaves=7, freq0=0.008)
-
-    # Local slope map: higher slope → more detail contrast
-    slope = np.abs(np.gradient(macro_full, axis=0)) + np.abs(np.gradient(macro_full, axis=1))
-    slope_norm = np.clip(slope / (slope.max() + 1e-6), 0, 1)
-    # Detail amplitude: flat=5m, steep=20m
-    detail_amp_map = 5.0 + slope_norm * 15.0
-
-    detail_scaled = (detail_global - 0.5) * 2.0 * detail_amp_map  # [-amp, +amp]
-
-    combined = macro_full + detail_scaled
+    print("[build] generating global detail noise…")
+    detail = global_fbm(rng, target)
+    slope  = (np.abs(np.gradient(macro_full, axis=0)) +
+              np.abs(np.gradient(macro_full, axis=1)))
+    slope_norm  = np.clip(slope / (slope.max() + 1e-6), 0, 1)
+    detail_amp  = 4.0 + slope_norm * 18.0                 # 4m flat, 22m steep
+    combined = macro_full + (detail - 0.5) * 2.0 * detail_amp
     combined = np.maximum(combined, 0.0)
 
-    print("[build] extracting per-zone arrays…")
-    zones_h = np.zeros((ATLAS_ZONES, ATLAS_ZONES, ATLAS_VERTS, ATLAS_VERTS), dtype=np.float32)
+    print("[build] extracting per-zone tiles…")
+    zones_h = np.zeros((ATLAS_ZONES, ATLAS_ZONES, ATLAS_VERTS, ATLAS_VERTS),
+                       dtype=np.float32)
     for cz in range(ATLAS_ZONES):
         for cx in range(ATLAS_ZONES):
             r0 = cz * (ATLAS_VERTS - 1)
             c0 = cx * (ATLAS_VERTS - 1)
-            zones_h[cz, cx] = combined[r0:r0+ATLAS_VERTS, c0:c0+ATLAS_VERTS].astype(np.float32)
+            zones_h[cz, cx] = combined[r0:r0+ATLAS_VERTS, c0:c0+ATLAS_VERTS]
         if cz % 16 == 0:
-            print(f"[build]   {cz}/{ATLAS_ZONES}…")
+            print(f"[build]   row {cz}/{ATLAS_ZONES}")
 
-    hmax = float(zones_h.max())
-    print(f"[build] height range: {zones_h.min():.1f} – {hmax:.1f} m")
+    # Verify seams are zero (shared-edge invariant)
+    max_seam = 0.0
+    for cz in range(ATLAS_ZONES - 1):
+        for cx in range(ATLAS_ZONES - 1):
+            max_seam = max(max_seam,
+                           float(np.abs(zones_h[cz,cx,-1,:] - zones_h[cz+1,cx,0,:]).max()),
+                           float(np.abs(zones_h[cz,cx,:,-1] - zones_h[cz,cx+1,:,0]).max()))
+    print(f"[build] max seam error: {max_seam:.4f}m  (target: 0.0)")
+    print(f"[build] height range: {zones_h.min():.1f} – {zones_h.max():.1f} m")
     return zones_h
 
 
+# ── TerrainAtlas writer ───────────────────────────────────────────────────────
+
 def write_atlas(zones_h, out_path):
-    print(f"[write] writing {out_path}…")
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+    print(f"[write] {out_path} …")
     with open(out_path, 'wb') as f:
         f.write(struct.pack('<4I', ATLAS_MAGIC, ATLAS_ZONES, ATLAS_ZONES, ATLAS_VERTS))
         for cz in range(ATLAS_ZONES):
@@ -185,89 +283,126 @@ def write_atlas(zones_h, out_path):
                 z = zones_h[cz, cx]
                 f.write(struct.pack('<ff', float(z.min()), float(z.max())))
                 f.write(z.tobytes())
-    print(f"[write] {os.path.getsize(out_path)/1024/1024:.1f} MB written")
+    size_mb = os.path.getsize(out_path) / 1024 / 1024
+    print(f"[write] {size_mb:.1f} MB written")
 
 
-def write_preview(zones_h, out_path):
-    """Write a quick hillshaded preview PNG."""
-    V  = 8; SZ = ATLAS_ZONES * V
+# ── Hillshaded preview PNG ────────────────────────────────────────────────────
+
+BIOME_COLOR = {
+    'desert':    (210, 185, 100),
+    'canyon':    (175, 110,  65),
+    'volcanic':  ( 80,  70,  70),
+    'swamp':     ( 60, 110,  75),
+    'scrubland': (140, 165, 100),
+    'highlands': (105, 100,  85),
+    'highland':  (120, 115,  90),
+    'ashlands':  (120, 100,  80),
+    'coast':     ( 80, 140, 155),
+    '_default':  (150, 150, 140),
+}
+
+def write_preview(zones_h, biome_grid, out_path):
+    V  = 8
+    SZ = ATLAS_ZONES * V
     avg = np.zeros((SZ, SZ), dtype=np.float32)
     for cz in range(ATLAS_ZONES):
         for cx in range(ATLAS_ZONES):
             avg[cz*V:(cz+1)*V, cx*V:(cx+1)*V] = zones_h[cz, cx].mean()
 
-    lo, hi = avg.min(), avg.max()
-    norm = (avg - lo) / max(hi - lo, 1.0)
+    # Biome color base
+    rgb = np.zeros((SZ, SZ, 3), dtype=np.float32)
+    for cz in range(ATLAS_ZONES):
+        for cx in range(ATLAS_ZONES):
+            b   = biome_grid[cz, cx]
+            col = BIOME_COLOR.get(b, BIOME_COLOR['_default'])
+            rgb[cz*V:(cz+1)*V, cx*V:(cx+1)*V] = col
+
     # Hillshade
     dz = np.gradient(avg, axis=0)
     dx = np.gradient(avg, axis=1)
-    mag = np.sqrt(dx*dx + dz*dz + 1.0)
-    shade = (1.0 / mag) * 0.7 + 0.3
-
-    # Color palette
-    rgb = np.zeros((SZ, SZ, 3), dtype=np.uint8)
-    for (t0, c0), (t1, c1) in zip(
-        [(0.0,(45,75,125)),(0.04,(195,180,130)),(0.15,(165,140,85)),
-         (0.40,(110,105,70)),(0.65,(80,78,68))],
-        [(0.04,(195,180,130)),(0.15,(165,140,85)),(0.40,(110,105,70)),
-         (0.65,(80,78,68)),(1.0,(230,230,240))]):
-        m = (norm >= t0) & (norm < t1)
-        t = np.where(m, (norm - t0) / max(t1 - t0, 1e-6), 0.0)
-        for c in range(3):
-            rgb[:,:,c] = np.where(m,
-                np.clip(c0[c] + t*(c1[c]-c0[c]), 0, 255), rgb[:,:,c]).astype(np.uint8)
-
+    shade = gaussian_filter(
+        np.clip(1.0 / np.sqrt(dx*dx + dz*dz + 1.0) * 0.8 + 0.35, 0.3, 1.4),
+        sigma=1.5)
     for c in range(3):
-        rgb[:,:,c] = np.clip(rgb[:,:,c] * shade, 0, 255).astype(np.uint8)
-    Image.fromarray(rgb, 'RGB').save(out_path)
+        rgb[:,:,c] = np.clip(rgb[:,:,c] * shade, 0, 255)
+
+    Image.fromarray(rgb.astype(np.uint8), 'RGB').save(out_path)
     print(f"[preview] {out_path}")
 
 
+# ── main ──────────────────────────────────────────────────────────────────────
+
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument('--region', default='hoggar',
-                    choices=list(REGIONS.keys()),
-                    help='Terrain preset region')
-    ap.add_argument('--seed',    type=int, default=42)
-    ap.add_argument('--preview', action='store_true')
-    ap.add_argument('--out', default='game/data/terrain/world_hmap.r32')
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument('--cfg',      default='game/data/terrain_config.txt')
+    ap.add_argument('--out',      default='game/data/terrain/world_hmap.r32')
+    ap.add_argument('--seed',     type=int, default=42)
+    ap.add_argument('--preview',  action='store_true')
+    ap.add_argument('--no-cache', action='store_true',
+                    help='Re-download SRTM tiles even if cache exists')
     args = ap.parse_args()
 
-    root     = os.path.join(os.path.dirname(__file__), '..')
-    out_path = os.path.join(root, args.out)
+    root      = os.path.join(os.path.dirname(__file__), '..')
+    cfg_path  = os.path.join(root, args.cfg)
+    out_path  = os.path.join(root, args.out)
+    cache_dir = os.path.join(root, 'tmp_md', 'srtm_cache') if not args.no_cache else None
 
-    lat, lon, km, desc = REGIONS[args.region]
-    print(f"[srtm] Region: {args.region} — {desc}")
-    print(f"[srtm] Center: {lat}°N {lon}°E, sampling {ATLAS_ZONES}km = {km}km area")
+    # ── 1. Parse zone biome map ───────────────────────────────────────────────
+    print(f"[config] loading {cfg_path} …")
+    zone_biomes = load_zone_biomes(cfg_path)
+    active_biomes = sorted(set(zone_biomes.values()))
+    print(f"[config] {len(zone_biomes)} zones, {len(active_biomes)} biomes: "
+          f"{', '.join(active_biomes)}")
 
-    # Backup
+    # ── 2. Voronoi fill → full 64×64 biome grid ───────────────────────────────
+    print("[voronoi] filling 64×64 biome grid …")
+    biome_grid = voronoi_biome_grid(zone_biomes)
+    counts = {b: int((biome_grid == b).sum()) for b in active_biomes}
+    print("[voronoi] biome cell counts:")
+    for b, n in sorted(counts.items(), key=lambda x: -x[1]):
+        print(f"  {b:12s} {n:4d} cells ({n*100/ATLAS_ZONES**2:.1f}%)")
+
+    # ── 3. Download SRTM for each active biome ─────────────────────────────────
+    srtm_grids = {}
+    for b in active_biomes:
+        if b not in BIOME_SRTM:
+            print(f"[srtm] WARNING: no SRTM preset for biome '{b}', will use flat 50m")
+            srtm_grids[b] = None
+            continue
+        lat, lon, km, desc = BIOME_SRTM[b]
+        print(f"\n[srtm] === {b} ({desc}) ===")
+        srtm_grids[b] = download_srtm_grid(b, lat, lon, km, n=ATLAS_ZONES,
+                                            cache_dir=cache_dir)
+
+    # ── 4. Backup existing output ─────────────────────────────────────────────
     if os.path.exists(out_path):
+        import shutil
         bak = out_path + '.bak'
         if not os.path.exists(bak):
-            import shutil; shutil.copy2(out_path, bak)
-            print(f"[srtm] backed up → {bak}")
+            shutil.copy2(out_path, bak)
+            print(f"\n[backup] {bak}")
 
-    # 1. Download SRTM macro grid (64×64 zone-level samples)
-    macro = download_srtm_grid(lat, lon, km, n=ATLAS_ZONES)
+    # ── 5. Build blended macro grid ───────────────────────────────────────────
+    print("\n[build] compositing biome terrain …")
+    macro = build_macro_grid(biome_grid, srtm_grids)
+    print(f"[build] macro range: {macro.min():.1f} – {macro.max():.1f} m")
 
-    # 2. Normalise to game height range (keep relative relief)
-    macro_norm = normalize_to_world(macro, target_min=0.0, target_max=190.0)
+    # ── 6. Build full atlas with detail noise ─────────────────────────────────
+    zones_h = build_atlas_from_macro(macro, biome_grid, seed=args.seed)
 
-    # 3. Build full atlas with per-zone detail noise
-    zones_h = build_zones_from_macro(macro_norm, seed=args.seed)
-
-    # 4. Write
+    # ── 7. Write TerrainAtlas ─────────────────────────────────────────────────
     write_atlas(zones_h, out_path)
 
+    # ── 8. Optional preview ───────────────────────────────────────────────────
     if args.preview:
         prev = out_path.replace('.r32', '_preview.png')
-        write_preview(zones_h, prev)
+        write_preview(zones_h, biome_grid, prev)
 
-    # 5. Remind to regenerate master hmap and world map
-    print("\n[srtm] Next steps:")
-    print("  python3 tools/md_master_hmap_gen.py")
-    print("  python3 tools/md_worldmap_gen.py")
-    print("[srtm] done.")
+    print("\n[done] Next steps:")
+    print("  python3 tools/md_master_hmap_gen.py   # optional: regen master hmap")
+    print("  python3 tools/md_worldmap_gen.py      # regen world map PNG")
+    print(f"  ninja -C build monkey_dust            # rebuild + launch to verify terrain")
 
 
 if __name__ == '__main__':
