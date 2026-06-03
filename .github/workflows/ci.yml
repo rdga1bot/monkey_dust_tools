@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'editor/**'
+      - 'flare_convert/**'
+      - 'flare_demo/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    paths:
+      - 'editor/**'
+      - 'flare_convert/**'
+      - 'CMakeLists.txt'
+
+jobs:
+  # ── Editor + converters compile check ────────────────────────────────────────
+  # Public repo → необмежені безкоштовні хвилини.
+  # Мета: перевірити що standalone editor і конвертери компілюються.
+  # Тести в editor відсутні (UI-only) — тому тільки compile check.
+  build-linux:
+    name: Tools/${{ matrix.config }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [Debug, Release]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # tools/ є субмодулем monkey_dust; при standalone checkout субмодулів немає
+          submodules: false
+
+      - name: Checkout engine submodule (needed for headers)
+        uses: actions/checkout@v4
+        with:
+          repository: rdga1bot/monkey_dust_engine
+          path: _engine
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y \
+            cmake ninja-build ccache \
+            libsdl3-dev liblua5.4-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev \
+            libwayland-dev wayland-protocols \
+            libegl1-mesa-dev libdrm-dev libgbm-dev
+
+      - name: ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-tools-${{ matrix.config }}-${{ github.sha }}
+          restore-keys: ccache-tools-${{ matrix.config }}-
+
+      # Клонуємо тільки необхідні third_party бібліотеки (без озз/Jolt/Recast)
+      - name: Checkout third_party (imgui, entt, glm)
+        run: |
+          git clone --depth=1 https://github.com/ocornut/imgui third_party/imgui
+          git clone --depth=1 https://github.com/skypjack/entt third_party/entt
+          git clone --depth=1 https://github.com/g-truc/glm third_party/glm
+          git clone --depth=1 https://github.com/Nelarius/imnodes third_party/imnodes
+          git clone --depth=1 https://github.com/BalazsJako/ImGuiColorTextEdit \
+            third_party/ImGuiColorTextEdit
+          git clone --depth=1 https://github.com/thedmd/imgui-node-editor \
+            third_party/imgui-node-editor
+
+      - name: Configure flare_convert (standalone, no SDL)
+        run: |
+          cmake -S . -B build_convert -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ matrix.config }} \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build flare_convert
+        run: ninja -C build_convert md_flare_convert
+
+      - name: ccache stats
+        run: ccache -s
