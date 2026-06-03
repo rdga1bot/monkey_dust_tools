@@ -17,12 +17,12 @@ file(GLOB EDITOR_PANEL_SOURCES "editor/*.cpp")
 list(REMOVE_ITEM EDITOR_PANEL_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/editor/main.cpp")
 
 set(EDITOR_IMGUI_SRC
-    ${CMAKE_SOURCE_DIR}/third_party/imgui/imgui.cpp
-    ${CMAKE_SOURCE_DIR}/third_party/imgui/imgui_draw.cpp
-    ${CMAKE_SOURCE_DIR}/third_party/imgui/imgui_tables.cpp
-    ${CMAKE_SOURCE_DIR}/third_party/imgui/imgui_widgets.cpp
-    ${CMAKE_SOURCE_DIR}/third_party/imgui/backends/imgui_impl_sdl3.cpp
-    ${CMAKE_SOURCE_DIR}/third_party/imgui/backends/imgui_impl_sdlgpu3.cpp
+    ${CMAKE_SOURCE_DIR}/tools/third_party/imgui/imgui.cpp
+    ${CMAKE_SOURCE_DIR}/tools/third_party/imgui/imgui_draw.cpp
+    ${CMAKE_SOURCE_DIR}/tools/third_party/imgui/imgui_tables.cpp
+    ${CMAKE_SOURCE_DIR}/tools/third_party/imgui/imgui_widgets.cpp
+    ${CMAKE_SOURCE_DIR}/tools/third_party/imgui/backends/imgui_impl_sdl3.cpp
+    ${CMAKE_SOURCE_DIR}/tools/third_party/imgui/backends/imgui_impl_sdlgpu3.cpp
 )
 
 if(NOT MONKEY_DUST_TOOLS_NEED_SDL3)
@@ -43,15 +43,15 @@ add_executable(monkey_dust_editor
     ${CMAKE_SOURCE_DIR}/game/src/world/character_def.cpp
     ${CMAKE_SOURCE_DIR}/game/src/world/world_registry.cpp
     # Third-party panels
-    ${CMAKE_SOURCE_DIR}/third_party/imnodes/imnodes.cpp
-    ${CMAKE_SOURCE_DIR}/third_party/ImGuiColorTextEdit/TextEditor.cpp
-    ${CMAKE_SOURCE_DIR}/third_party/imgui-flame-graph/imgui_widget_flamegraph.cpp
-    ${CMAKE_SOURCE_DIR}/third_party/imguizmo/src/ImSequencer.cpp
-    ${CMAKE_SOURCE_DIR}/third_party/imguizmo/src/ImGradient.cpp
-    ${CMAKE_SOURCE_DIR}/third_party/imgui-node-editor/imgui_node_editor.cpp
-    ${CMAKE_SOURCE_DIR}/third_party/imgui-node-editor/imgui_node_editor_api.cpp
-    ${CMAKE_SOURCE_DIR}/third_party/imgui-node-editor/imgui_canvas.cpp
-    ${CMAKE_SOURCE_DIR}/third_party/imgui-node-editor/crude_json.cpp
+    ${CMAKE_SOURCE_DIR}/tools/third_party/imnodes/imnodes.cpp
+    ${CMAKE_SOURCE_DIR}/tools/third_party/ImGuiColorTextEdit/TextEditor.cpp
+    ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-flame-graph/imgui_widget_flamegraph.cpp
+    ${CMAKE_SOURCE_DIR}/tools/third_party/imguizmo/src/ImSequencer.cpp
+    ${CMAKE_SOURCE_DIR}/tools/third_party/imguizmo/src/ImGradient.cpp
+    ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-node-editor/imgui_node_editor.cpp
+    ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-node-editor/imgui_node_editor_api.cpp
+    ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-node-editor/imgui_canvas.cpp
+    ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-node-editor/crude_json.cpp
 )
 target_compile_definitions(monkey_dust_editor PRIVATE
     MONKEY_DUST_STANDALONE_EDITOR
@@ -67,16 +67,16 @@ target_link_libraries(monkey_dust_editor PRIVATE
 )
 target_include_directories(monkey_dust_editor PRIVATE
     editor/
-    ${CMAKE_SOURCE_DIR}/third_party/imgui
-    ${CMAKE_SOURCE_DIR}/third_party/imgui/backends
-    ${CMAKE_SOURCE_DIR}/third_party/imgui-node-editor
-    ${CMAKE_SOURCE_DIR}/third_party/ImGuiColorTextEdit
-    ${CMAKE_SOURCE_DIR}/third_party/imnodes
-    ${CMAKE_SOURCE_DIR}/third_party/imguizmo/src
-    ${CMAKE_SOURCE_DIR}/third_party/imgui-flame-graph
-    ${CMAKE_SOURCE_DIR}/third_party/recastnavigation/Recast/Include
-    ${CMAKE_SOURCE_DIR}/third_party/recastnavigation/Detour/Include
-    ${CMAKE_SOURCE_DIR}/third_party/recastnavigation/DetourCrowd/Include
+    ${CMAKE_SOURCE_DIR}/tools/third_party/imgui
+    ${CMAKE_SOURCE_DIR}/tools/third_party/imgui/backends
+    ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-node-editor
+    ${CMAKE_SOURCE_DIR}/tools/third_party/ImGuiColorTextEdit
+    ${CMAKE_SOURCE_DIR}/tools/third_party/imnodes
+    ${CMAKE_SOURCE_DIR}/tools/third_party/imguizmo/src
+    ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-flame-graph
+    ${CMAKE_SOURCE_DIR}/engine/third_party/recastnavigation/Recast/Include
+    ${CMAKE_SOURCE_DIR}/engine/third_party/recastnavigation/Detour/Include
+    ${CMAKE_SOURCE_DIR}/engine/third_party/recastnavigation/DetourCrowd/Include
     ${CMAKE_SOURCE_DIR}/engine/src/vendor
     ${CMAKE_SOURCE_DIR}/engine/src/render
     ${CMAKE_SOURCE_DIR}/game/src
@@ -102,15 +102,15 @@ if(MONKEY_DUST_EDITOR_HOT_RELOAD)
     set(EDITOR_PANELS_HOT_SRCS
         ${_EDITOR_PANELS_CPP}
         # Third-party panels
-        ${CMAKE_SOURCE_DIR}/third_party/imnodes/imnodes.cpp
-        ${CMAKE_SOURCE_DIR}/third_party/ImGuiColorTextEdit/TextEditor.cpp
-        ${CMAKE_SOURCE_DIR}/third_party/imgui-flame-graph/imgui_widget_flamegraph.cpp
-        ${CMAKE_SOURCE_DIR}/third_party/imguizmo/src/ImSequencer.cpp
-        ${CMAKE_SOURCE_DIR}/third_party/imguizmo/src/ImGradient.cpp
-        ${CMAKE_SOURCE_DIR}/third_party/imgui-node-editor/imgui_node_editor.cpp
-        ${CMAKE_SOURCE_DIR}/third_party/imgui-node-editor/imgui_node_editor_api.cpp
-        ${CMAKE_SOURCE_DIR}/third_party/imgui-node-editor/imgui_canvas.cpp
-        ${CMAKE_SOURCE_DIR}/third_party/imgui-node-editor/crude_json.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imnodes/imnodes.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/ImGuiColorTextEdit/TextEditor.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-flame-graph/imgui_widget_flamegraph.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imguizmo/src/ImSequencer.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imguizmo/src/ImGradient.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-node-editor/imgui_node_editor.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-node-editor/imgui_node_editor_api.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-node-editor/imgui_canvas.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-node-editor/crude_json.cpp
         # Game-side sources needed by panels
         ${CMAKE_SOURCE_DIR}/game/src/world/character_def.cpp
         ${CMAKE_SOURCE_DIR}/game/src/world/world_registry.cpp
@@ -122,24 +122,24 @@ if(MONKEY_DUST_EDITOR_HOT_RELOAD)
         DEBUG)  # MONKEY_DUST_EDITOR always enables DEBUG (see engine/CMakeLists.txt)
     target_include_directories(monkey_dust_editor_panels PRIVATE
         editor/
-        ${CMAKE_SOURCE_DIR}/third_party/imgui
-        ${CMAKE_SOURCE_DIR}/third_party/imgui/backends
-        ${CMAKE_SOURCE_DIR}/third_party/imgui-node-editor
-        ${CMAKE_SOURCE_DIR}/third_party/ImGuiColorTextEdit
-        ${CMAKE_SOURCE_DIR}/third_party/imnodes
-        ${CMAKE_SOURCE_DIR}/third_party/imguizmo/src
-        ${CMAKE_SOURCE_DIR}/third_party/imgui-flame-graph
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui/backends
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-node-editor
+        ${CMAKE_SOURCE_DIR}/tools/third_party/ImGuiColorTextEdit
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imnodes
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imguizmo/src
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-flame-graph
         ${CMAKE_SOURCE_DIR}/engine/include
         ${CMAKE_SOURCE_DIR}/engine/src/vendor
         ${CMAKE_SOURCE_DIR}/engine/src/render
         ${CMAKE_SOURCE_DIR}/engine/src/audio
-        ${CMAKE_SOURCE_DIR}/third_party/entt/single_include
-        ${CMAKE_SOURCE_DIR}/third_party/glm
-        ${CMAKE_SOURCE_DIR}/third_party/JoltPhysics
-        ${CMAKE_SOURCE_DIR}/third_party/ozz-animation/include
-        ${CMAKE_SOURCE_DIR}/third_party/recastnavigation/Recast/Include
-        ${CMAKE_SOURCE_DIR}/third_party/recastnavigation/Detour/Include
-        ${CMAKE_SOURCE_DIR}/third_party/recastnavigation/DetourCrowd/Include
+        ${CMAKE_SOURCE_DIR}/engine/third_party/entt/single_include
+        ${CMAKE_SOURCE_DIR}/engine/third_party/glm
+        ${CMAKE_SOURCE_DIR}/engine/third_party/JoltPhysics
+        ${CMAKE_SOURCE_DIR}/engine/third_party/ozz-animation/include
+        ${CMAKE_SOURCE_DIR}/engine/third_party/recastnavigation/Recast/Include
+        ${CMAKE_SOURCE_DIR}/engine/third_party/recastnavigation/Detour/Include
+        ${CMAKE_SOURCE_DIR}/engine/third_party/recastnavigation/DetourCrowd/Include
         ${CMAKE_SOURCE_DIR}/game/src
     )
     # Symbols resolved from host exe at dlopen time (host built with --export-dynamic).
@@ -168,15 +168,15 @@ if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.16")
     )
     # Third-party ImGui panels have conflicting macros — skip PCH for them.
     set(_EDITOR_THIRDPARTY_CPP
-        ${CMAKE_SOURCE_DIR}/third_party/imnodes/imnodes.cpp
-        ${CMAKE_SOURCE_DIR}/third_party/ImGuiColorTextEdit/TextEditor.cpp
-        ${CMAKE_SOURCE_DIR}/third_party/imgui-flame-graph/imgui_widget_flamegraph.cpp
-        ${CMAKE_SOURCE_DIR}/third_party/imguizmo/src/ImSequencer.cpp
-        ${CMAKE_SOURCE_DIR}/third_party/imguizmo/src/ImGradient.cpp
-        ${CMAKE_SOURCE_DIR}/third_party/imgui-node-editor/imgui_node_editor.cpp
-        ${CMAKE_SOURCE_DIR}/third_party/imgui-node-editor/imgui_node_editor_api.cpp
-        ${CMAKE_SOURCE_DIR}/third_party/imgui-node-editor/imgui_canvas.cpp
-        ${CMAKE_SOURCE_DIR}/third_party/imgui-node-editor/crude_json.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imnodes/imnodes.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/ImGuiColorTextEdit/TextEditor.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-flame-graph/imgui_widget_flamegraph.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imguizmo/src/ImSequencer.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imguizmo/src/ImGradient.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-node-editor/imgui_node_editor.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-node-editor/imgui_node_editor_api.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-node-editor/imgui_canvas.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-node-editor/crude_json.cpp
         ${CMAKE_SOURCE_DIR}/engine/src/vendor/glad_impl.cpp
         ${CMAKE_SOURCE_DIR}/engine/src/vendor/stb_image_impl.cpp
         ${CMAKE_SOURCE_DIR}/engine/src/render/cgltf_impl.cpp
@@ -221,8 +221,8 @@ target_link_libraries(md_flare_demo PRIVATE
 )
 target_include_directories(md_flare_demo PRIVATE
     ${CMAKE_SOURCE_DIR}/engine/src/vendor
-    ${CMAKE_SOURCE_DIR}/third_party/recastnavigation/Recast/Include
-    ${CMAKE_SOURCE_DIR}/third_party/recastnavigation/Detour/Include
+    ${CMAKE_SOURCE_DIR}/engine/third_party/recastnavigation/Recast/Include
+    ${CMAKE_SOURCE_DIR}/engine/third_party/recastnavigation/Detour/Include
 )
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     target_compile_options(md_flare_demo PRIVATE -O2 -march=native)

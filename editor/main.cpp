@@ -1,5 +1,5 @@
 #include <monkey_dust/platform/window.h>
-#include <monkey_dust/platform/font_loader.h>
+#include "font_loader.h"
 #include <monkey_dust/platform/input.h>
 #include <monkey_dust/render/gpu_device.h>
 #include <monkey_dust/render/gpu_hal.h>

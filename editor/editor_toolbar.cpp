@@ -14,7 +14,7 @@
 #include "editor_game_context.h"
 #include <monkey_dust/nav/nav_system.h>
 #include <monkey_dust/save/save_system.h>
-#include <monkey_dust/tools/debug_system.h>
+#include "debug_system.h"
 #include "scene_serializer.h"
 #include "icon_definitions.h"
 #include <monkey_dust/platform/md_log.h>

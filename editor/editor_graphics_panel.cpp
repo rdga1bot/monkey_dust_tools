@@ -3,7 +3,7 @@
 #include "editor_core.h"
 #include "imgui.h"
 #include <monkey_dust/tools/graphics_settings.h>
-#include <monkey_dust/tools/debug_system.h>
+#include "debug_system.h"
 #include <monkey_dust/platform/window.h>
 
 void EditorGraphicsPanel::Draw() {
