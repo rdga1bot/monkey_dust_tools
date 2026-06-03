@@ -1,7 +1,12 @@
 cmake_minimum_required(VERSION 3.21)
 project(monkey_dust_tools CXX)
 
-find_package(SDL3 REQUIRED CONFIG)
+# SDL3 required only for editor + flare_demo; flare_convert is standalone.
+# Allows CI to build flare_convert without SDL3 installed.
+option(MONKEY_DUST_TOOLS_NEED_SDL3 "Require SDL3 (editor + flare_demo)" ON)
+if(MONKEY_DUST_TOOLS_NEED_SDL3)
+    find_package(SDL3 REQUIRED CONFIG)
+endif()
 
 # ── monkey_dust_editor ────────────────────────────────────
 # Standalone 3D editor. UI: Dear ImGui via imgui_impl_sdl3/sdlgpu3 (SDL_GPU=Vulkan).
@@ -19,6 +24,11 @@ set(EDITOR_IMGUI_SRC
     ${CMAKE_SOURCE_DIR}/third_party/imgui/backends/imgui_impl_sdl3.cpp
     ${CMAKE_SOURCE_DIR}/third_party/imgui/backends/imgui_impl_sdlgpu3.cpp
 )
+
+if(NOT MONKEY_DUST_TOOLS_NEED_SDL3)
+    message(STATUS "[tools] SDL3 disabled — skipping monkey_dust_editor + md_flare_demo")
+    # Only flare_convert builds without SDL3
+else()
 
 add_executable(monkey_dust_editor
     editor/main.cpp
@@ -215,3 +225,5 @@ target_include_directories(md_flare_demo PRIVATE
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     target_compile_options(md_flare_demo PRIVATE -O2 -march=native)
 endif()
+
+endif() # MONKEY_DUST_TOOLS_NEED_SDL3
