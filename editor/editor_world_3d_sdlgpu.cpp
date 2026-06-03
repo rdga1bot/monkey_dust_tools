@@ -717,12 +717,14 @@ static void handle_input(float dt) {
         }
         s_rmb = false;
     }
-    float sp = s_cy * dt;
     float sy = sinf(s_yaw), cy2 = cosf(s_yaw);
-    // Use SDL raw key state so camera never freezes when ImGui captures keyboard.
+    // SDL raw key state — always works regardless of ImGui keyboard focus.
     const bool* kb = (const bool*)SDL_GetKeyboardState(nullptr);
-    if (kb[SDL_SCANCODE_W]||kb[SDL_SCANCODE_UP]   ||ImGui::IsKeyDown(ImGuiKey_UpArrow))   { s_cx+=sp*sy; s_cz+=sp*cy2; }
-    if (kb[SDL_SCANCODE_S]||kb[SDL_SCANCODE_DOWN] ||ImGui::IsKeyDown(ImGuiKey_DownArrow)) { s_cx-=sp*sy; s_cz-=sp*cy2; }
+    // Speed: s_speed base, Shift = 5× turbo. Independent of camera altitude.
+    float boost = (kb[SDL_SCANCODE_LSHIFT]||kb[SDL_SCANCODE_RSHIFT]) ? 5.f : 1.f;
+    float sp = s_speed * boost * dt;
+    if (kb[SDL_SCANCODE_W]||kb[SDL_SCANCODE_UP])   { s_cx+=sp*sy; s_cz+=sp*cy2; }
+    if (kb[SDL_SCANCODE_S]||kb[SDL_SCANCODE_DOWN]) { s_cx-=sp*sy; s_cz-=sp*cy2; }
     if (kb[SDL_SCANCODE_A])  { s_cx+=sp*cy2; s_cz-=sp*sy; }
     if (kb[SDL_SCANCODE_D])  { s_cx-=sp*cy2; s_cz+=sp*sy; }
     if (kb[SDL_SCANCODE_Q]||kb[SDL_SCANCODE_PAGEDOWN]) s_cy-=sp;
@@ -730,10 +732,9 @@ static void handle_input(float dt) {
     if (ImGui::IsKeyPressed(ImGuiKey_R)) rebuild_inplace();
     if (ImGui::IsKeyPressed(ImGuiKey_T)) { s_cx=16000.f; s_cy=8000.f; s_cz=16000.f; }
     if (io.MouseWheel != 0.f) {
-        float step = s_cy * 0.05f * io.MouseWheel;
-        s_cx += step*sy; s_cz += step*cy2;
-        if (io.MouseWheel > 0) s_cy = fmaxf(s_cy * 0.92f, 10.f);
-        else                   s_cy = fminf(s_cy * 1.08f, 150000.f);
+        // Scroll: adjust move speed (×1.2 or ×0.83 per notch)
+        if (io.MouseWheel > 0) s_speed = fminf(s_speed * 1.20f, 50000.f);
+        else                   s_speed = fmaxf(s_speed * 0.83f,    10.f);
     }
     static constexpr float ATLAS_MAX = 63.f * CHUNK_SIZE;
     if (s_cx < 0.f) s_cx = 0.f; if (s_cx > ATLAS_MAX) s_cx = ATLAS_MAX;
@@ -987,7 +988,16 @@ void DrawImGui(float W, float H, float dt) {
         s_focused = true;
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !hov)
         s_focused = false;
-    if (hov || s_rmb || s_focused || ImGui::GetIO().MouseWheel != 0.f) handle_input(dt);
+    // Always process camera input when any movement key is held — prevents
+    // freeze when mouse moves off the viewport without releasing keys.
+    {
+        const bool* kb = (const bool*)SDL_GetKeyboardState(nullptr);
+        bool any_key = kb[SDL_SCANCODE_W]||kb[SDL_SCANCODE_A]||
+                       kb[SDL_SCANCODE_S]||kb[SDL_SCANCODE_D]||
+                       kb[SDL_SCANCODE_Q]||kb[SDL_SCANCODE_E];
+        if (hov || s_rmb || s_focused || any_key || ImGui::GetIO().MouseWheel != 0.f)
+            handle_input(dt);
+    }
 
     // ── Mouse → terrain ray cast (brush targeting) ───────────────────────────
     bool edit_mode = s_loaded;
@@ -1081,10 +1091,10 @@ void DrawImGui(float W, float H, float dt) {
     if (!s_loaded)
         ImGui::Text("Loading %d/%d chunks...", built, total);
     else
-        ImGui::Text("Zone: %d,%d  Alt: %.0fm  LOD: %s",
-            cur_zx, cur_zy, s_cy,
+        ImGui::Text("Zone: %d,%d  Alt: %.0fm  Speed: %.0fm/s  LOD: %s",
+            cur_zx, cur_zy, s_cy, s_speed,
             s_cy > 4000.f ? "8x8" : s_cy > 1500.f ? "16x16" : s_cy > 500.f ? "32x32" : "64x64");
-    ImGui::Text("RMB=look  WASD=move  Q/E=alt  Scroll=zoom  F5=save  T=centre");
+    ImGui::Text("RMB=look  WASD=fly  Q/E=up/down  Scroll=speed  Shift=turbo  T=reset");
     ImGui::PopStyleColor();
 
 }
