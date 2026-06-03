@@ -657,12 +657,12 @@ static void rebuild_inplace() {
     s_begin_rebuild();
 }
 
-// ── Tick: build 8 chunks per call until all 64×64 are loaded ──────────────────
+// ── Tick: build chunks until all 64×64 are loaded ────────────────────────────
 static void tick_chunk_build() {
     if (s_loaded) return;
     if (!s_master_ready) return;
 
-    for (int b = 0; b < 8; ++b) {
+    for (int b = 0; b < 64; ++b) {  // 64/call × 2 calls/frame = ~0.5s for all 4096
     int idx = s_chunks_built.load();
     if (idx >= EDITOR_TNKN * EDITOR_TNKN) { s_loaded = true; return; }
 
@@ -719,12 +719,14 @@ static void handle_input(float dt) {
     }
     float sp = s_cy * dt;
     float sy = sinf(s_yaw), cy2 = cosf(s_yaw);
-    if (ImGui::IsKeyDown(ImGuiKey_W)||ImGui::IsKeyDown(ImGuiKey_UpArrow))   { s_cx+=sp*sy; s_cz+=sp*cy2; }
-    if (ImGui::IsKeyDown(ImGuiKey_S)||ImGui::IsKeyDown(ImGuiKey_DownArrow)) { s_cx-=sp*sy; s_cz-=sp*cy2; }
-    if (ImGui::IsKeyDown(ImGuiKey_A))  { s_cx+=sp*cy2; s_cz-=sp*sy; }
-    if (ImGui::IsKeyDown(ImGuiKey_D))  { s_cx-=sp*cy2; s_cz+=sp*sy; }
-    if (ImGui::IsKeyDown(ImGuiKey_Q)||ImGui::IsKeyDown(ImGuiKey_PageDown)) s_cy-=sp;
-    if (ImGui::IsKeyDown(ImGuiKey_E)||ImGui::IsKeyDown(ImGuiKey_PageUp))   s_cy+=sp;
+    // Use SDL raw key state so camera never freezes when ImGui captures keyboard.
+    const bool* kb = (const bool*)SDL_GetKeyboardState(nullptr);
+    if (kb[SDL_SCANCODE_W]||kb[SDL_SCANCODE_UP]   ||ImGui::IsKeyDown(ImGuiKey_UpArrow))   { s_cx+=sp*sy; s_cz+=sp*cy2; }
+    if (kb[SDL_SCANCODE_S]||kb[SDL_SCANCODE_DOWN] ||ImGui::IsKeyDown(ImGuiKey_DownArrow)) { s_cx-=sp*sy; s_cz-=sp*cy2; }
+    if (kb[SDL_SCANCODE_A])  { s_cx+=sp*cy2; s_cz-=sp*sy; }
+    if (kb[SDL_SCANCODE_D])  { s_cx-=sp*cy2; s_cz+=sp*sy; }
+    if (kb[SDL_SCANCODE_Q]||kb[SDL_SCANCODE_PAGEDOWN]) s_cy-=sp;
+    if (kb[SDL_SCANCODE_E]||kb[SDL_SCANCODE_PAGEUP])   s_cy+=sp;
     if (ImGui::IsKeyPressed(ImGuiKey_R)) rebuild_inplace();
     if (ImGui::IsKeyPressed(ImGuiKey_T)) { s_cx=16000.f; s_cy=8000.f; s_cz=16000.f; }
     if (io.MouseWheel != 0.f) {
@@ -855,23 +857,23 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
             // Phase 3: Virtual Texturing — update local composite (1km threshold).
             s_vt_update(eye_x, eye_z);
 
-            // Phase 2: GPU Synthesis VBO — 1 draw call for full world (cam > 2000m).
-            // Uses standard VBO (no vert_samplers) — safe on Intel Gen9.
-            if (s_cy >= SYNTH_ALT_THRESH && s_synth_built &&
-                s_synth_vbo.SDLBuffer() && s_synth_ibo.SDLBuffer()) {
+            // Phase 2: Synthesis VBO — always render as full-world background.
+            // Near chunks render on top via depth test (no z-fight: chunks are
+            // more precise, synthesis is background filler beyond LOD2 range).
+            if (s_synth_built && s_synth_vbo.SDLBuffer() && s_synth_ibo.SDLBuffer()) {
                 s_terrain.BeginRawBatch(rp, cmd, vp.m, sun, WCX, WCZ, W2UV, 1);
                 SDL_GPUBufferBinding sib { s_synth_ibo.SDLBuffer(), 0u };
                 SDL_BindGPUIndexBuffer(rp, &sib, SDL_GPU_INDEXELEMENTSIZE_32BIT);
                 SDL_GPUBufferBinding svb { s_synth_vbo.SDLBuffer(), 0u };
                 SDL_BindGPUVertexBuffers(rp, 0, &svb, 1);
                 SDL_DrawGPUIndexedPrimitives(rp, (uint32_t)(SYNTH_N*SYNTH_N*6), 1, 0, 0, 0);
-            } else {
-            // Phase 1: Chunk-based LOD rendering (close camera or synthesis not ready).
+            }
+            // Phase 1: Chunk LOD (LOD0/1/2 only — synthesis covers > 8km).
+            {
             static constexpr float d0sq =  1200.f *  1200.f;
             static constexpr float d1sq =  3500.f *  3500.f;
             static constexpr float d2sq =  8000.f *  8000.f;
-            float alt_scale = fmaxf(1.f, s_cy / 400.f);
-            float d3sq = (18000.f * alt_scale) * (18000.f * alt_scale);
+            static constexpr float d3sq =  8000.f *  8000.f;  // same as d2sq: no LOD3 needed
 
             // VBfA pattern: bitmask presence table replaces lod_count[]+pointer arrays.
             // 64×64=4096 chunks → 64 uint64_t per LOD tier (one bit per chunk slot).
@@ -942,7 +944,7 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
                     }
                 }
             }
-            } // else chunk-based
+            } // chunk-based LOD
         }
 
         SDL_EndGPURenderPass(rp);
