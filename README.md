@@ -14,6 +14,7 @@ All tool names use the `md_` prefix (no proprietary asset branding in public rep
 ### `monkey_dust_editor` — Wicked-style Level Editor
 
 ImGui-based editor compiled into the engine binary via `MONKEY_DUST_EDITOR=ON`.
+All ImGui libraries (core + extensions) live in `tools/third_party/`: imgui, imnodes, imgui-node-editor, ImGuiColorTextEdit, imguizmo, imgui-flame-graph, imgui-command-palette.
 Runs as a standalone SDL\_GPU/Vulkan window (RD-3: migrated from OpenGL).
 Includes a **3D terrain viewport** (`editor_world_3d_sdlgpu.h`): full 64×64 world (32×32 km), all chunks always loaded, per-chunk distance-based LOD (LOD0+POM <1.2 km, LOD1 <3.5 km, LOD2 <8 km, LOD3 <18 km, skip beyond), LOD thresholds scale with camera altitude. No overview mesh. Camera starts at 8000 m altitude to see the full world; T resets to world center at 8000 m. Brush cursor is a screen-space crosshair (+). All rendering suspends when the tab is inactive (zero background CPU/GPU). RTT → ImGui::Image.
 `TerrainAtlas_SmoothBoundaries()` applied at startup (same zone-seam fix as the game).
@@ -208,7 +209,7 @@ tools/
   flare_2d_render.py   ← Python helper: renders a map frame to PNG (offline preview)
 ```
 
-**Dependency rule:** `tools/` depends only on `engine/` (via `<monkey_dust/...>` headers).
+**Dependency rule:** `tools/` depends only on `engine/` (via `<monkey_dust/...>` headers) plus its own `tools/third_party/` (imgui + extensions).
 Zero includes from `game/`. Game-specific callbacks are injected at runtime via `EditorGameContext`.
 
 ---
