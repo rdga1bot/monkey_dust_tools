@@ -20,12 +20,9 @@ public:
 
     void DrawContent() {
         // ── Top bar: Apply + clothing quick-test ──────────────────────────────
-        float bw = (ImGui::GetContentRegionAvail().x
-                    - ImGui::GetStyle().ItemSpacing.x * 3.f) * 0.25f;
-
-        bool do_apply = ImGui::Button("Apply to player", {bw*2.f, 0});
+        bool do_apply = ImGui::Button("Apply to player", {160.f, 0});
         ImGui::SameLine();
-        if (ImGui::Button("Clear clothing", {bw, 0})) {
+        if (ImGui::Button("Clear clothing", {120.f, 0})) {
             NpcRender::SetPlayerClothSlot(0, nullptr, nullptr);
             NpcRender::SetPlayerClothSlot(1, nullptr, nullptr);
         }
