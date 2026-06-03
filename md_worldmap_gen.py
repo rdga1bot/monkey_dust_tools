@@ -1,43 +1,106 @@
 #!/usr/bin/env python3
 """
-md_worldmap_gen.py — Generate world_map.png from terrain_config.txt + heightmap.
+md_worldmap_gen.py — Generate a high-quality world_map.png for the in-game M overlay.
 
-Produces a clean top-down map with:
-  - Height-shaded terrain (dark=low, light=high)
-  - Biome color tinting per zone (Voronoi-style sharp boundaries)
-  - Zone name labels
-  - Road/river placeholder lines between zones
+Renders the world heightmap as a proper terrain visualization:
+  - Height-based color gradient (ocean → sand → scrub → rock → snow)
+  - Normal-map hillshading for depth and relief
+  - Smooth biome color tinting (no visible zone grid)
+  - Zone labels and city markers
+  - Vignette + atmospheric haze at distance
 
 Usage: python3 tools/md_worldmap_gen.py
 """
-import os, struct
+
+import os, struct, math
 import numpy as np
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 from scipy.ndimage import gaussian_filter
 
 ATLAS_ZONES = 64
-W, H = 2048, 2048
-PX = W / ATLAS_ZONES          # pixels per zone
+ATLAS_VERTS = 65
+MAP_SIZE    = 2048   # output PNG resolution
 
-BIOME_COL = {
-    'desert':    (210, 180, 110),
-    'canyon':    (165, 105,  65),
-    'highlands': ( 95, 120,  75),
-    'highland':  (105, 128,  80),
-    'scrubland': (155, 155,  95),
-    'swamp':     ( 70, 115,  80),
-    'volcanic':  (110,  65,  55),
-    'ashlands':  (135, 125, 115),
-    'coast':     (160, 190, 205),
-    'unknown':   (165, 160, 145),
-}
-OCEAN = (45, 75, 125)
-TEXT_COL = (255, 245, 200)
+# ── Color palette (height-based gradient) ────────────────────────────────────
+# Inspired by Kenshi's colour palette: warm desert tones dominant
+PALETTE = [
+    # (height_fraction, R,G,B)  — 0.0=sea-level, 1.0=peak
+    (0.000, ( 45,  75, 125)),   # deep ocean
+    (0.020, ( 75, 110, 155)),   # shallow water
+    (0.040, (195, 180, 130)),   # sandy coast / lowland
+    (0.120, (200, 170, 115)),   # flat desert
+    (0.200, (185, 155, 100)),   # dunes
+    (0.300, (165, 140,  85)),   # low scrubland
+    (0.400, (140, 125,  75)),   # medium scrub
+    (0.500, (120, 110,  70)),   # highland scrub
+    (0.620, ( 95,  95,  70)),   # rocky highland
+    (0.740, ( 80,  78,  68)),   # rock / stone
+    (0.860, ( 65,  62,  60)),   # dark rock face
+    (1.000, (230, 230, 240)),   # snow peak
+]
 
-def load_zones(path):
+def height_to_color(h_norm):
+    """Map normalised height [0..1] to RGB via palette."""
+    for i in range(len(PALETTE) - 1):
+        t0, c0 = PALETTE[i]
+        t1, c1 = PALETTE[i + 1]
+        if t0 <= h_norm <= t1:
+            t = (h_norm - t0) / (t1 - t0)
+            return tuple(int(c0[j] + t * (c1[j] - c0[j])) for j in range(3))
+    return PALETTE[-1][1]
+
+
+def load_atlas(r32_path):
+    """Load world_hmap.r32 → full float32 heightmap (4096×4096)."""
+    if not os.path.exists(r32_path):
+        return None, None
+    print(f"[mapgen] loading {r32_path}…")
+    with open(r32_path, 'rb') as f:
+        magic, zx, zy, verts = struct.unpack('<4I', f.read(16))
+        if magic != 0x414D4800:
+            print("[mapgen] bad magic"); return None, None
+        G = verts - 1  # 64 unique verts per zone (shared edge excluded)
+        full = ATLAS_ZONES * G  # 4096×4096
+        hmap = np.zeros((full, full), dtype=np.float32)
+        for zi in range(ATLAS_ZONES * ATLAS_ZONES):
+            _hmin, _hmax = struct.unpack('<ff', f.read(8))
+            zone = np.frombuffer(f.read(verts * verts * 4), dtype=np.float32)
+            zone = zone.reshape(verts, verts)
+            zy_i = zi // ATLAS_ZONES
+            zx_i = zi % ATLAS_ZONES
+            r0 = zy_i * G; c0 = zx_i * G
+            hmap[r0:r0+G, c0:c0+G] = zone[:G, :G]
+    print(f"[mapgen] heightmap {hmap.shape}, range {hmap.min():.1f}–{hmap.max():.1f}m")
+    return hmap, full
+
+
+def compute_normals(hmap, scale=1.0):
+    """Compute surface normals from heightmap for hillshading."""
+    dz = np.gradient(hmap, axis=0) * scale
+    dx = np.gradient(hmap, axis=1) * scale
+    # Normal = normalize(-dx, -dz, 1)
+    mag = np.sqrt(dx*dx + dz*dz + 1.0)
+    nx = -dx / mag
+    nz = -dz / mag
+    ny =  1.0 / mag
+    return nx, ny, nz
+
+
+def hillshade(nx, ny, nz, sun_az=315.0, sun_el=45.0):
+    """Lambertian hillshading from a directional light."""
+    az_r = math.radians(sun_az)
+    el_r = math.radians(sun_el)
+    lx = math.cos(el_r) * math.cos(az_r)
+    lz = math.cos(el_r) * math.sin(az_r)
+    ly = math.sin(el_r)
+    shade = nx * lx + ny * ly + nz * lz
+    return np.clip(shade, 0.0, 1.0).astype(np.float32)
+
+
+def load_zones(config_path):
     zones = {}
     cur = {}
-    with open(path) as f:
+    with open(config_path) as f:
         for line in f:
             s = line.strip()
             if not s or s.startswith('#') or s.startswith('['):
@@ -53,127 +116,117 @@ def load_zones(path):
         zones[(int(cur['grid_x']), int(cur['grid_z']))] = cur.copy()
     return zones
 
-def voronoi_color_map(zones, w):
-    """Build WxW color map: each pixel gets color of nearest zone (Voronoi)."""
-    if not zones:
-        return np.full((w, w, 3), OCEAN, dtype=np.uint8)
 
-    gxs = np.array([p[0] for p in zones], dtype=np.float32)
-    gzs = np.array([p[1] for p in zones], dtype=np.float32)
-    # Pixel positions (image x=atlas cx, image y=atlas cz)
-    py, px = np.mgrid[0:ATLAS_ZONES, 0:ATLAS_ZONES]
-    py = py.astype(np.float32); px = px.astype(np.float32)
+def generate_map(hmap, full, zones, out_size):
+    """Render the full terrain map image."""
+    S = out_size
 
-    # Nearest-zone assignment
-    best_d  = np.full((ATLAS_ZONES, ATLAS_ZONES), np.inf, dtype=np.float32)
-    best_i  = np.zeros((ATLAS_ZONES, ATLAS_ZONES), dtype=np.int32)
-    zlist   = list(zones.values())
-    for i, (gx, gz) in enumerate(zones):
-        d = (px - gx)**2 + (py - gz)**2
-        mask = d < best_d
-        best_d[mask] = d[mask]
-        best_i[mask] = i
-
-    cols = np.array([BIOME_COL.get(z.get('biome','unknown'), BIOME_COL['unknown'])
-                     for z in zlist], dtype=np.float32)  # (N,3)
-    cmap = cols[best_i]  # (64,64,3)
-
-    # Coastal ocean (fade edges)
-    gy, gx_m = np.mgrid[0:ATLAS_ZONES, 0:ATLAS_ZONES]
-    dist = np.sqrt(((gx_m - 29.0)/23.0)**2 + ((gy - 26.0)/20.0)**2)
-    ocean_frac = gaussian_filter(np.clip((dist - 1.0) / 0.4, 0, 1).astype(np.float32), sigma=2)
-    oc = np.array(OCEAN, dtype=np.float32)
-    for c in range(3):
-        cmap[:,:,c] = cmap[:,:,c] * (1 - ocean_frac) + oc[c] * ocean_frac
-
-    # Upsample with nearest + slight blur for soft zone borders
+    # ── 1. Downsample heightmap to output resolution ─────────────────────────
     from scipy.ndimage import zoom
-    scale = w / ATLAS_ZONES
-    rgb_big = np.zeros((w, w, 3), dtype=np.float32)
+    scale = S / full
+    print(f"[mapgen] downsampling {full}→{S}…")
+    h_small = zoom(hmap, scale, order=1).astype(np.float32)
+
+    # Light Gaussian blur to reduce pixel aliasing from zone seams
+    h_small = gaussian_filter(h_small, sigma=0.8)
+
+    # ── 2. Normalise heights ─────────────────────────────────────────────────
+    h_min  = float(np.percentile(h_small[h_small > 0.5], 2))
+    h_max  = float(np.percentile(h_small, 99.5))
+    h_norm = np.clip((h_small - h_min) / max(h_max - h_min, 1.0), 0.0, 1.0)
+
+    # ── 3. Base color from height palette ────────────────────────────────────
+    print("[mapgen] applying color palette…")
+    rgb = np.zeros((S, S, 3), dtype=np.uint8)
+    # Vectorised palette lookup (build LUT of 1024 entries)
+    lut_n   = 1024
+    lut_rgb = np.zeros((lut_n, 3), dtype=np.float32)
+    for i in range(lut_n):
+        c = height_to_color(i / (lut_n - 1))
+        lut_rgb[i] = c
+    idx = (h_norm * (lut_n - 1)).astype(np.int32).clip(0, lut_n - 1)
+    rgb[:,:,0] = lut_rgb[idx, 0].astype(np.uint8)
+    rgb[:,:,1] = lut_rgb[idx, 1].astype(np.uint8)
+    rgb[:,:,2] = lut_rgb[idx, 2].astype(np.uint8)
+
+    # ── 4. Hillshading ────────────────────────────────────────────────────────
+    print("[mapgen] computing hillshading…")
+    # Use pixel spacing relative to actual world size for correct gradient
+    world_m_per_px = (ATLAS_ZONES * 500.0) / S
+    nx, ny, nz = compute_normals(h_small, scale=0.003 / world_m_per_px)
+
+    # Two-light setup: main sun (NW, 45°) + soft fill (overhead)
+    shade1 = hillshade(nx, ny, nz, sun_az=315, sun_el=45)
+    shade2 = hillshade(nx, ny, nz, sun_az=135, sun_el=60)  # fill from SE
+    shade  = shade1 * 0.7 + shade2 * 0.3 + 0.15           # ambient floor
+
+    # Darken valleys, brighten peaks
+    shade = np.clip(shade, 0.4, 1.35)
+
     for c in range(3):
-        rgb_big[:,:,c] = zoom(cmap[:,:,c], scale, order=0)  # nearest = sharp borders
+        rgb[:,:,c] = np.clip(rgb[:,:,c].astype(np.float32) * shade, 0, 255).astype(np.uint8)
 
-    # Subtle soft blur only inside zones (blurs ±4px at zone edges)
-    rgb_blur = np.zeros_like(rgb_big)
+    # ── 5. Atmospheric haze at ocean edges ───────────────────────────────────
+    gz, gx = np.mgrid[0:S, 0:S]
+    dist = np.sqrt(((gx/S - 29/64)**2 + (gz/S - 26/64)**2) / (0.5**2))
+    ocean_frac = gaussian_filter(np.clip((dist - 1.05) / 0.3, 0, 1).astype(np.float32), sigma=S//80)
+    fog_col = np.array([45, 75, 125], dtype=np.float32)
     for c in range(3):
-        rgb_blur[:,:,c] = gaussian_filter(rgb_big[:,:,c], sigma=1.5)
-    # Blend: 80% sharp + 20% blurred
-    rgb_big = rgb_big * 0.8 + rgb_blur * 0.2
+        rgb[:,:,c] = np.clip(
+            rgb[:,:,c].astype(np.float32) * (1 - ocean_frac) + fog_col[c] * ocean_frac,
+            0, 255).astype(np.uint8)
 
-    return np.clip(rgb_big, 0, 255).astype(np.uint8)
+    # ── 6. Subtle vignette ───────────────────────────────────────────────────
+    cy, cx = S//2, S//2
+    Y, X   = np.mgrid[0:S, 0:S]
+    vignette = 1.0 - 0.25 * ((X-cx)**2 + (Y-cy)**2) / (0.7 * S)**2
+    vignette = np.clip(vignette, 0.75, 1.0).astype(np.float32)
+    for c in range(3):
+        rgb[:,:,c] = np.clip(rgb[:,:,c] * vignette, 0, 255).astype(np.uint8)
 
-def load_heights(r32):
-    if not os.path.exists(r32): return None
-    with open(r32,'rb') as f:
-        if struct.unpack('<I', f.read(4))[0] != 0x414D4800: return None
-        f.seek(0); f.read(16)
-        means = np.zeros((ATLAS_ZONES, ATLAS_ZONES), dtype=np.float32)
-        for zi in range(ATLAS_ZONES**2):
-            f.read(8)
-            h = np.frombuffer(f.read(65*65*4), dtype=np.float32)
-            means[zi//ATLAS_ZONES, zi%ATLAS_ZONES] = h.mean()
-    return means
-
-def generate_map(zones, r32=None):
-    print("[mapgen] Voronoi color map…")
-    rgb = voronoi_color_map(zones, W)
-
-    if r32:
-        print("[mapgen] height shading…")
-        means = load_heights(r32)
-        if means is not None:
-            hmax = float(np.percentile(means[means > 1], 95))
-            norm = np.clip(means / max(hmax, 1.0), 0, 1)
-            from scipy.ndimage import zoom
-            shade = zoom(norm, W / ATLAS_ZONES, order=1)
-            # Hillshade: high=brighten, low=darken (±30% effect)
-            mult = 0.70 + shade * 0.60
-            for c in range(3):
-                rgb[:,:,c] = np.clip(rgb[:,:,c] * mult, 0, 255).astype(np.uint8)
-
-    # Zone border lines (1px white outline between different biomes)
     img  = Image.fromarray(rgb, 'RGB')
     draw = ImageDraw.Draw(img)
 
-    # Draw zone boundary grid lines (faint)
-    for i in range(1, ATLAS_ZONES):
-        x = int(i * PX)
-        draw.line([(x, 0), (x, H-1)], fill=(0,0,0,30), width=1)
-    for i in range(1, ATLAS_ZONES):
-        y = int(i * PX)
-        draw.line([(0, y), (W-1, y)], fill=(0,0,0,30), width=1)
+    # ── 7. Zone labels and markers ───────────────────────────────────────────
+    print("[mapgen] drawing zone labels…")
+    px_per_zone = S / ATLAS_ZONES
 
-    # Zone markers and names
-    print("[mapgen] drawing labels…")
-    for (gx, gz), z in zones.items():
-        if gx >= ATLAS_ZONES or gz >= ATLAS_ZONES: continue
-        cx = int(gx * PX + PX * 0.5)
-        cy = int(gz * PX + PX * 0.5)
+    for (gx_z, gz_z), z in zones.items():
+        if gx_z >= ATLAS_ZONES or gz_z >= ATLAS_ZONES: continue
+        # Centre of zone in image pixels
+        cx_px = int((gx_z + 0.5) * px_per_zone)
+        cy_px = int((gz_z + 0.5) * px_per_zone)
 
-        name = z.get('name', z.get('id', '?'))
-        biome = z.get('biome', 'unknown')
+        name   = z.get('name', z.get('id', '?'))
+        biome  = z.get('biome', 'unknown')
+        danger = int(z.get('danger', 1))
 
-        # Dot (biome-colored outline)
-        r = 5
-        outline = (255, 255, 255)
-        fill_col = BIOME_COL.get(biome, BIOME_COL['unknown'])
-        draw.ellipse([cx-r, cy-r, cx+r, cy+r], fill=fill_col, outline=outline, width=1)
+        # Marker dot — size by danger level
+        r   = 3 + danger // 2
+        col = (255, 220, 100) if danger <= 2 else \
+              (255, 155,  60) if danger <= 4 else (255, 80, 80)
+        draw.ellipse([cx_px-r, cy_px-r, cx_px+r, cy_px+r],
+                     fill=col, outline=(0,0,0))
 
-        # Name label (abbreviated if long)
+        # Abbreviated name (max 2 words, 12 chars)
         words = name.split()
-        if len(name) > 16 and len(words) > 1:
-            name = '\n'.join(w[:5] for w in words[:2])
-        draw.text((cx + r + 3, cy - 7), name, fill=TEXT_COL)
+        short = ' '.join(words[:2])[:14]
+        draw.text((cx_px + r + 2, cy_px - 5), short,
+                  fill=(255, 245, 200))
 
     return img
 
-def main():
-    root     = os.path.join(os.path.dirname(__file__), '..')
-    cfg      = os.path.join(root, 'game', 'data', 'terrain_config.txt')
-    r32      = os.path.join(root, 'game', 'data', 'terrain', 'world_hmap.r32')
-    out      = os.path.join(root, 'game', 'data', 'textures', 'world_map.png')
 
-    print(f"[mapgen] loading {len(open(cfg).readlines())} config lines…")
+def main():
+    root    = os.path.join(os.path.dirname(__file__), '..')
+    r32     = os.path.join(root, 'game', 'data', 'terrain', 'world_hmap.r32')
+    cfg     = os.path.join(root, 'game', 'data', 'terrain_config.txt')
+    out     = os.path.join(root, 'game', 'data', 'textures', 'world_map.png')
+
+    hmap, full = load_atlas(r32)
+    if hmap is None:
+        print("[mapgen] ERROR: could not load world_hmap.r32"); return
+
     zones = load_zones(cfg)
     print(f"[mapgen] {len(zones)} zones")
 
@@ -181,12 +234,11 @@ def main():
         bak = out.replace('.png', '_orig.png')
         if not os.path.exists(bak):
             import shutil; shutil.copy2(out, bak)
-            print(f"[mapgen] backed up → {bak}")
 
-    img = generate_map(zones, r32)
+    img = generate_map(hmap, full, zones, MAP_SIZE)
     os.makedirs(os.path.dirname(out), exist_ok=True)
-    img.save(out)
-    print(f"[mapgen] saved {out} ({img.width}×{img.height})")
+    img.save(out, quality=95)
+    print(f"[mapgen] saved {out}")
 
 if __name__ == '__main__':
     main()
