@@ -5,6 +5,9 @@
 #include <monkey_dust/render/gpu_hal.h>
 #include <monkey_dust/render/light_system.h>
 #include <monkey_dust/world/terrain_gen.h>
+#ifdef MONKEY_DUST_EDITOR_HOT_RELOAD
+#include <monkey_dust/hot/editor_module.h>
+#endif
 #include <SDL3/SDL.h>
 #include "backends/imgui_impl_sdl3.h"
 #include "backends/imgui_impl_sdlgpu3.h"
@@ -30,14 +33,22 @@
 
 // ── Hot-reload: called by /reload-shaders console command ─────────────────────
 void EditorReloadAllShaderPipelines() {
+#ifdef MONKEY_DUST_EDITOR_HOT_RELOAD
+    EditorModule::Get().ReloadShaders();
+#else
     CharPreviewSDLGPU::ReloadPipelines();
+#endif
     fprintf(stdout, "[Editor] Shader pipelines reloaded\n");
 }
 
 // ── Bridge: PCG terrain upload (defined here — only TU that includes W3D header) ─
 void EditorW3D_UploadTerrainHeightmap(const float* hmap, int W, int H,
                                        float world_size_m, int chunk_x, int chunk_z) {
+#ifdef MONKEY_DUST_EDITOR_HOT_RELOAD
+    EditorModule::Get().UploadTerrainHeightmap(hmap, W, H, world_size_m, chunk_x, chunk_z);
+#else
     WorldEditor3D_SDLGPU::UploadTerrainHeightmap(hmap, W, H, world_size_m, chunk_x, chunk_z);
+#endif
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -109,6 +120,7 @@ int main(void) {
     LightSystem::Get().Init();
     TerrainAtlas_Load("game/data/terrain/world_hmap.r32");
     TerrainAtlas_SmoothBoundaries();
+#ifndef MONKEY_DUST_EDITOR_HOT_RELOAD
     WorldEditor3D_SDLGPU::Init(
         "game/data/textures/md_terrain.png",
         29, 25);  // 7×7 view centred near The Hub area
@@ -116,8 +128,24 @@ int main(void) {
     CharacterEditor::LoadMorphNames("game/data/chars/morph_names.txt");
     MapViewPanel::Get().Init();
     EditorCore::Get().Init();
-    // Terrain panels are embedded in the Terrain tab — keep them non-floating
+#endif
 
+#ifdef MONKEY_DUST_EDITOR_HOT_RELOAD
+    // Hot-reload path: all panel init/draw/render delegated to libeditor_panels.so.
+    // EditorModule loads the .so, calls editor_panels_init() inside.
+    {
+        EditorModule::Config ecfg;
+        ecfg.imgui_ctx   = ImGui::GetCurrentContext();
+        ecfg.gpu         = gpu;
+        ecfg.window      = _wnd::ptr();
+        ecfg.overlay_top = s_overlay_top;
+        ecfg.layout_path = LAYOUT_PATH;
+        EditorModule::Get().Init("build/hot/libeditor_panels.so", ecfg);
+    }
+#endif
+
+#ifndef MONKEY_DUST_EDITOR_HOT_RELOAD
+    // Non-hot-reload: restore panel layout directly
     // Restore panel detach/position state from previous session
     {
         using P = EditorLayout::Panel;
@@ -134,6 +162,7 @@ int main(void) {
             SettingsEditor::g_detached     = ps.detached; SettingsEditor::g_win_pos     = ps.pos; SettingsEditor::g_win_size     = ps.size;
         }
     }
+#endif // !MONKEY_DUST_EDITOR_HOT_RELOAD
 
     SDL_FlushEvent(SDL_EVENT_QUIT);
 
@@ -157,15 +186,30 @@ int main(void) {
         last_ticks = now;
         if (status_timer > 0.f) status_timer -= dt;
 
+#ifdef MONKEY_DUST_EDITOR_HOT_RELOAD
+        // F5: hot-reload editor panels
+        if (input_key_pressed(SDL_SCANCODE_F5)) {
+            EditorModule::Get().Reload();
+            snprintf(status_msg, sizeof(status_msg), "[F5] Editor panels reloaded");
+            status_timer = 3.f;
+        }
+        // Mtime watcher — auto-reload when libeditor_panels.so changes
+        EditorModule::Get().Tick();
+#endif
+
         // F9: dump editor state → tmp_md/bug_editor_TIMESTAMP.txt
         if (input_key_pressed(SDL_SCANCODE_F9)) {
             char path[256];
             FILE* f = BugCapture::Open("editor", path, sizeof(path));
             if (f) {
                 fprintf(f, "[Editor]\n");
+#ifdef MONKEY_DUST_EDITOR_HOT_RELOAD
+                EditorModule::Get().DumpState(f);
+#else
                 fprintf(f, "  chars_detached=%d\n\n", CharacterEditor::g_detached ? 1 : 0);
-#ifdef MD_SDL_GPU
+#  ifdef MD_SDL_GPU
                 CharPreviewSDLGPU::DumpState(f);
+#  endif
 #endif
                 BugCapture::Close(f);
                 snprintf(status_msg, sizeof(status_msg), "[F9] %s", path + 7);
@@ -204,6 +248,47 @@ int main(void) {
         // Toolbar draws the menu bar (~20px) + button bar (30px fixed)
         // f3_passthrough: pass-through mouse input when a fullscreen viewport tab is active.
         // Uses prev-frame flag (1-frame lag is imperceptible).
+        static uint32_t s_active_flags = 0;  // viewport bitmask: bit0=3DWorld,1=CharPreview,2=Hmap,3=Map
+        float toolbar_h = s_overlay_top + ImGui::GetFrameHeight() + 30.f;
+
+#ifdef MONKEY_DUST_EDITOR_HOT_RELOAD
+        // Hot-reload path: ALL panel code in the .so
+        {
+            uint32_t new_flags = EditorModule::Get().BuildUI(dt, toolbar_h,
+                                                              status_msg, &status_timer);
+            uint32_t prev_flags = s_active_flags;
+            s_active_flags = new_flags;
+            ImGui::Render();
+            SDL_GPUCommandBuffer* cmd = md::GpuDevice::Get().AcquireCommandBuffer();
+            if (cmd) {
+                EditorModule::Get().Render(cmd, dt, prev_flags);
+                uint32_t sw=0, sh=0;
+                SDL_GPUTexture* sc = md::GpuDevice::Get().AcquireSwapchainTexture(cmd, &sw, &sh);
+                if (sc) {
+                    SDL_GPUColorTargetInfo ct={};
+                    ct.texture=sc; ct.load_op=SDL_GPU_LOADOP_CLEAR;
+                    ct.store_op=SDL_GPU_STOREOP_STORE;
+                    ct.clear_color={0.10f,0.10f,0.13f,1.f};
+                    SDL_GPURenderPass* rp=SDL_BeginGPURenderPass(cmd,&ct,1,nullptr);
+                    if (rp) SDL_EndGPURenderPass(rp);
+                    ImDrawData* dd=ImGui::GetDrawData();
+                    if (dd && dd->CmdListsCount>0) {
+                        ImGui_ImplSDLGPU3_PrepareDrawData(dd,cmd);
+                        SDL_GPUColorTargetInfo ict={};
+                        ict.texture=sc; ict.load_op=SDL_GPU_LOADOP_LOAD;
+                        ict.store_op=SDL_GPU_STOREOP_STORE;
+                        SDL_GPURenderPass* irp=SDL_BeginGPURenderPass(cmd,&ict,1,nullptr);
+                        if (irp) { ImGui_ImplSDLGPU3_RenderDrawData(dd,cmd,irp); SDL_EndGPURenderPass(irp); }
+                    }
+                }
+                SDL_SubmitGPUCommandBuffer(cmd);
+            }
+            window_end_frame();
+            continue;  // skip non-hot-reload UI code below
+        }
+#endif
+
+        // Non-hot-reload path ─────────────────────────────────────────────────
         static bool s_world3d_was_active  = false;
         static bool s_hmap_was_active     = false;
         static bool s_charpreview_active  = false;
@@ -214,7 +299,6 @@ int main(void) {
         s_charpreview_active = false;
         s_mapview_active     = false;
         EditorCore::Get().Update(dt);
-        float toolbar_h = s_overlay_top + ImGui::GetFrameHeight() + 30.f;
 
         ImGui::SetNextWindowPos({0, toolbar_h});
         ImGui::SetNextWindowSize({fio.DisplaySize.x, fio.DisplaySize.y - toolbar_h});
@@ -342,15 +426,18 @@ int main(void) {
         window_end_frame();
     }
 
-    // Save panel layout before shutdown
+#ifdef MONKEY_DUST_EDITOR_HOT_RELOAD
+    EditorModule::Get().Shutdown();  // calls editor_panels_shutdown() → saves layout
+#else
+    // Save panel layout before shutdown (non-hot-reload path)
     EditorLayout::Save(LAYOUT_PATH,
         {ItemEditor::g_detached,         ItemEditor::g_win_pos,         ItemEditor::g_win_size},
         {FactionEditor::g_detached,      FactionEditor::g_win_pos,      FactionEditor::g_win_size},
         {NpcArchetypeEditor::g_detached, NpcArchetypeEditor::g_win_pos, NpcArchetypeEditor::g_win_size},
         {CharacterEditor::g_detached,    CharacterEditor::g_win_pos,    CharacterEditor::g_win_size},
         {SettingsEditor::g_detached,     SettingsEditor::g_win_pos,     SettingsEditor::g_win_size});
-
     EditorCore::Get().Shutdown();
+#endif
     ImGui_ImplSDLGPU3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();
