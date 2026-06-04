@@ -64,7 +64,7 @@ public:
     Vec3     cam_target  = { 0.f, 2.f, 0.f };
     bool     cam_flying   = false;
     bool     cam_game_mode = false;  // true = use normal game camera (player moves, RMB rotates)
-    float    cam_speed    = 50.0f;  // m/s (3D World uses 1000 at 1500m; game scene ~35m → 50 feels equivalent)
+    float    cam_speed    = 200.0f; // m/s; Shift+Scroll to adjust
     Vec3     last_game_cam_target = { 0.f, 2.f, 0.f }; // updated each frame in game mode
     // Free-fly state (mirrors editor_world_3d_sdlgpu — radians, direct eye pos)
     float    fly_yaw     = 0.f;     // radians
