@@ -427,35 +427,53 @@ void EditorCore::UpdateEditorCamera(float dt, bool viewport_hovered) {
     if (!rmb_down) { rdx = 0.f; rdy = 0.f; }
 
     if (cam_flying) {
-        // Mouse look — RMB (uses rdx/rdy already read above)
+        // RMB = look (rdx/rdy already read once above — do NOT call GetRelativeMouseState again)
         if (rmb_down) {
-            cam_yaw   -= rdx * 0.3f;
-            cam_pitch  += rdy * 0.3f;
+            cam_yaw   -= rdx * 0.17f;   // same feel as 3D World (0.003 rad ≈ 0.17 deg)
+            cam_pitch  += rdy * 0.11f;
             if (cam_pitch >  89.f) cam_pitch =  89.f;
             if (cam_pitch < -89.f) cam_pitch = -89.f;
         }
-        // WASD — SDL raw state, always works without RMB
-        {
-            float yaw_r   = cam_yaw   * DEG2R;
-            float pitch_r = cam_pitch * DEG2R;
-            Vec3 fwd   = { cosf(pitch_r)*sinf(yaw_r), sinf(pitch_r), cosf(pitch_r)*cosf(yaw_r) };
-            Vec3 right = vec3_norm(vec3_cross(fwd, {0.f,1.f,0.f}));
-            Vec3 up    = {0.f,1.f,0.f};
-            const bool* kb = (const bool*)SDL_GetKeyboardState(nullptr);
-            float sp = cam_speed * dt;
-            if (kb[SDL_SCANCODE_W]||kb[SDL_SCANCODE_UP])   cam_target = vec3_add(cam_target, vec3_scale(fwd,  sp));
-            if (kb[SDL_SCANCODE_S]||kb[SDL_SCANCODE_DOWN]) cam_target = vec3_add(cam_target, vec3_scale(fwd, -sp));
-            if (kb[SDL_SCANCODE_A]) cam_target = vec3_add(cam_target, vec3_scale(right,  sp));
-            if (kb[SDL_SCANCODE_D]) cam_target = vec3_add(cam_target, vec3_scale(right, -sp));
-            if (kb[SDL_SCANCODE_Q]||kb[SDL_SCANCODE_PAGEDOWN]) cam_target = vec3_add(cam_target, vec3_scale(up, -sp));
-            if (kb[SDL_SCANCODE_E]||kb[SDL_SCANCODE_PAGEUP])   cam_target = vec3_add(cam_target, vec3_scale(up,  sp));
-        }
-        // Scroll = altitude zoom (always visible)
+
+        float yr = cam_yaw * DEG2R;
+        float pr = cam_pitch * DEG2R;
+        float sy = sinf(yr), cy2 = cosf(yr);
+
+        // WASD horizontal (yaw only, same as 3D World)
+        const bool* kb = (const bool*)SDL_GetKeyboardState(nullptr);
+        float sp = cam_speed * dt;
+        if (kb[SDL_SCANCODE_W]||kb[SDL_SCANCODE_UP])   { cam_target.x+=sp*sy; cam_target.z+=sp*cy2; }
+        if (kb[SDL_SCANCODE_S]||kb[SDL_SCANCODE_DOWN]) { cam_target.x-=sp*sy; cam_target.z-=sp*cy2; }
+        if (kb[SDL_SCANCODE_A])                        { cam_target.x+=sp*cy2; cam_target.z-=sp*sy; }
+        if (kb[SDL_SCANCODE_D])                        { cam_target.x-=sp*cy2; cam_target.z+=sp*sy; }
+        if (kb[SDL_SCANCODE_Q]||kb[SDL_SCANCODE_PAGEDOWN]) cam_target.y -= sp;
+        if (kb[SDL_SCANCODE_E]||kb[SDL_SCANCODE_PAGEUP])   cam_target.y += sp;
+
+        // Scroll = zoom (same formula as 3D World)
         if (io.MouseWheel != 0.f) {
-            float step = fmaxf(fabsf(cam_target.y), 50.f) * 0.25f * io.MouseWheel;
-            cam_target.y += step;
-            if (cam_target.y < 1.f) cam_target.y = 1.f;
+            float step = cam_target.y * 0.08f * io.MouseWheel;
+            cam_target.x += step * sy; cam_target.z += step * cy2;
+            cam_target.y  = (io.MouseWheel > 0)
+                ? fmaxf(cam_target.y * 0.88f, 1.f)
+                : fminf(cam_target.y * 1.12f, 150000.f);
         }
+
+        // FPS camera: eye at cam_target, looking in forward direction
+        // forward = (sin(yaw)*cos(pitch), -sin(pitch), cos(yaw)*cos(pitch))  [3D World formula]
+        float fx = sy * cosf(pr);
+        float fy = -sinf(pr);
+        float fz = cy2 * cosf(pr);
+
+        // Floor clamp
+        if (TerrainMaster_Loaded()) {
+            float th = TerrainMaster_SampleWorld(cam_target.x, cam_target.z);
+            if (cam_target.y < th + 1.5f) cam_target.y = th + 1.5f;
+        }
+
+        editor_cam.pos    = cam_target;
+        editor_cam.target = { cam_target.x + fx, cam_target.y + fy, cam_target.z + fz };
+        editor_cam.up     = { 0.f, 1.f, 0.f };
+        return;   // ← must skip orbit formula below
     } else {
         // Orbit mode — unlimited yaw (360°), pitch clamped near-vertical.
         if (rmb_down) {
