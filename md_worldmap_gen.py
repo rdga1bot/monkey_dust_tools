@@ -7,18 +7,17 @@ Pipeline:
   2. For each colour cluster → compute centroid → map to zone grid (0-63)
   3. Match to our terrain_config.txt zones by nearest grid position
   4. Re-colour every pixel with our own biome palette (NO Kenshi colours remain)
-  5. Upscale to 2048×2048, apply our heightmap hillshading, add labels
+  5. Apply hillshading from our heightmap, add danger markers + labels
 
-Result: organic Kenshi-quality zone boundaries, entirely our own colour scheme.
-Legal: we use zone boundary SHAPES (positional/functional data), not Kenshi artwork.
-       Every output pixel colour is derived from our own palette + our own heightmap.
+Legal: we use zone boundary SHAPES (positional data), not Kenshi artwork.
+       Every output pixel colour is derived from our own palette + our heightmap.
 
 Usage: python3 tools/md_worldmap_gen.py
 """
 
 import os, struct, math, hashlib
 import numpy as np
-from scipy.ndimage import gaussian_filter, zoom as sci_zoom, label as nd_label
+from scipy.ndimage import gaussian_filter, zoom as sci_zoom
 from scipy.spatial import cKDTree
 from PIL import Image, ImageDraw
 
@@ -29,28 +28,28 @@ OUT_SIZE    = 2048
 KENSHI_BIOME = "/run/media/rdga1/win/SteamLibrary/steamapps/common/Kenshi/" \
                "data/newland/land/biomemap.png"
 
-# ── Per-biome colour palettes ─────────────────────────────────────────────────
+# ── Per-biome colour palettes (vivid, clearly distinct) ──────────────────────
 BIOME_PALETTE = {
-    'desert':    [(220,200,130),(205,182,112),(235,215,145),(195,172,100),
-                  (242,222,158),(212,190,120),(228,208,136)],
-    'canyon':    [(178, 96, 52),(165, 80, 42),(192,112, 65),(155, 72, 38),
-                  (185,100, 55),(170, 88, 48),(200,120, 72)],
-    'volcanic':  [( 72, 60, 72),( 58, 50, 68),( 88, 55, 85),( 65, 45, 80),
-                  ( 80, 65, 90),( 50, 48, 68),( 95, 70, 95)],
-    'swamp':     [( 52,105, 62),( 42, 92, 52),( 62,118, 72),( 38, 82, 48),
-                  ( 55,110, 65),( 48, 98, 58),( 65,120, 70)],
-    'scrubland': [(138,158, 90),(125,142, 78),(150,168,102),(118,135, 72),
-                  (145,162, 96),(132,150, 85),(155,172,108)],
-    'highlands': [( 98, 92, 78),( 88, 84, 70),(108,100, 86),( 82, 78, 65),
-                  (102, 96, 82),( 92, 88, 74),(115,108, 90)],
-    'highland':  [(118,112, 90),(108,104, 82),(125,118, 96),(100, 96, 75),
-                  (120,115, 92),(112,108, 86),(130,124,100)],
-    'ashlands':  [(148,128, 95),(135,115, 85),(158,138,105),(125,108, 78),
-                  (152,132, 98),(140,120, 88),(162,142,108)],
-    'coast':     [( 62,128,148),( 50,112,132),( 72,142,162),( 45,100,120),
-                  ( 65,135,155),( 55,120,140),( 78,148,168)],
-    '_ocean':    [( 30, 52, 95)],
-    '_default':  [(148,138,108),(135,125, 98),(158,148,118)],
+    'desert':    [(235,210,140),(220,195,118),(248,225,155),(208,185,105),
+                  (242,218,132),(226,202,124),(250,230,160)],
+    'canyon':    [(195,100, 55),(178, 82, 40),(210,118, 68),(162, 72, 35),
+                  (200,108, 58),(182, 90, 46),(215,128, 75)],
+    'volcanic':  [( 85, 55, 90),( 68, 44, 80),(100, 62, 100),( 72, 48, 95),
+                  ( 92, 60, 105),( 60, 50, 82),(108, 70, 108)],
+    'swamp':     [( 55,118, 68),( 44,102, 56),( 66,132, 78),( 38, 90, 50),
+                  ( 58,124, 72),( 50,110, 62),( 70,138, 82)],
+    'scrubland': [(148,168, 98),(132,150, 84),(162,182,112),(124,140, 76),
+                  (155,172,104),(140,158, 90),(168,188,118)],
+    'highlands': [(108,100, 82),( 96, 90, 72),(120,112, 94),( 88, 82, 65),
+                  (112,104, 86),(100, 94, 78),(128,120, 98)],
+    'highland':  [(130,122, 98),(118,112, 88),(142,132,108),(108,102, 80),
+                  (134,126,102),(122,116, 92),(148,138,112)],
+    'ashlands':  [(162,138,100),(148,122, 88),(175,152,112),(135,112, 80),
+                  (168,144,106),(154,130, 94),(180,158,118)],
+    'coast':     [( 68,142,165),( 54,124,148),( 80,158,180),( 48,110,132),
+                  ( 72,150,172),( 60,134,158),( 85,165,188)],
+    '_ocean':    [( 28, 48, 88)],
+    '_default':  [(158,148,115),(142,132,100),(168,158,125)],
 }
 
 def zone_color(biome, gx, gz):
@@ -102,46 +101,24 @@ def load_zones(config_path):
 # ── Biomemap segmentation ─────────────────────────────────────────────────────
 
 def quantize_color(rgb_arr, tol=6):
-    """
-    Reduce colours by rounding to nearest multiple of tol.
-    Handles slight anti-aliasing at zone edges.
-    """
     return (rgb_arr // tol * tol).astype(np.int32)
 
 
 def segment_biomemap(biome_path, our_zones):
-    """
-    Read Kenshi biomemap, segment into zone regions, match each region
-    to our nearest zone by centroid grid position.
-
-    Returns:
-        seg   — (H, W) int32 array: pixel → zone index (-1 = unassigned)
-        zones_ordered — list of (gx, gz) matching seg indices
-    """
     print(f"[biome] loading {biome_path}…")
     img  = Image.open(biome_path).convert('RGB')
-    H, W = img.size[1], img.size[0]   # 1024, 1024
-    arr  = np.array(img, dtype=np.int32)   # (H, W, 3)
+    H, W = img.size[1], img.size[0]
+    arr  = np.array(img, dtype=np.int32)
 
-    # Background = bright green (0,255,0) or close variants
     is_bg = (arr[:,:,1] > 200) & (arr[:,:,0] < 30) & (arr[:,:,2] < 30)
-
-    # Quantise to merge near-identical colours (edge blending)
     q = quantize_color(arr)
 
-    # Find unique non-background colours
-    flat = q[~is_bg]                         # (N, 3)
-    unique_cols, inv = np.unique(
-        flat.reshape(-1, 3), axis=0, return_inverse=True)
+    flat = q[~is_bg]
+    unique_cols, _ = np.unique(flat.reshape(-1, 3), axis=0, return_inverse=True)
     print(f"[biome] {len(unique_cols)} unique zone colours found")
 
-    # For each unique colour → centroid in pixel space → grid coords
-    # biomemap 1024×1024 covers Kenshi 64×64 zone grid
-    px_per_zone = W / ATLAS_ZONES           # 16 px/zone
-
-    # Build pixel → colour index map
+    px_per_zone = W / ATLAS_ZONES
     col_key = q[:,:,0]*65536 + q[:,:,1]*256 + q[:,:,2]
-    bg_key  = (is_bg).astype(np.int32) * -1
 
     col2idx = {}
     for i, c in enumerate(unique_cols):
@@ -154,27 +131,21 @@ def segment_biomemap(biome_path, our_zones):
             if not is_bg[ky, kx] and k in col2idx:
                 seg_col[ky, kx] = col2idx[k]
 
-    # Compute centroids for each colour cluster
     our_pts  = np.array([(gz, gx) for (gx, gz) in our_zones], dtype=np.float32)
     our_keys = list(our_zones.keys())
     tree     = cKDTree(our_pts)
 
-    col_to_zone = {}   # colour_idx → (gx, gz)
+    col_to_zone = {}
     for i, c in enumerate(unique_cols):
         mask = (seg_col == i)
         if not mask.any():
             continue
         ys, xs = np.where(mask)
-        cy_px  = ys.mean()
-        cx_px  = xs.mean()
-        # Convert pixel centroid → zone grid position
-        gz_f   = cy_px / px_per_zone
-        gx_f   = cx_px / px_per_zone
-        # Find nearest our-zone
+        gz_f   = ys.mean() / px_per_zone
+        gx_f   = xs.mean() / px_per_zone
         _, ni  = tree.query([gz_f, gx_f])
         col_to_zone[i] = our_keys[ni]
 
-    # Build final seg map: pixel → our zone (gx, gz) index
     zone_key_list = list(our_zones.keys())
     zk2idx        = {k: i for i, k in enumerate(zone_key_list)}
 
@@ -187,59 +158,88 @@ def segment_biomemap(biome_path, our_zones):
     return seg, zone_key_list
 
 
-# ── Recolour + hillshade ──────────────────────────────────────────────────────
+# ── Recolour + edges ──────────────────────────────────────────────────────────
 
 def build_rgb_from_seg(seg, zone_key_list, our_zones, out_size):
-    """
-    seg: (H,W) zone index (-1 = unassigned)
-    Recolours every pixel with our palette.  Upscales to out_size.
-    """
     H_src, W_src = seg.shape
     S = out_size
 
-    # ── Zone colour lookup table ──────────────────────────────────────────────
     n_zones   = len(zone_key_list)
     pal_table = np.zeros((n_zones + 1, 3), dtype=np.float32)
     ocean_col = np.array(BIOME_PALETTE['_ocean'][0], dtype=np.float32)
-    pal_table[0] = ocean_col   # index -1 → ocean
+    pal_table[0] = ocean_col
     for i, (gx, gz) in enumerate(zone_key_list):
-        z    = our_zones.get((gx, gz), {})
+        z     = our_zones.get((gx, gz), {})
         biome = z.get('biome', '_default')
         pal_table[i + 1] = zone_color(biome, gx, gz)
 
-    # Shift seg so -1 → index 0 (ocean)
-    seg_shifted = seg + 1   # -1→0, zone_i→i+1
+    # Fill any ocean pixels that fall inside a known zone's grid cell.
+    # Kenshi biomemap only maps ~30 of our 59 zones; the rest appear as ocean.
+    # Fix: nearest-zone fill from our grid positions so every zone has colour.
+    zone_pts  = np.array([(gz / ATLAS_ZONES * H_src, gx / ATLAS_ZONES * W_src)
+                           for (gx, gz) in zone_key_list], dtype=np.float32)
+    zone_tree = cKDTree(zone_pts)
+    ocean_mask = (seg == -1)
+    if ocean_mask.any():
+        oy, ox = np.where(ocean_mask)
+        coords = np.stack([oy, ox], axis=1).astype(np.float32)
+        dists, near_idx = zone_tree.query(coords, workers=-1)
+        # Only fill cells that are close enough to a zone centre (within 1 zone width)
+        cell_w = W_src / ATLAS_ZONES
+        fill_mask = dists < cell_w * 0.8
+        seg_fill = seg.copy()
+        seg_fill[oy[fill_mask], ox[fill_mask]] = near_idx[fill_mask]
+        filled = int(fill_mask.sum())
+        print(f"[mapgen] filled {filled} ocean pixels with nearest-zone colour")
+        seg = seg_fill
 
-    # ── Vectorised recolour at source resolution ──────────────────────────────
-    rgb_src = pal_table[seg_shifted]   # (H_src, W_src, 3)
+    seg_shifted = seg + 1
+    rgb_src = pal_table[seg_shifted].astype(np.float32)
 
-    # ── Thin dark edge between adjacent different zones ───────────────────────
-    # Dilate zone boundaries: where neighbouring pixels differ → darken
+    # ── Zone boundaries: detect edges, apply thick dark lines ────────────────
     from scipy.ndimage import uniform_filter
     seg_f   = seg_shifted.astype(np.float32)
-    blur    = uniform_filter(seg_f, size=2)
-    is_edge = np.abs(blur - seg_f) > 0.1
-    edge_w  = gaussian_filter(is_edge.astype(np.float32), sigma=0.8)
-    edge_w  = np.clip(edge_w * 1.2, 0, 0.6)[:, :, None]
-    rgb_src = rgb_src * (1.0 - edge_w)
+    blur2   = uniform_filter(seg_f, size=2)
+    blur4   = uniform_filter(seg_f, size=4)
+    edge2   = (np.abs(blur2 - seg_f) > 0.05).astype(np.float32)
+    edge4   = (np.abs(blur4 - seg_f) > 0.08).astype(np.float32)
+    # Combine: thick + thin edge for visible borders
+    edge_w  = gaussian_filter(np.maximum(edge2, edge4 * 0.6), sigma=1.2)
+    edge_w  = np.clip(edge_w * 1.8, 0, 0.75)[:, :, None]
+    rgb_src = rgb_src * (1.0 - edge_w)   # darken at edges
+
+    # ── Subtle FBM texture variation within zones ────────────────────────────
+    rng = np.random.default_rng(7)
+    def micro_fbm(res, freq=0.03, oct=4):
+        out = np.zeros((res, res), dtype=np.float32); amp = 1.; f = freq; norm = 0.
+        for _ in range(oct):
+            gs = max(4, int(res * f) + 2)
+            g  = rng.random((gs + 2, gs + 2)).astype(np.float32)
+            xs = np.linspace(0, gs - 1, res, endpoint=False)
+            R, C = np.meshgrid(xs, xs, indexing='ij')
+            RI = R.astype(int); RF = R - RI; RI1 = np.clip(RI + 1, 0, gs)
+            CI = C.astype(int); CF = C - CI; CI1 = np.clip(CI + 1, 0, gs)
+            v = (g[RI, CI]*(1-RF)*(1-CF) + g[RI, CI1]*(1-RF)*CF +
+                 g[RI1, CI]*RF*(1-CF) + g[RI1, CI1]*RF*CF)
+            out += amp * v; norm += amp; amp *= 0.5; f *= 2.
+        return out / norm
+    tex = micro_fbm(W_src) * 0.10 + 0.95   # ±5% variation
+    rgb_src = np.clip(rgb_src * tex[:, :, None], 0, 255)
 
     # ── Upscale to output resolution ─────────────────────────────────────────
     print(f"[mapgen] upscaling {W_src}→{S}…")
-    scale   = S / W_src
-    rgb_up  = np.stack([
-        sci_zoom(rgb_src[:,:,c], scale, order=1)
-        for c in range(3)], axis=2)
-
+    scale  = S / W_src
+    rgb_up = np.stack([sci_zoom(rgb_src[:, :, c], scale, order=1) for c in range(3)], axis=2)
     return np.clip(rgb_up, 0, 255).astype(np.float32)
 
 
 def apply_hillshade(rgb_f, hmap, full, S):
     scale   = S / full
     h_small = sci_zoom(hmap, scale, order=1).astype(np.float32)
-    h_small = gaussian_filter(h_small, sigma=0.6)
+    h_small = gaussian_filter(h_small, sigma=0.5)   # less blur = sharper hills
 
     world_m_per_px = (ATLAS_ZONES * 500.0) / S
-    k  = 0.003 / world_m_per_px
+    k  = 0.005 / world_m_per_px                      # stronger slope contrast
     dz = np.gradient(h_small, axis=0) * k
     dx = np.gradient(h_small, axis=1) * k
     mag = np.sqrt(dx*dx + dz*dz + 1.0)
@@ -252,85 +252,75 @@ def apply_hillshade(rgb_f, hmap, full, S):
         ly = math.sin(er)
         return np.clip(nx*lx + ny*ly + nz*lz, 0.0, 1.0)
 
-    sh = np.clip(shade(315,45)*0.72 + shade(135,60)*0.28 + 0.22, 0.38, 1.35)
-    return np.clip(rgb_f * sh[:,:,None], 0, 255).astype(np.float32)
-
-
-def apply_vignette(rgb_f, S):
-    cy, cx = S//2, S//2
-    Y, X   = np.mgrid[0:S, 0:S]
-    vig    = np.clip(1.0 - 0.16*((X-cx)**2+(Y-cy)**2)/(0.72*S)**2, 0.84, 1.0)
-    return np.clip(rgb_f * vig[:,:,None], 0, 255)
+    # Two lights: primary NW, secondary SE
+    sh = np.clip(shade(315, 45)*0.80 + shade(135, 55)*0.20 + 0.15, 0.32, 1.40)
+    return np.clip(rgb_f * sh[:, :, None], 0, 255).astype(np.float32)
 
 
 def draw_labels(img, zones, S):
     draw = ImageDraw.Draw(img)
     ppz  = S / ATLAS_ZONES
-    DCOL = {1:(255,235,130),2:(255,220,100),3:(255,185,60),
-            4:(255,145,40), 5:(255,105,30),6:(255,75,50),
-            7:(255,50,50),  8:(220,35,35), 9:(180,18,18)}
+    DCOL = {1:(255,240,140), 2:(255,225,110), 3:(255,195, 70),
+            4:(255,155, 45),  5:(255,115, 35),  6:(255, 80, 55),
+            7:(255, 55, 55),  8:(225, 38, 38),  9:(185, 20, 20)}
     for (gx, gz), z in zones.items():
         if gx >= ATLAS_ZONES or gz >= ATLAS_ZONES: continue
         cx_px = int((gx + 0.5) * ppz)
         cy_px = int((gz + 0.5) * ppz)
         name  = z.get('name', z.get('id', '?'))
         danger = int(z.get('danger', 1))
-        r = 3 + danger // 2
-        c = DCOL.get(danger, (255,80,80))
-        draw.ellipse([cx_px-r, cy_px-r, cx_px+r, cy_px+r], fill=c, outline=(0,0,0))
+        r = 4 + danger // 2                           # larger dots
+        c = DCOL.get(danger, (255, 80, 80))
+        draw.ellipse([cx_px-r, cy_px-r, cx_px+r, cy_px+r], fill=c, outline=(0, 0, 0))
         short = ' '.join(name.split()[:2])[:14]
-        draw.text((cx_px+r+3, cy_px-5), short, fill=(0,0,0))
-        draw.text((cx_px+r+2, cy_px-6), short, fill=(255,248,210))
+        # Shadow + bright label
+        draw.text((cx_px+r+3, cy_px-5), short, fill=(0, 0, 0))
+        draw.text((cx_px+r+2, cy_px-6), short, fill=(255, 250, 215))
 
 
 # ── Fallback: domain-warped Voronoi (if biomemap not available) ───────────────
 
-def fallback_voronoi(zones, hmap, full, S):
-    """Domain-warped Voronoi (no Kenshi file needed)."""
-    from scipy.spatial import cKDTree as _KDTree
-    import hashlib as _hl
-
-    px = S / ATLAS_ZONES
+def fallback_voronoi(zones, S):
+    rng = np.random.default_rng(42)
+    px  = S / ATLAS_ZONES
     pts, cols = [], []
     for (gx, gz), z in zones.items():
         if gx >= ATLAS_ZONES or gz >= ATLAS_ZONES: continue
         pts.append((gz*px+px*0.5, gx*px+px*0.5))
         b   = z.get('biome', '_default')
-        h   = int(_hl.md5(f"{gx},{gz}".encode()).hexdigest(), 16)
+        h   = int(hashlib.md5(f"{gx},{gz}".encode()).hexdigest(), 16)
         pal = BIOME_PALETTE.get(b, BIOME_PALETTE['_default'])
         cols.append(np.array(pal[h % len(pal)], dtype=np.float32))
-    pts_np = np.array(pts, dtype=np.float32)
+    pts_np  = np.array(pts,  dtype=np.float32)
     cols_np = np.array(cols, dtype=np.float32)
 
-    rng = np.random.default_rng(42)
     def fbm(res, freq=0.004, oct=7):
-        out = np.zeros((res,res),dtype=np.float32); amp=1.; f=freq; norm=0.
+        out = np.zeros((res, res), dtype=np.float32); amp = 1.; f = freq; norm = 0.
         for _ in range(oct):
-            gs=max(4,int(res*f)+2); g=rng.random((gs+2,gs+2)).astype(np.float32)
-            xs=np.linspace(0,gs-1,res,endpoint=False)
-            R,C=np.meshgrid(xs,xs,indexing='ij')
-            RI=R.astype(int); RF=R-RI; RI1=np.clip(RI+1,0,gs)
-            CI=C.astype(int); CF=C-CI; CI1=np.clip(CI+1,0,gs)
-            v=(g[RI,CI]*(1-RF)*(1-CF)+g[RI,CI1]*(1-RF)*CF+
-               g[RI1,CI]*RF*(1-CF)+g[RI1,CI1]*RF*CF)
-            out+=amp*v; norm+=amp; amp*=0.52; f*=2.
+            gs = max(4, int(res*f)+2); g = rng.random((gs+2, gs+2)).astype(np.float32)
+            xs = np.linspace(0, gs-1, res, endpoint=False)
+            R, C = np.meshgrid(xs, xs, indexing='ij')
+            RI = R.astype(int); RF = R-RI; RI1 = np.clip(RI+1, 0, gs)
+            CI = C.astype(int); CF = C-CI; CI1 = np.clip(CI+1, 0, gs)
+            v = (g[RI,CI]*(1-RF)*(1-CF)+g[RI,CI1]*(1-RF)*CF+
+                 g[RI1,CI]*RF*(1-CF)+g[RI1,CI1]*RF*CF)
+            out += amp*v; norm += amp; amp *= 0.52; f *= 2.
         return out/norm
-    wp = px*1.8
-    wx=(fbm(S,0.0035)-0.5)*2*wp+(fbm(S,0.007)-0.5)*2*wp*0.4
-    wy=(fbm(S,0.0035)-0.5)*2*wp+(fbm(S,0.007)-0.5)*2*wp*0.4
 
-    yi,xi=np.mgrid[0:S,0:S].astype(np.float32)
-    coords=np.stack([np.clip(yi+wy,0,S-1).ravel(),
-                     np.clip(xi+wx,0,S-1).ravel()],axis=1)
-    tree=_KDTree(pts_np)
-    dists,idx=tree.query(coords,workers=-1)
-    rgb_f=cols_np[idx.reshape(S,S)]
+    wp = px * 1.8
+    wx = (fbm(S, 0.0035)-0.5)*2*wp + (fbm(S, 0.007)-0.5)*2*wp*0.4
+    wy = (fbm(S, 0.0035)-0.5)*2*wp + (fbm(S, 0.007)-0.5)*2*wp*0.4
+    yi, xi = np.mgrid[0:S, 0:S].astype(np.float32)
+    coords  = np.stack([np.clip(yi+wy, 0, S-1).ravel(),
+                        np.clip(xi+wx, 0, S-1).ravel()], axis=1)
+    tree = cKDTree(pts_np)
+    dists, idx = tree.query(coords, workers=-1)
+    rgb_f = cols_np[idx.reshape(S, S)]
 
-    ocean=np.array(BIOME_PALETTE['_ocean'][0],dtype=np.float32)
-    of=np.clip((dists.reshape(S,S)/px-3.5)/4.,0,1)
-    of=gaussian_filter(of,sigma=6.)[:,:,None]
-    rgb_f=rgb_f*(1-of)+ocean*of
-    return rgb_f.astype(np.float32)
+    ocean = np.array(BIOME_PALETTE['_ocean'][0], dtype=np.float32)
+    of = np.clip((dists.reshape(S, S)/px-3.5)/4., 0, 1)
+    of = gaussian_filter(of, sigma=6.)[:, :, None]
+    return (rgb_f*(1-of) + ocean*of).astype(np.float32)
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
@@ -351,26 +341,18 @@ def main():
     S = OUT_SIZE
 
     if os.path.exists(KENSHI_BIOME):
-        # ── Path A: Kenshi biomemap available ────────────────────────────────
         print("[mapgen] using Kenshi biomemap zone shapes")
         seg, zone_key_list = segment_biomemap(KENSHI_BIOME, zones)
         rgb_f = build_rgb_from_seg(seg, zone_key_list, zones, S)
     else:
-        # ── Path B: fallback domain-warped Voronoi ────────────────────────────
         print("[mapgen] Kenshi biomemap not found — using domain-warped Voronoi")
-        rgb_f = fallback_voronoi(zones, hmap, full, S)
+        rgb_f = fallback_voronoi(zones, S)
 
     print("[mapgen] hillshading…")
     rgb_f = apply_hillshade(rgb_f, hmap, full, S)
-    rgb_f = apply_vignette(rgb_f, S)
 
-    img = Image.fromarray(rgb_f.astype(np.uint8), 'RGB')
+    img = Image.fromarray(np.clip(rgb_f, 0, 255).astype(np.uint8), 'RGB')
     draw_labels(img, zones, S)
-
-    if os.path.exists(out):
-        bak = out.replace('.png', '_orig.png')
-        if not os.path.exists(bak):
-            import shutil; shutil.copy2(out, bak)
 
     os.makedirs(os.path.dirname(out), exist_ok=True)
     img.save(out)
