@@ -17,7 +17,7 @@ tools/qa/
 │   ├── npc_behavior.feature
 │   ├── rendering.feature
 │   └── player.feature
-├── captures/          — Записані gameplay сесії
+├── captures/          — Записані gameplay сесії (gitignored)
 │   └── YYYYMMDD_HHMMSS/
 │       ├── frames/           — PNG фрейми (@ 10fps)
 │       └── qa_state.jsonl    — JSONL log: NPC pos/vel per logic tick

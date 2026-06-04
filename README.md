@@ -29,7 +29,7 @@ Includes a **3D terrain viewport** (`editor_world_3d_sdlgpu.h`): full 64×64 wor
 | 3 | Console | Log output + live Lua REPL (ImGuiColorTextEdit) |
 | 4 | Graphics | Renderer state: SSAO / SMAA / shadow cascade toggles |
 | 5 | Camera | Orbit ↔ Flythrough mode; FOV; near/far clip |
-| 6 | Animation | AnimationSoA clip table; play / stop |
+| 6 | Animation | GPU skinning: AnimationSoA + OzzAnimator (SDL_GPU path); clip table; play / stop; F12 in-game = anim debug overlay |
 | 7 | *(reserved)* | — |
 | 8 | ViewCone Inspector | SenseComponent activation bars + ViewConeSet table |
 | 9 | FlowGraph | imnodes visual graph; node/var/pending display; trigger fire |
@@ -89,6 +89,8 @@ bash tools/qa/char_preview_qa.sh --list                 # list saved baselines
 ```
 
 Baselines stored in `tools/qa/baselines/char_preview/`. Threshold: RMSE < 0.02.
+
+> **Note:** `tools/qa/captures/` (PNG frames + JSONL logs from `qa_run.sh`) is gitignored — runtime artifacts only, not tracked in the repo.
 
 ---
 
