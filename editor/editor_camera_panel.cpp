@@ -48,18 +48,19 @@ void EditorCameraPanel::DrawContent() {
         ImGui::SameLine();
         if (ImGui::RadioButton("Flythrough##cam", fly)) {
             if (ec.cam_game_mode) ec.cam_target = ec.last_game_cam_target;
-            // Move eye to where orbit camera was; flip look direction
             if (!fly) {
                 const float DEG2R = 3.14159265f / 180.f;
                 float yr = ec.cam_yaw   * DEG2R;
                 float pr = ec.cam_pitch * DEG2R;
-                // Eye was at cam_target + dist * (cos(p)*sin(y), sin(p), cos(p)*cos(y))
+                // Move eye to where orbit camera was
                 ec.cam_target.x += ec.cam_dist * cosf(pr) * sinf(yr);
                 ec.cam_target.y += ec.cam_dist * sinf(pr);
                 ec.cam_target.z += ec.cam_dist * cosf(pr) * cosf(yr);
-                // Flip yaw 180° to look toward the old orbit target.
-                // Pitch sign stays the same (flythrough fy = -sin(pitch) already negates).
-                ec.cam_yaw   += 180.f;
+                // Init fly_yaw/fly_pitch (radians) to look toward old orbit target
+                ec.fly_yaw   = yr + 3.14159265f;  // opposite direction
+                ec.fly_pitch = -pr;               // flip pitch to look toward target
+                if (ec.fly_pitch < -0.3f) ec.fly_pitch = -0.3f;
+                if (ec.fly_pitch >  1.3f) ec.fly_pitch =  1.3f;
             }
             ec.cam_flying=true; ec.cam_game_mode=false;
         }
