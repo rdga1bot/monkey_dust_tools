@@ -427,68 +427,35 @@ void EditorCore::UpdateEditorCamera(float dt, bool viewport_hovered) {
     if (!rmb_down) { rdx = 0.f; rdy = 0.f; }
 
     if (cam_flying) {
-        // ── Exact copy of editor_world_3d_sdlgpu handle_input ────────────────
-        // RMB = mouse look (relative mode, same sensitivity as 3D World)
+        // Mouse look — RMB (uses rdx/rdy already read above)
         if (rmb_down) {
-            if (!fly_rel_active) {
-                SDL_SetWindowRelativeMouseMode(SDL_GetMouseFocus(), true);
-                float _dx, _dy;
-                SDL_GetRelativeMouseState(&_dx, &_dy);
-                fly_rel_active = true;
-            }
-            float rdx2 = 0.f, rdy2 = 0.f;
-            SDL_GetRelativeMouseState(&rdx2, &rdy2);
-            fly_yaw   -= rdx2 * 0.003f;
-            fly_pitch += rdy2 * 0.002f;
-            if (fly_pitch < -0.3f) fly_pitch = -0.3f;
-            if (fly_pitch >  1.3f) fly_pitch =  1.3f;
-        } else {
-            if (fly_rel_active) {
-                SDL_SetWindowRelativeMouseMode(SDL_GetMouseFocus(), false);
-                fly_rel_active = false;
-            }
+            cam_yaw   -= rdx * 0.3f;
+            cam_pitch  += rdy * 0.3f;
+            if (cam_pitch >  89.f) cam_pitch =  89.f;
+            if (cam_pitch < -89.f) cam_pitch = -89.f;
         }
-        // WASD — SDL raw state, always fires regardless of ImGui focus
-        float sy = sinf(fly_yaw), cy2 = cosf(fly_yaw);
-        const bool* kb = (const bool*)SDL_GetKeyboardState(nullptr);
-        bool shift = kb[SDL_SCANCODE_LSHIFT] || kb[SDL_SCANCODE_RSHIFT];
-        float sp = cam_speed * dt;
-        if (kb[SDL_SCANCODE_W]||kb[SDL_SCANCODE_UP])   { cam_target.x+=sp*sy; cam_target.z+=sp*cy2; }
-        if (kb[SDL_SCANCODE_S]||kb[SDL_SCANCODE_DOWN]) { cam_target.x-=sp*sy; cam_target.z-=sp*cy2; }
-        if (kb[SDL_SCANCODE_A]) { cam_target.x+=sp*cy2; cam_target.z-=sp*sy; }
-        if (kb[SDL_SCANCODE_D]) { cam_target.x-=sp*cy2; cam_target.z+=sp*sy; }
-        if (kb[SDL_SCANCODE_Q]||kb[SDL_SCANCODE_PAGEDOWN]) cam_target.y -= sp;
-        if (kb[SDL_SCANCODE_E]||kb[SDL_SCANCODE_PAGEUP])   cam_target.y += sp;
-        // Scroll = altitude zoom; Shift+Scroll = adjust speed
+        // WASD — SDL raw state, always works without RMB
+        {
+            float yaw_r   = cam_yaw   * DEG2R;
+            float pitch_r = cam_pitch * DEG2R;
+            Vec3 fwd   = { cosf(pitch_r)*sinf(yaw_r), sinf(pitch_r), cosf(pitch_r)*cosf(yaw_r) };
+            Vec3 right = vec3_norm(vec3_cross(fwd, {0.f,1.f,0.f}));
+            Vec3 up    = {0.f,1.f,0.f};
+            const bool* kb = (const bool*)SDL_GetKeyboardState(nullptr);
+            float sp = cam_speed * dt;
+            if (kb[SDL_SCANCODE_W]||kb[SDL_SCANCODE_UP])   cam_target = vec3_add(cam_target, vec3_scale(fwd,  sp));
+            if (kb[SDL_SCANCODE_S]||kb[SDL_SCANCODE_DOWN]) cam_target = vec3_add(cam_target, vec3_scale(fwd, -sp));
+            if (kb[SDL_SCANCODE_A]) cam_target = vec3_add(cam_target, vec3_scale(right,  sp));
+            if (kb[SDL_SCANCODE_D]) cam_target = vec3_add(cam_target, vec3_scale(right, -sp));
+            if (kb[SDL_SCANCODE_Q]||kb[SDL_SCANCODE_PAGEDOWN]) cam_target = vec3_add(cam_target, vec3_scale(up, -sp));
+            if (kb[SDL_SCANCODE_E]||kb[SDL_SCANCODE_PAGEUP])   cam_target = vec3_add(cam_target, vec3_scale(up,  sp));
+        }
+        // Scroll = altitude zoom (always visible)
         if (io.MouseWheel != 0.f) {
-            if (shift) {
-                cam_speed = (io.MouseWheel > 0)
-                    ? fminf(cam_speed * 1.25f, 50000.f)
-                    : fmaxf(cam_speed * 0.80f,    10.f);
-            } else {
-                // Step proportional to height, min 100m so zoom is always visible
-                float step = fmaxf(fabsf(cam_target.y), 100.f) * 0.30f * io.MouseWheel;
-                cam_target.y += step;
-                if (cam_target.y < 2.f) cam_target.y = 2.f;
-                // Also drift forward (same feel as editor 3D World zoom)
-                float fwd_step = fabsf(step) * 0.5f * (io.MouseWheel > 0 ? 1.f : -1.f);
-                cam_target.x += fwd_step * sy;
-                cam_target.z += fwd_step * cy2;
-            }
+            float step = fmaxf(fabsf(cam_target.y), 50.f) * 0.25f * io.MouseWheel;
+            cam_target.y += step;
+            if (cam_target.y < 1.f) cam_target.y = 1.f;
         }
-        // Camera eye = cam_target, look along (fly_yaw, fly_pitch) — FPS free-fly
-        float fp = fly_pitch;
-        editor_cam.pos    = cam_target;
-        editor_cam.target = { cam_target.x + cosf(fp)*sinf(fly_yaw),
-                              cam_target.y - sinf(fp),
-                              cam_target.z + cosf(fp)*cosf(fly_yaw) };
-        editor_cam.up     = { 0.f, 1.f, 0.f };
-        // Terrain floor clamp
-        if (TerrainMaster_Loaded()) {
-            float th = TerrainMaster_SampleWorld(cam_target.x, cam_target.z);
-            if (cam_target.y < th + 2.f) cam_target.y = th + 2.f;
-        }
-        return;  // skip orbit camera computation below
     } else {
         // Orbit mode — unlimited yaw (360°), pitch clamped near-vertical.
         if (rmb_down) {
