@@ -445,16 +445,19 @@ void EditorCore::UpdateEditorCamera(float dt, bool viewport_hovered) {
         if (kb[SDL_SCANCODE_D])                            { cam_target.x-=sp*cy2; cam_target.z+=sp*sy; }
         if (kb[SDL_SCANCODE_Q]||kb[SDL_SCANCODE_PAGEDOWN]) cam_target.y -= sp;
         if (kb[SDL_SCANCODE_E]||kb[SDL_SCANCODE_PAGEUP])   cam_target.y += sp;
-        if (io.MouseWheel != 0.f) {
+        // Use input_get_scroll_y() — io.MouseWheel is 0 here because
+        // UpdateEditorCamera() runs BEFORE imgui_new_frame() in the game loop.
+        float wheel = input_get_scroll_y();
+        if (wheel == 0.f) wheel = io.MouseWheel; // fallback for standalone editor
+        if (wheel != 0.f) {
             if (shift) {
-                // Shift+Scroll = adjust speed (same as 3D World)
-                cam_speed = (io.MouseWheel > 0)
+                cam_speed = (wheel > 0)
                     ? fminf(cam_speed * 1.25f, 80000.f)
                     : fmaxf(cam_speed * 0.80f, 10.f);
             } else {
-                float step = cam_target.y * 0.08f * io.MouseWheel;
+                float step = cam_target.y * 0.08f * wheel;
                 cam_target.x += step * sy; cam_target.z += step * cy2;
-                cam_target.y = (io.MouseWheel > 0)
+                cam_target.y = (wheel > 0)
                     ? fmaxf(cam_target.y * 0.88f, 1.f)
                     : fminf(cam_target.y * 1.12f, 150000.f);
             }
