@@ -457,6 +457,12 @@ void EditorCore::UpdateEditorCamera(float dt, bool viewport_hovered) {
             if (kb[SDL_SCANCODE_E]||kb[SDL_SCANCODE_PAGEUP])
                 cam_target = vec3_add(cam_target, vec3_scale(up,  speed));
         }
+        // Scroll = altitude zoom (move up/down proportional to current height)
+        if (io.MouseWheel != 0.f) {
+            float alt   = fabsf(cam_target.y) + 10.f;
+            float delta = alt * 0.18f * io.MouseWheel;
+            cam_target.y += delta;
+        }
     } else {
         // Orbit mode — unlimited yaw (360°), pitch clamped near-vertical.
         if (rmb_down) {
