@@ -737,11 +737,11 @@ static void handle_input(float dt) {
             if (io.MouseWheel > 0) s_speed = fminf(s_speed * 1.25f, 80000.f);
             else                   s_speed = fmaxf(s_speed * 0.80f,    10.f);
         } else {
-            // Scroll = zoom (move forward + change altitude), original behaviour
-            float step = s_cy * 0.08f * io.MouseWheel;
+            // Scroll = zoom (move forward + change altitude)
+            float step = s_cy * 0.03f * io.MouseWheel;
             s_cx += step * sy; s_cz += step * cy2;
-            if (io.MouseWheel > 0) s_cy = fmaxf(s_cy * 0.88f, 10.f);
-            else                   s_cy = fminf(s_cy * 1.12f, 150000.f);
+            if (io.MouseWheel > 0) s_cy = fmaxf(s_cy * 0.94f, 10.f);
+            else                   s_cy = fminf(s_cy * 1.06f, 150000.f);
         }
     }
     static constexpr float ATLAS_MAX = 63.f * CHUNK_SIZE;
