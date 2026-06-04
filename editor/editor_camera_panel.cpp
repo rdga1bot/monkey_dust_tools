@@ -56,9 +56,11 @@ void EditorCameraPanel::DrawContent() {
                 ec.cam_target.x += ec.cam_dist * cosf(pr) * sinf(yr);
                 ec.cam_target.y += ec.cam_dist * sinf(pr);
                 ec.cam_target.z += ec.cam_dist * cosf(pr) * cosf(yr);
-                // Init fly_yaw/fly_pitch (radians) to look toward old orbit target
-                ec.fly_yaw   = yr + 3.14159265f;  // opposite direction
-                ec.fly_pitch = -pr;               // flip pitch to look toward target
+                // Init fly_yaw/fly_pitch (radians) to look toward old orbit target.
+                // fly fwd.y = -sin(fly_pitch); orbit looks at center below when pitch>0.
+                // So fly_pitch = pr (same sign) to look in the same downward direction.
+                ec.fly_yaw   = yr + 3.14159265f;
+                ec.fly_pitch = pr;
                 if (ec.fly_pitch < -0.3f) ec.fly_pitch = -0.3f;
                 if (ec.fly_pitch >  1.3f) ec.fly_pitch =  1.3f;
             }
