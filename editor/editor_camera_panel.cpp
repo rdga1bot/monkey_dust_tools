@@ -57,9 +57,9 @@ void EditorCameraPanel::DrawContent() {
                 ec.cam_target.x += ec.cam_dist * cosf(pr) * sinf(yr);
                 ec.cam_target.y += ec.cam_dist * sinf(pr);
                 ec.cam_target.z += ec.cam_dist * cosf(pr) * cosf(yr);
-                // Flip so we look toward the old target (not away from it)
+                // Flip yaw 180° to look toward the old orbit target.
+                // Pitch sign stays the same (flythrough fy = -sin(pitch) already negates).
                 ec.cam_yaw   += 180.f;
-                ec.cam_pitch  = -ec.cam_pitch;
             }
             ec.cam_flying=true; ec.cam_game_mode=false;
         }
