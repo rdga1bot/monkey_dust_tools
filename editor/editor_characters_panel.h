@@ -9,8 +9,8 @@
 #include <monkey_dust/ecs/registry.h>
 #include <monkey_dust/components/char_body_state.h>
 #include <monkey_dust/components/player_controller.h>
-#include "../../game/src/world/char_def.h"
-#include "../../game/src/render/npc_render.h"
+#include "world/char_def.h"
+#include "render/npc_render.h"
 #include <cstdio>
 #include <cstring>
 

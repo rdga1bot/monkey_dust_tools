@@ -18,8 +18,7 @@ void EditorAnimationPanel::Draw() {
 }
 
 void EditorAnimationPanel::DrawContent() {
-
-    ImGui::TextDisabled("Animation requires Phase 31 (MD_OPENGL43_ENABLED).");
-    ImGui::TextDisabled("Rebuild with -DMD_OPENGL43=ON to enable GPU skinning.");
+    ImGui::TextDisabled("GPU skinning: AnimationSoA + OzzAnimator (SDL_GPU path).");
+    ImGui::TextDisabled("Toggle anim debug overlay: F12 in-game.");
 }
 #endif // MONKEY_DUST_EDITOR

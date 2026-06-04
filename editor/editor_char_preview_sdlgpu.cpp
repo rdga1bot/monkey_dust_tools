@@ -425,9 +425,11 @@ bool LoadHairStyle(int style_idx) {
     return true;
 }
 
-// ── Init: load GLB (T-pose) + body texture + pipeline ─────────────────────────
-bool Init(const char* glb_path, const char* tex_path) {
-    // Load mesh via cgltf — extract pos, norm, uv only (no skinning needed for T-pose)
+// ── s_load_mesh: parse GLB, extract geometry, morph targets, skeleton, animations ─
+// Returns true on success. Fills s_base_verts_cpu, s_base_vc, s_morph_*, s_inv_bind,
+// s_bind, s_bind_local, s_bone_parent, s_idle_rot/loaded, s_breath*, s_anim_* sliders,
+// s_ni, s_vbo, s_ibo.
+static bool s_load_mesh(const char* glb_path) {
     cgltf_options o={};
     cgltf_data* d=nullptr;
     if (cgltf_parse_file(&o,glb_path,&d)!=cgltf_result_success) {
@@ -727,7 +729,11 @@ bool Init(const char* glb_path, const char* tex_path) {
     s_vbo.Init(0x8892u, s_base_verts_cpu, (uint32_t)(vc*sizeof(Vtx)));
     s_ibo.Init(0x8893u, ib, (uint32_t)(s_ni*sizeof(uint32_t)));
     delete[] ib;  // vb is owned by s_base_verts_cpu — do NOT delete here
+    return true;
+}
 
+// ── s_load_textures: upload body/head/muscle/blood textures + bone matrix texture ─
+static void s_load_textures(const char* tex_path) {
     // Body texture
     {
         stbi_set_flip_vertically_on_load(0);
@@ -818,8 +824,11 @@ bool Init(const char* glb_path, const char* tex_path) {
             }
         }
     }
+}
 
-    // Pipeline
+// ── s_create_pipelines: create char/bg/scene/hair pipelines + scene geometry ─────
+static bool s_create_pipelines(const char* glb_path) {
+    // Character body pipeline
     GpuPipeline::Desc pd;
     pd.vert_path = "shaders/char_preview.vert";
     pd.frag_path = "shaders/char_preview.frag";
@@ -1033,6 +1042,15 @@ bool Init(const char* glb_path, const char* tex_path) {
         if (!s_hair_pipeline.Create(hpd))
             fprintf(stderr, "[Hair] pipeline create failed\n");
     }
+
+    return true;
+}
+
+// ── Init: load GLB (T-pose) + body texture + pipeline ─────────────────────────
+bool Init(const char* glb_path, const char* tex_path) {
+    if (!s_load_mesh(glb_path))         return false;
+    s_load_textures(tex_path);
+    if (!s_create_pipelines(glb_path))  return false;
 
     // Load default hair style (hair01)
     LoadHairStyle(0);

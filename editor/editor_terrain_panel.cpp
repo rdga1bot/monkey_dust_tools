@@ -10,7 +10,7 @@
 #include <monkey_dust/world/world_transform.h>
 #include <SDL3/SDL.h>
 #include <cstdio>
-#include "../../game/src/render/scene_render.h"
+#include "render/scene_render.h"
 
 // ── Scatter ECS tag (P-NG-6) ─────────────────────────────────────────────────
 struct PcgScatterTag {
