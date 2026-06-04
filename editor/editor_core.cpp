@@ -427,42 +427,64 @@ void EditorCore::UpdateEditorCamera(float dt, bool viewport_hovered) {
     if (!rmb_down) { rdx = 0.f; rdy = 0.f; }
 
     if (cam_flying) {
-        // Mouse look — RMB held
+        // ── Exact copy of editor_world_3d_sdlgpu handle_input ────────────────
+        // RMB = mouse look (relative mode, same sensitivity as 3D World)
         if (rmb_down) {
-            cam_yaw   -= rdx * 0.3f;
-            cam_pitch  += rdy * 0.3f;
-            if (cam_pitch >  89.f) cam_pitch =  89.f;
-            if (cam_pitch < -89.f) cam_pitch = -89.f;
+            if (!fly_rel_active) {
+                SDL_SetWindowRelativeMouseMode(SDL_GetMouseFocus(), true);
+                float _dx, _dy;
+                SDL_GetRelativeMouseState(&_dx, &_dy);
+                fly_rel_active = true;
+            }
+            float rdx2 = 0.f, rdy2 = 0.f;
+            SDL_GetRelativeMouseState(&rdx2, &rdy2);
+            fly_yaw   -= rdx2 * 0.003f;
+            fly_pitch += rdy2 * 0.002f;
+            if (fly_pitch < -0.3f) fly_pitch = -0.3f;
+            if (fly_pitch >  1.3f) fly_pitch =  1.3f;
+        } else {
+            if (fly_rel_active) {
+                SDL_SetWindowRelativeMouseMode(SDL_GetMouseFocus(), false);
+                fly_rel_active = false;
+            }
         }
-        // WASD movement always works in flythrough (no RMB required)
-        {
-            float yaw_r   = cam_yaw   * DEG2R;
-            float pitch_r = cam_pitch * DEG2R;
-            Vec3 fwd = {
-                cosf(pitch_r) * sinf(yaw_r),
-                sinf(pitch_r),
-                cosf(pitch_r) * cosf(yaw_r)
-            };
-            Vec3 right = vec3_norm(vec3_cross(fwd, {0.f, 1.f, 0.f}));
-            Vec3 up    = {0.f, 1.f, 0.f};
-            const bool* kb = (const bool*)SDL_GetKeyboardState(nullptr);
-            float boost = (kb[SDL_SCANCODE_LSHIFT]||kb[SDL_SCANCODE_RSHIFT]) ? 5.f : 1.f;
-            float speed = cam_speed * boost * dt;
-            if (kb[SDL_SCANCODE_W]) cam_target = vec3_add(cam_target, vec3_scale(fwd, -speed));
-            if (kb[SDL_SCANCODE_S]) cam_target = vec3_add(cam_target, vec3_scale(fwd,  speed));
-            if (kb[SDL_SCANCODE_A]) cam_target = vec3_add(cam_target, vec3_scale(right, speed));
-            if (kb[SDL_SCANCODE_D]) cam_target = vec3_add(cam_target, vec3_scale(right,-speed));
-            if (kb[SDL_SCANCODE_Q]||kb[SDL_SCANCODE_PAGEDOWN])
-                cam_target = vec3_add(cam_target, vec3_scale(up, -speed));
-            if (kb[SDL_SCANCODE_E]||kb[SDL_SCANCODE_PAGEUP])
-                cam_target = vec3_add(cam_target, vec3_scale(up,  speed));
-        }
-        // Scroll = altitude zoom (move up/down proportional to current height)
+        // WASD — SDL raw state, always fires regardless of ImGui focus
+        float sy = sinf(fly_yaw), cy2 = cosf(fly_yaw);
+        const bool* kb = (const bool*)SDL_GetKeyboardState(nullptr);
+        bool shift = kb[SDL_SCANCODE_LSHIFT] || kb[SDL_SCANCODE_RSHIFT];
+        float sp = cam_speed * dt;
+        if (kb[SDL_SCANCODE_W]||kb[SDL_SCANCODE_UP])   { cam_target.x+=sp*sy; cam_target.z+=sp*cy2; }
+        if (kb[SDL_SCANCODE_S]||kb[SDL_SCANCODE_DOWN]) { cam_target.x-=sp*sy; cam_target.z-=sp*cy2; }
+        if (kb[SDL_SCANCODE_A]) { cam_target.x+=sp*cy2; cam_target.z-=sp*sy; }
+        if (kb[SDL_SCANCODE_D]) { cam_target.x-=sp*cy2; cam_target.z+=sp*sy; }
+        if (kb[SDL_SCANCODE_Q]||kb[SDL_SCANCODE_PAGEDOWN]) cam_target.y -= sp;
+        if (kb[SDL_SCANCODE_E]||kb[SDL_SCANCODE_PAGEUP])   cam_target.y += sp;
+        // Scroll: Shift+Scroll = adjust speed; plain scroll = zoom (matches 3D World)
         if (io.MouseWheel != 0.f) {
-            float alt   = fabsf(cam_target.y) + 10.f;
-            float delta = alt * 0.18f * io.MouseWheel;
-            cam_target.y += delta;
+            if (shift) {
+                cam_speed = (io.MouseWheel > 0)
+                    ? fminf(cam_speed * 1.25f, 50000.f)
+                    : fmaxf(cam_speed * 0.80f,    10.f);
+            } else {
+                float step = cam_target.y * 0.08f * io.MouseWheel;
+                cam_target.x += step * sy; cam_target.z += step * cy2;
+                if (io.MouseWheel > 0) cam_target.y = fmaxf(cam_target.y * 0.88f, 5.f);
+                else                   cam_target.y = fminf(cam_target.y * 1.12f, 150000.f);
+            }
         }
+        // Camera eye = cam_target, look along (fly_yaw, fly_pitch) — FPS free-fly
+        float fp = fly_pitch;
+        editor_cam.pos    = cam_target;
+        editor_cam.target = { cam_target.x + cosf(fp)*sinf(fly_yaw),
+                              cam_target.y - sinf(fp),
+                              cam_target.z + cosf(fp)*cosf(fly_yaw) };
+        editor_cam.up     = { 0.f, 1.f, 0.f };
+        // Terrain floor clamp
+        if (TerrainMaster_Loaded()) {
+            float th = TerrainMaster_SampleWorld(cam_target.x, cam_target.z);
+            if (cam_target.y < th + 2.f) cam_target.y = th + 2.f;
+        }
+        return;  // skip orbit camera computation below
     } else {
         // Orbit mode — unlimited yaw (360°), pitch clamped near-vertical.
         if (rmb_down) {
