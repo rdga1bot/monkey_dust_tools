@@ -375,7 +375,10 @@ static float s_cam_dist = 22.f;
 // Free-fly state
 static float s_cx = 16000.f, s_cy = 1500.f, s_cz = 14000.f;
 static float s_yaw = 0.f, s_pitch = 0.38f;
-static float s_speed = 1000.f;  // m/s; Shift+Scroll to adjust
+static float s_speed       = 1000.f;  // m/s; Shift+Scroll to adjust
+static float s_scroll_step = 0.03f;   // step = s_cy * s_scroll_step * wheel
+static float s_zoom_in     = 0.94f;   // s_cy *= s_zoom_in  on scroll up
+static float s_zoom_out    = 1.06f;   // s_cy *= s_zoom_out on scroll down
 static bool  s_rmb      = false;
 static bool  s_focused  = false;
 
@@ -738,10 +741,10 @@ static void handle_input(float dt) {
             else                   s_speed = fmaxf(s_speed * 0.80f,    10.f);
         } else {
             // Scroll = zoom (move forward + change altitude)
-            float step = s_cy * 0.03f * io.MouseWheel;
+            float step = s_cy * s_scroll_step * io.MouseWheel;
             s_cx += step * sy; s_cz += step * cy2;
-            if (io.MouseWheel > 0) s_cy = fmaxf(s_cy * 0.94f, 10.f);
-            else                   s_cy = fminf(s_cy * 1.06f, 150000.f);
+            if (io.MouseWheel > 0) s_cy = fmaxf(s_cy * s_zoom_in,  10.f);
+            else                   s_cy = fminf(s_cy * s_zoom_out, 150000.f);
         }
     }
     static constexpr float ATLAS_MAX = 63.f * CHUNK_SIZE;
@@ -1106,6 +1109,18 @@ void DrawImGui(float W, float H, float dt) {
     ImGui::PopStyleColor();
 
 }
+
+void ApplyCameraConfig(float wasd_speed, float scroll_step, float zoom_in, float zoom_out) {
+    s_speed       = wasd_speed;
+    s_scroll_step = scroll_step;
+    s_zoom_in     = zoom_in;
+    s_zoom_out    = zoom_out;
+}
+
+float GetWasdSpeed()    { return s_speed; }
+float GetScrollStep()   { return s_scroll_step; }
+float GetZoomIn()       { return s_zoom_in; }
+float GetZoomOut()      { return s_zoom_out; }
 
 } // namespace WorldEditor3D_SDLGPU
 

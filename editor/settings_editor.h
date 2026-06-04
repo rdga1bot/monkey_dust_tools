@@ -1,5 +1,7 @@
 #pragma once
 #include "editor_ui.h"
+#include "editor_world_3d_sdlgpu.h"
+#include "editor_core.h"
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
@@ -9,14 +11,22 @@
 // SettingsEditor — вкладка налаштувань (ImGui).
 // Зберігає/читає data/editor_config.json.
 // Зміни шрифтів застосовуються після перезапуску.
+// Зміни камери застосовуються негайно.
 // ─────────────────────────────────────────────────────────
 
 namespace SettingsEditor {
 
-// Fonts are embedded in the binary (MdFonts::Load) — only sizes are configurable.
 struct Config {
-    int ui_size   = 14;  // Arimo Regular/Bold pixel size
-    int mono_size = 13;  // UbuntuMono pixel size
+    // Fonts
+    int   ui_size         = 14;     // Arimo Regular/Bold pixel size
+    int   mono_size       = 13;     // UbuntuMono pixel size
+    // 3D World camera
+    float w3d_wasd_speed  = 1000.f; // m/s WASD
+    float w3d_scroll_step = 0.03f;  // step = s_cy * step * wheel
+    float w3d_zoom_in     = 0.94f;  // s_cy multiplier on scroll up
+    float w3d_zoom_out    = 1.06f;  // s_cy multiplier on scroll down
+    // F3 Flythrough camera
+    float fly_speed       = 100.f;  // m/s WASD
 };
 static Config g_cfg;
 static bool   g_detached = false;
@@ -38,16 +48,54 @@ inline bool Load(const char* path) {
         p = strchr(p, ':'); if (!p) return 0;
         return (int)strtol(p+1, nullptr, 10);
     };
+    auto rfloat = [&](const char* key, float def) -> float {
+        const char* p = strstr(buf, key); if (!p) return def;
+        p = strchr(p, ':'); if (!p) return def;
+        float v = (float)strtod(p+1, nullptr);
+        return (v > 0.f) ? v : def;
+    };
     int us = rint("\"ui_size\"");   if (us > 0) g_cfg.ui_size   = us;
     int ms = rint("\"mono_size\""); if (ms > 0) g_cfg.mono_size = ms;
+    g_cfg.w3d_wasd_speed  = rfloat("\"w3d_wasd_speed\"",  g_cfg.w3d_wasd_speed);
+    g_cfg.w3d_scroll_step = rfloat("\"w3d_scroll_step\"", g_cfg.w3d_scroll_step);
+    g_cfg.w3d_zoom_in     = rfloat("\"w3d_zoom_in\"",     g_cfg.w3d_zoom_in);
+    g_cfg.w3d_zoom_out    = rfloat("\"w3d_zoom_out\"",    g_cfg.w3d_zoom_out);
+    g_cfg.fly_speed       = rfloat("\"fly_speed\"",       g_cfg.fly_speed);
+    // Apply camera values immediately after load
+#ifdef MD_SDL_GPU
+    WorldEditor3D_SDLGPU::ApplyCameraConfig(
+        g_cfg.w3d_wasd_speed, g_cfg.w3d_scroll_step,
+        g_cfg.w3d_zoom_in, g_cfg.w3d_zoom_out);
+#endif
+    EditorCore::Get().cam_speed = g_cfg.fly_speed;
     return true;
 }
 
 inline bool Save(const char* path) {
+    // Sync live values before writing
+    g_cfg.fly_speed = EditorCore::Get().cam_speed;
+#ifdef MD_SDL_GPU
+    g_cfg.w3d_wasd_speed  = WorldEditor3D_SDLGPU::GetWasdSpeed();
+    g_cfg.w3d_scroll_step = WorldEditor3D_SDLGPU::GetScrollStep();
+    g_cfg.w3d_zoom_in     = WorldEditor3D_SDLGPU::GetZoomIn();
+    g_cfg.w3d_zoom_out    = WorldEditor3D_SDLGPU::GetZoomOut();
+#endif
     FILE* f = fopen(path, "w");
     if (!f) return false;
-    fprintf(f, "{\n  \"ui_size\": %d,\n  \"mono_size\": %d\n}\n",
-            g_cfg.ui_size, g_cfg.mono_size);
+    fprintf(f,
+        "{\n"
+        "  \"ui_size\": %d,\n"
+        "  \"mono_size\": %d,\n"
+        "  \"w3d_wasd_speed\": %.2f,\n"
+        "  \"w3d_scroll_step\": %.4f,\n"
+        "  \"w3d_zoom_in\": %.4f,\n"
+        "  \"w3d_zoom_out\": %.4f,\n"
+        "  \"fly_speed\": %.1f\n"
+        "}\n",
+        g_cfg.ui_size, g_cfg.mono_size,
+        g_cfg.w3d_wasd_speed, g_cfg.w3d_scroll_step,
+        g_cfg.w3d_zoom_in, g_cfg.w3d_zoom_out,
+        g_cfg.fly_speed);
     fclose(f);
     return true;
 }
@@ -99,6 +147,40 @@ inline void Draw(const char* config_path,
     ImGui::TextDisabled("Restart editor to apply size changes.");
 
     ImGui::Spacing();
+
+    // ── Camera Settings ───────────────────────────────────
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + MARGIN);
+    ImGui::SeparatorText("3D World Camera");
+    ImGui::Spacing();
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + MARGIN);
+    ImGui::SetNextItemWidth(160.f);
+    ImGui::SliderFloat("WASD speed (m/s)##w3d",  &g_cfg.w3d_wasd_speed, 10.f, 5000.f, "%.0f", ImGuiSliderFlags_Logarithmic);
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + MARGIN);
+    ImGui::SetNextItemWidth(160.f);
+    ImGui::SliderFloat("Scroll step##w3d",        &g_cfg.w3d_scroll_step, 0.005f, 0.15f, "%.3f");
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + MARGIN);
+    ImGui::SetNextItemWidth(160.f);
+    ImGui::SliderFloat("Zoom in factor##w3d",     &g_cfg.w3d_zoom_in,  0.80f, 0.99f, "%.3f");
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + MARGIN);
+    ImGui::SetNextItemWidth(160.f);
+    ImGui::SliderFloat("Zoom out factor##w3d",    &g_cfg.w3d_zoom_out, 1.01f, 1.25f, "%.3f");
+    // Apply immediately as user drags sliders
+#ifdef MD_SDL_GPU
+    WorldEditor3D_SDLGPU::ApplyCameraConfig(
+        g_cfg.w3d_wasd_speed, g_cfg.w3d_scroll_step,
+        g_cfg.w3d_zoom_in, g_cfg.w3d_zoom_out);
+#endif
+
+    ImGui::Spacing();
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + MARGIN);
+    ImGui::SeparatorText("F3 Flythrough Camera");
+    ImGui::Spacing();
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + MARGIN);
+    ImGui::SetNextItemWidth(160.f);
+    ImGui::SliderFloat("Fly speed (m/s)##fly",   &g_cfg.fly_speed, 5.f, 5000.f, "%.0f", ImGuiSliderFlags_Logarithmic);
+    EditorCore::Get().cam_speed = g_cfg.fly_speed;
+    ImGui::TextDisabled("  (same as Camera tab > Move Speed)");
+
     ImGui::Spacing();
 
     // ── Save ──────────────────────────────────────────────
@@ -108,7 +190,7 @@ inline void Draw(const char* config_path,
     ImGui::PushStyleColor(ImGuiCol_ButtonActive,  {0.10f, 0.32f, 0.16f, 1.0f});
     if (ImGui::Button("Save config", {120, 0})) {
         if (Save(config_path)) {
-            snprintf(status_msg, 64, "Config saved — restart to apply");
+            snprintf(status_msg, 64, "Config saved (camera applied instantly)");
             *status_timer = 4.0f;
         } else {
             snprintf(status_msg, 64, "Save failed!");

@@ -14,5 +14,12 @@ void DrawImGui(float W, float H, float dt);
 void UploadTerrainHeightmap(const float* hmap, int W, int H,
                             float world_size_m, int chunk_x, int chunk_z);
 
+// Runtime camera config — called from Settings panel after load/save.
+void  ApplyCameraConfig(float wasd_speed, float scroll_step, float zoom_in, float zoom_out);
+float GetWasdSpeed();
+float GetScrollStep();
+float GetZoomIn();
+float GetZoomOut();
+
 } // namespace WorldEditor3D_SDLGPU
 #endif // MD_SDL_GPU
