@@ -459,17 +459,21 @@ void EditorCore::UpdateEditorCamera(float dt, bool viewport_hovered) {
         if (kb[SDL_SCANCODE_D]) { cam_target.x-=sp*cy2; cam_target.z+=sp*sy; }
         if (kb[SDL_SCANCODE_Q]||kb[SDL_SCANCODE_PAGEDOWN]) cam_target.y -= sp;
         if (kb[SDL_SCANCODE_E]||kb[SDL_SCANCODE_PAGEUP])   cam_target.y += sp;
-        // Scroll: Shift+Scroll = adjust speed; plain scroll = zoom (matches 3D World)
+        // Scroll = altitude zoom; Shift+Scroll = adjust speed
         if (io.MouseWheel != 0.f) {
             if (shift) {
                 cam_speed = (io.MouseWheel > 0)
                     ? fminf(cam_speed * 1.25f, 50000.f)
                     : fmaxf(cam_speed * 0.80f,    10.f);
             } else {
-                float step = cam_target.y * 0.08f * io.MouseWheel;
-                cam_target.x += step * sy; cam_target.z += step * cy2;
-                if (io.MouseWheel > 0) cam_target.y = fmaxf(cam_target.y * 0.88f, 5.f);
-                else                   cam_target.y = fminf(cam_target.y * 1.12f, 150000.f);
+                // Step proportional to height, min 100m so zoom is always visible
+                float step = fmaxf(fabsf(cam_target.y), 100.f) * 0.30f * io.MouseWheel;
+                cam_target.y += step;
+                if (cam_target.y < 2.f) cam_target.y = 2.f;
+                // Also drift forward (same feel as editor 3D World zoom)
+                float fwd_step = fabsf(step) * 0.5f * (io.MouseWheel > 0 ? 1.f : -1.f);
+                cam_target.x += fwd_step * sy;
+                cam_target.z += fwd_step * cy2;
             }
         }
         // Camera eye = cam_target, look along (fly_yaw, fly_pitch) — FPS free-fly
