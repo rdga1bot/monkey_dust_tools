@@ -2,7 +2,7 @@
 #include <cstdio>
 #include <ctime>
 
-// BugCapture — dumps debug state to tmp_md/bug_<label>_YYYYMMDD_HHMMSS.txt.
+// BugCapture — dumps debug state to tmp_/bug_<label>_YYYYMMDD_HHMMSS.txt.
 // Usage: FILE* f = BugCapture::Open("chars", path, sizeof(path));
 //        // write state...
 //        BugCapture::Close(f);
@@ -14,7 +14,7 @@ inline FILE* Open(const char* label, char* out_path = nullptr, int out_sz = 0) {
     time_t now = time(nullptr);
     struct tm* lt = localtime(&now);
     snprintf(path, sizeof(path),
-        "tmp_md/bug_%s_%04d%02d%02d_%02d%02d%02d.txt",
+        "tmp_/bug_%s_%04d%02d%02d_%02d%02d%02d.txt",
         label,
         lt->tm_year + 1900, lt->tm_mon + 1, lt->tm_mday,
         lt->tm_hour, lt->tm_min, lt->tm_sec);

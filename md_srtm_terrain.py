@@ -346,7 +346,7 @@ def main():
     root      = os.path.join(os.path.dirname(__file__), '..')
     cfg_path  = os.path.join(root, args.cfg)
     out_path  = os.path.join(root, args.out)
-    cache_dir = os.path.join(root, 'tmp_md', 'srtm_cache') if not args.no_cache else None
+    cache_dir = os.path.join(root, 'tmp_', 'srtm_cache') if not args.no_cache else None
 
     # ── 1. Parse zone biome map ───────────────────────────────────────────────
     print(f"[config] loading {cfg_path} …")

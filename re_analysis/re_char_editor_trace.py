@@ -9,8 +9,8 @@ For each known slider string (Chest, Waist, Stomach, etc.), extracts:
 
 Usage:
   python3 tools/re_analysis/re_char_editor_trace.py \
-    tmp_md/kenshi/kenshi_x64.exe.c \
-    --output tmp_md/kenshi/re_char_editor.md
+    tmp_/kenshi/kenshi_x64.exe.c \
+    --output tmp_/kenshi/re_char_editor.md
 """
 
 import re

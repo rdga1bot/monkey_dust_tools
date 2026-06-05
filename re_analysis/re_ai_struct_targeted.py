@@ -8,8 +8,8 @@ extracts all param_1/this/lVar offset accesses and nearby context.
 
 Usage:
   python3 tools/re_analysis/re_ai_struct_targeted.py \
-    tmp_md/AI/AI.exe.c \
-    --output tmp_md/AI/re_ai_structs.md
+    tmp_/AI/AI.exe.c \
+    --output tmp_/AI/re_ai_structs.md
 """
 
 import re, sys, argparse

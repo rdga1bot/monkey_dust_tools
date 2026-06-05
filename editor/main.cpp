@@ -194,7 +194,7 @@ int main(void) {
         EditorModule::Get().Tick();
 #endif
 
-        // F9: dump editor state → tmp_md/bug_editor_TIMESTAMP.txt
+        // F9: dump editor state → tmp_/bug_editor_TIMESTAMP.txt
         if (input_key_pressed(SDL_SCANCODE_F9)) {
             char path[256];
             FILE* f = BugCapture::Open("editor", path, sizeof(path));
