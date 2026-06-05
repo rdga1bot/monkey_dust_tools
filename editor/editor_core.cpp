@@ -167,6 +167,7 @@ void EditorCore::Update(float dt) {
         ImGuiWindowFlags_NoMove      | ImGuiWindowFlags_NoScrollbar |
         ImGuiWindowFlags_NoScrollWithMouse |
         ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoSavedSettings;
+    if (s_f3_active_tab == 5 && g_det_cam) f3_flags |= ImGuiWindowFlags_NoBackground;
     if (f3_passthrough) f3_flags |= ImGuiWindowFlags_NoMouseInputs;
 
     ImGui::SetNextWindowPos({0.f, toolbar_h});
