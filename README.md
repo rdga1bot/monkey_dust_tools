@@ -13,30 +13,27 @@ All tool names use the `md_` prefix (no proprietary asset branding in public rep
 
 ### `monkey_dust_editor` — Wicked-style Level Editor
 
-ImGui-based editor compiled into the engine binary via `MONKEY_DUST_EDITOR=ON`.
+Standalone SDL\_GPU/Vulkan editor (RD-3: migrated from OpenGL).
 All ImGui libraries (core + extensions) live in `tools/third_party/`: imgui, imnodes, imgui-node-editor, ImGuiColorTextEdit, imguizmo, imgui-flame-graph, imgui-command-palette.
-Runs as a standalone SDL\_GPU/Vulkan window (RD-3: migrated from OpenGL).
-Includes a **3D terrain viewport** (`editor_world_3d_sdlgpu.h`): full 64×64 world (32×32 km), all chunks always loaded, per-chunk distance-based LOD (LOD0+POM <1.2 km, LOD1 <3.5 km, LOD2 <8 km, LOD3 <18 km, skip beyond), LOD thresholds scale with camera altitude. No overview mesh. Camera starts at 8000 m altitude to see the full world; T resets to world center at 8000 m. Brush cursor is a screen-space crosshair (+). All rendering suspends when the tab is inactive (zero background CPU/GPU). RTT → ImGui::Image.
-`TerrainAtlas_SmoothBoundaries()` applied at startup (same zone-seam fix as the game).
+Zero dependencies on `game/` sources — compiles without the game repo present (`MONKEY_DUST_STANDALONE_EDITOR` is always defined for this target).
 
-**14 panels:**
+**11 standalone panels:**
 
 | # | Panel | Description |
 |---|-------|-------------|
 | 0 | Hierarchy | Entity tree; multi-select; drag to reparent |
-| 1 | Inspector | Component editing with undo/redo (256 steps) |
-| 2 | Assets | Asset browser with texture preview |
-| 3 | Console | Log output + live Lua REPL (ImGuiColorTextEdit) |
-| 4 | Graphics | Renderer state: SSAO / SMAA / shadow cascade toggles |
-| 5 | Camera | Orbit ↔ Flythrough mode; FOV; near/far clip |
-| 6 | Animation | GPU skinning: AnimationSoA + OzzAnimator (SDL_GPU path); clip table; play / stop; F12 in-game = anim debug overlay |
-| 7 | *(reserved)* | — |
-| 8 | ViewCone Inspector | SenseComponent activation bars + ViewConeSet table |
-| 9 | FlowGraph | imnodes visual graph; node/var/pending display; trigger fire |
-| 10 | Director | Menace gauge; stage color; profile params; manual override |
-| 11 | GPU Profiler | imgui-flame-graph; per-pass CPU timings and budget bars |
-| 12 | Node Graph | Generic imnodes workspace |
-| 13 | Sequencer | ImSequencer timeline |
+| 1 | Assets | Asset browser with texture preview |
+| 2 | Console | Log output + live Lua REPL (ImGuiColorTextEdit) |
+| 3 | Graphics | Renderer state: SSAO / SMAA / shadow cascade toggles |
+| 4 | Camera | Orbit ↔ Flythrough mode; FOV; near/far clip |
+| 5 | Animation | GPU skinning: AnimationSoA + OzzAnimator; clip table; play / stop |
+| 6 | ViewCone Inspector | SenseComponent activation bars + ViewConeSet table |
+| 7 | FlowGraph | imnodes visual graph; node/var/pending display; trigger fire |
+| 8 | Director | Menace gauge; stage color; profile params; manual override |
+| 9 | GPU Profiler | imgui-flame-graph; per-pass CPU timings and budget bars |
+| 10 | Sequencer | ImSequencer timeline |
+
+> **Game-coupled panels** (Inspector · Terrain · 3D World · Settings) are compiled into the game binary via `-DMONKEY_DUST_EDITOR=ON` and live in `game/src/editor/` — they require `game/` headers and are never part of the standalone `tools/` build.
 
 **Toolbar:**
 - New Entity popup (Transform / NPC Bandit / NPC Trader / NPC Holy / Building)
@@ -185,18 +182,15 @@ ninja -C build monkey_dust           # game + editor overlay
 
 ```
 tools/
-  editor/              ← ImGui wicked-style editor (MONKEY_DUST_EDITOR)
+  editor/              ← ImGui wicked-style editor (standalone, no game/ deps)
     editor_core.*      ← EditorCore singleton; camera; undo history
     editor_toolbar.*   ← Menu bar + button bar + hotkeys
     editor_hierarchy.* ← Entity tree panel
-    editor_inspector.* ← Component inspector
     editor_console.*   ← Log panel + Lua REPL
     editor_map_view.*  ← M9 map editor (FBO viewport + tile palette)
-    editor_world_panel.h ← World tab: Zone/Faction/Town + map preview (KEN-5)
-    editor_world_3d_sdlgpu.h ← 3D terrain viewport (SDL_GPU, full 64×64 world, per-chunk LOD 0–3, tab-gated RTT→ImGui)
+    editor_world_panel.h ← World tab: Zone/Faction/Town + map preview
     editor_*_panel.*   ← Specialist panels (ViewCone, FlowGraph, Director, GPU Profiler …)
     scene_serializer.h ← Import/Export scene JSON
-    editor_game_context.h ← Callback bridge to game-side systems
   ozz_bake/            ← GLB → ozz animation converter
   md_terrain/          ← md2terrain.py terrain zone helpers
   md_mesh_conv/        ← md_chars.py · ogre2glb.py — OGRE XML → GLB
@@ -212,7 +206,7 @@ tools/
 ```
 
 **Dependency rule:** `tools/` depends only on `engine/` (via `<monkey_dust/...>` headers) plus its own `tools/third_party/` (imgui + extensions).
-Zero includes from `game/`. Game-specific callbacks are injected at runtime via `EditorGameContext`.
+Zero `#include` from `game/`. Game-coupled panels (Inspector, Terrain, 3D World, Settings) live in `game/src/editor/` and are compiled into the game binary only — they are never part of the `tools/` build.
 
 ---
 
