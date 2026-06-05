@@ -176,6 +176,7 @@ void EditorTerrainPanel::DrawContent(float dt) {
         ImGui::TextDisabled("Shift + LMB     Smooth");
         ImGui::TextDisabled("Scroll wheel    Radius +/-");
         ImGui::TextDisabled("S               Save height map");
+        ImGui::TextDisabled("Ctrl+Z          Undo stroke (32 steps)");
     }
 
     ImGui::Separator();
