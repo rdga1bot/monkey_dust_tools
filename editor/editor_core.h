@@ -27,7 +27,7 @@ public:
     // ── State ─────────────────────────────────────────────
     bool editor_open    = false;
     bool physics_paused = true;
-    int  active_tab     = 0;  // mirrors s_f3_active_tab (0=Scene…6=Characters)
+    int  active_tab     = 0;  // mirrors s_f3_active_tab (0=Scene…5=Camera,6=Settings)
     // Set to true by main.cpp when a full-screen viewport tab (e.g. 3D World) is
     // active so ##f3editor gets NoMouseInputs and stops blocking the viewport.
     bool f3_passthrough = false;

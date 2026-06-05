@@ -1,6 +1,5 @@
 #ifdef MONKEY_DUST_EDITOR
 #include "editor_core.h"
-#include "editor_characters_panel.h"
 #include "editor_toolbar.h"
 #include "editor_hierarchy.h"
 #include "editor_inspector.h"
@@ -17,7 +16,6 @@
 #include <monkey_dust/world/world_transform.h>
 #include <monkey_dust/platform/input.h>
 #include <monkey_dust/platform/window.h>  // _wnd::ptr() for RelativeMouseMode
-#include "editor_char_mouse.h"
 #include <monkey_dust/world/terrain_gen.h>
 #include <SDL3/SDL.h>
 #include <cmath>
@@ -162,8 +160,6 @@ void EditorCore::Update(float dt) {
     // game is visible behind the detached panel (one-frame lag is imperceptible).
     static int  s_f3_active_tab = 0;
     active_tab = s_f3_active_tab;
-    static bool g_det_char = false;
-    static ImVec2 f3_pos_char{400.f,200.f}, f3_size_char{420.f,280.f};
     ImGuiWindowFlags f3_flags =
         ImGuiWindowFlags_NoTitleBar  | ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoMove      | ImGuiWindowFlags_NoScrollbar |
@@ -368,25 +364,7 @@ void EditorCore::Update(float dt) {
             }
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Characters")) { s_f3_active_tab = 6;
-            if (!g_det_char) {
-                if (det_right("Detach##chr")) g_det_char = true;
-                ImGui::Separator();
-                EditorCharactersPanel::Get().DrawContent();
-            } else {
-                if (f3_pos_char.y < min_y) f3_pos_char.y = min_y;
-                ImGui::SetNextWindowPos(f3_pos_char, ImGuiCond_Appearing);
-                ImGui::SetNextWindowSize(f3_size_char, ImGuiCond_Appearing);
-                if (ImGui::Begin("Characters##float", &g_det_char, FLOAT_FLAGS)) {
-                    if (det_right("Dock##chr")) g_det_char = false;
-                    ImGui::Separator();
-                    EditorCharactersPanel::Get().DrawContent();
-                }
-                f3_end(f3_pos_char, f3_size_char);
-            }
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("Settings")) { s_f3_active_tab = 7;
+        if (ImGui::BeginTabItem("Settings")) { s_f3_active_tab = 6;
             bool&   g_det_set  = f3_det_settings;
             ImVec2& f3_pos_set = f3_pos_settings;
             ImVec2& f3_size_set = f3_size_settings;
