@@ -167,11 +167,7 @@ void EditorCore::Update(float dt) {
         ImGuiWindowFlags_NoMove      | ImGuiWindowFlags_NoScrollbar |
         ImGuiWindowFlags_NoScrollWithMouse |
         ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoSavedSettings;
-    // Camera tab (index 5) always shows the game world — no opaque backdrop needed.
-    // All other tabs (Scene/AI/Animation/FlowGraph/Debug/Characters/Settings) keep
-    // the opaque ##f3editor background whether docked or detached.
-    if (s_f3_active_tab == 5) f3_flags |= ImGuiWindowFlags_NoBackground;
-    if (f3_passthrough)        f3_flags |= ImGuiWindowFlags_NoMouseInputs;
+    if (f3_passthrough) f3_flags |= ImGuiWindowFlags_NoMouseInputs;
 
     ImGui::SetNextWindowPos({0.f, toolbar_h});
     ImGui::SetNextWindowSize({io.DisplaySize.x, io.DisplaySize.y - toolbar_h});
