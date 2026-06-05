@@ -107,34 +107,9 @@ static void FillEdit(int idx){
         snprintf(g_buf_rels[j],sizeof(g_buf_rels[j]),"%d",g_factions[idx].rel_to[j]);
 }
 
-// ── Draw (ImGui) ──────────────────────────────────────────
-inline bool Draw(const char* path) {
+// ── DrawContent — чистий контент без управління вікном ────
+inline bool DrawContent(const char* path) {
     bool saved = false;
-
-    if (g_detached) {
-        ImGui::SetNextWindowPos(g_win_pos,   ImGuiCond_Appearing);
-        ImGui::SetNextWindowSize(g_win_size, ImGuiCond_Appearing);
-        bool open = true;
-        if (!ImGui::Begin("Factions##float", &open)) {
-            ImGui::End();
-            if (!open) g_detached = false;
-            ImGui::Dummy({0,0});
-            return saved;
-        }
-        g_win_pos  = ImGui::GetWindowPos();
-        g_win_size = ImGui::GetWindowSize();
-    }
-
-    // Detach / Dock button (right-aligned toolbar row)
-    {
-        const char* lbl = g_detached ? "Dock##fac" : "Detach##fac";
-        float btn_w = ImGui::CalcTextSize(lbl).x + ImGui::GetStyle().FramePadding.x * 2.f;
-        ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - btn_w);
-        ImGui::PushStyleColor(ImGuiCol_Button,
-            g_detached ? ImVec4(0.25f,0.45f,0.65f,1.f) : ImVec4(0.18f,0.18f,0.28f,1.f));
-        if (ImGui::Button(lbl)) g_detached = !g_detached;
-        ImGui::PopStyleColor();
-    }
 
     // ── Список ────────────────────────────────────────────
     ImGui::BeginChild("##faction_list", {240, 0}, ImGuiChildFlags_Borders);
@@ -230,7 +205,6 @@ inline bool Draw(const char* path) {
     }
 
     ImGui::EndChild();
-    if (g_detached) { ImGui::End(); ImGui::Dummy({0,0}); }
     return saved;
 }
 

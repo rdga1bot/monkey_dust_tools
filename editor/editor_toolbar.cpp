@@ -1,5 +1,6 @@
 #ifdef MONKEY_DUST_EDITOR
 #include "editor_toolbar.h"
+#include <SDL3/SDL_events.h>
 #include "editor_command_palette.h"
 #include "editor_map_view.h"
 #include <monkey_dust/ecs/registry.h>
@@ -112,7 +113,10 @@ void EditorToolbar::DrawMenuBar() {
             MD_LOG(MD_LOG_INFO, "[Editor] Load ← %s", SaveSystem::DefaultPath());
         }
         ImGui::Separator();
-        if (ImGui::MenuItem("Exit Editor")) EditorCore::Get().editor_open = false;
+        if (ImGui::MenuItem("Exit Editor")) {
+            EditorCore::Get().editor_open = false;
+            SDL_Event e = {}; e.type = SDL_EVENT_QUIT; SDL_PushEvent(&e);
+        }
         ImGui::EndMenu();
     }
 

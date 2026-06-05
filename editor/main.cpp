@@ -146,20 +146,14 @@ int main(void) {
 
 #ifndef MONKEY_DUST_EDITOR_HOT_RELOAD
     // Non-hot-reload: restore panel layout directly
-    // Restore panel detach/position state from previous session
     {
-        using P = EditorLayout::Panel;
-        P pi = {ItemEditor::g_detached,      ItemEditor::g_win_pos,      ItemEditor::g_win_size};
-        P pf = {FactionEditor::g_detached,   FactionEditor::g_win_pos,   FactionEditor::g_win_size};
-        P pn = {NpcArchetypeEditor::g_detached, NpcArchetypeEditor::g_win_pos, NpcArchetypeEditor::g_win_size};
-        P pc = {CharacterEditor::g_detached, CharacterEditor::g_win_pos, CharacterEditor::g_win_size};
-        P ps = {SettingsEditor::g_detached,  SettingsEditor::g_win_pos,  SettingsEditor::g_win_size};
-        if (EditorLayout::Load(LAYOUT_PATH, pi, pf, pn, pc, ps)) {
-            ItemEditor::g_detached         = pi.detached; ItemEditor::g_win_pos         = pi.pos; ItemEditor::g_win_size         = pi.size;
-            FactionEditor::g_detached      = pf.detached; FactionEditor::g_win_pos      = pf.pos; FactionEditor::g_win_size      = pf.size;
-            NpcArchetypeEditor::g_detached = pn.detached; NpcArchetypeEditor::g_win_pos = pn.pos; NpcArchetypeEditor::g_win_size = pn.size;
-            CharacterEditor::g_detached    = pc.detached; CharacterEditor::g_win_pos    = pc.pos; CharacterEditor::g_win_size    = pc.size;
-            SettingsEditor::g_detached     = ps.detached; SettingsEditor::g_win_pos     = ps.pos; SettingsEditor::g_win_size     = ps.size;
+        EditorLayout::Layout lay;
+        if (EditorLayout::Load(LAYOUT_PATH, lay)) {
+            ItemEditor::g_detached         = lay.items.detached;    ItemEditor::g_win_pos         = lay.items.pos;    ItemEditor::g_win_size         = lay.items.size;
+            FactionEditor::g_detached      = lay.factions.detached; FactionEditor::g_win_pos      = lay.factions.pos; FactionEditor::g_win_size      = lay.factions.size;
+            NpcArchetypeEditor::g_detached = lay.npcs.detached;     NpcArchetypeEditor::g_win_pos = lay.npcs.pos;     NpcArchetypeEditor::g_win_size = lay.npcs.size;
+            CharacterEditor::g_detached    = lay.chars.detached;    CharacterEditor::g_win_pos    = lay.chars.pos;    CharacterEditor::g_win_size    = lay.chars.size;
+            SettingsEditor::g_detached     = lay.settings.detached; SettingsEditor::g_win_pos     = lay.settings.pos; SettingsEditor::g_win_size     = lay.settings.size;
         }
     }
 #endif // !MONKEY_DUST_EDITOR_HOT_RELOAD
@@ -318,7 +312,7 @@ int main(void) {
         if (ImGui::BeginTabBar("##tabs")) {
             if (ImGui::BeginTabItem("Items")) {
                 ImGui::SetCursorPos({8,ImGui::GetCursorPosY()+4});
-                if (ItemEditor::Draw("data/items/items.json")) {
+                if (ItemEditor::DrawContent("data/items/items.json")) {
                     snprintf(status_msg,sizeof(status_msg),"Items saved!");
                     status_timer=3.f;
                 }
@@ -326,7 +320,7 @@ int main(void) {
             }
             if (ImGui::BeginTabItem("Factions")) {
                 ImGui::SetCursorPos({8,ImGui::GetCursorPosY()+4});
-                if (FactionEditor::Draw("data/factions/factions.json")) {
+                if (FactionEditor::DrawContent("data/factions/factions.json")) {
                     snprintf(status_msg,sizeof(status_msg),"Factions saved!");
                     status_timer=3.f;
                 }
@@ -374,7 +368,7 @@ int main(void) {
             }
             if (ImGui::BeginTabItem("NPCs")) {
                 ImGui::SetCursorPos({8, ImGui::GetCursorPosY() + 4});
-                NpcArchetypeEditor::Draw();
+                NpcArchetypeEditor::DrawContent();
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Characters")) {
@@ -385,7 +379,7 @@ int main(void) {
             }
             if (ImGui::BeginTabItem("Settings")) {
                 ImGui::SetCursorPos({12,ImGui::GetCursorPosY()+6});
-                SettingsEditor::Draw(CFG_PATH, status_msg, &status_timer);
+                SettingsEditor::DrawContent(CFG_PATH, status_msg, &status_timer);
                 ImGui::EndTabItem();
             }
             ImGui::EndTabBar();
@@ -432,12 +426,16 @@ int main(void) {
     EditorModule::Get().Shutdown();  // calls editor_panels_shutdown() → saves layout
 #else
     // Save panel layout before shutdown (non-hot-reload path)
-    EditorLayout::Save(LAYOUT_PATH,
-        {ItemEditor::g_detached,         ItemEditor::g_win_pos,         ItemEditor::g_win_size},
-        {FactionEditor::g_detached,      FactionEditor::g_win_pos,      FactionEditor::g_win_size},
-        {NpcArchetypeEditor::g_detached, NpcArchetypeEditor::g_win_pos, NpcArchetypeEditor::g_win_size},
-        {CharacterEditor::g_detached,    CharacterEditor::g_win_pos,    CharacterEditor::g_win_size},
-        {SettingsEditor::g_detached,     SettingsEditor::g_win_pos,     SettingsEditor::g_win_size});
+    {
+        EditorLayout::Layout lay;
+        EditorLayout::Load(LAYOUT_PATH, lay);  // preserve map/world/terrain/hmap/world3d
+        lay.items    = {ItemEditor::g_detached,         ItemEditor::g_win_pos,         ItemEditor::g_win_size};
+        lay.factions = {FactionEditor::g_detached,      FactionEditor::g_win_pos,      FactionEditor::g_win_size};
+        lay.npcs     = {NpcArchetypeEditor::g_detached, NpcArchetypeEditor::g_win_pos, NpcArchetypeEditor::g_win_size};
+        lay.chars    = {CharacterEditor::g_detached,    CharacterEditor::g_win_pos,    CharacterEditor::g_win_size};
+        lay.settings = {SettingsEditor::g_detached,     SettingsEditor::g_win_pos,     SettingsEditor::g_win_size};
+        EditorLayout::Save(LAYOUT_PATH, lay);
+    }
     EditorCore::Get().Shutdown();
 #endif
     ImGui_ImplSDLGPU3_Shutdown();

@@ -30,6 +30,9 @@
 
 static constexpr const char* CFG_PATH = "data/editor_config.json";
 
+// Persistent panel layout (all tabs).  Loaded on init, saved on shutdown.
+static EditorLayout::Layout s_lay;
+
 extern "C" {
 
 // ── Init — called after dlopen ────────────────────────────────────────────────
@@ -57,29 +60,31 @@ void editor_panels_init(void* ctx, void* /*gpu*/, void* /*window*/,
     MapViewPanel::Get().Init();
     EditorCore::Get().Init();
 
-    // Restore panel positions from previous session
+    // Restore panel layout from previous session
     if (layout_path && layout_path[0]) {
-        using P = EditorLayout::Panel;
-        P pi, pf, pn, pc, ps;
-        if (EditorLayout::Load(layout_path, pi, pf, pn, pc, ps)) {
-            ItemEditor::g_detached         = pi.detached;
-            ItemEditor::g_win_pos          = pi.pos;
-            ItemEditor::g_win_size         = pi.size;
-            FactionEditor::g_detached      = pf.detached;
-            FactionEditor::g_win_pos       = pf.pos;
-            FactionEditor::g_win_size      = pf.size;
-            NpcArchetypeEditor::g_detached = pn.detached;
-            NpcArchetypeEditor::g_win_pos  = pn.pos;
-            NpcArchetypeEditor::g_win_size = pn.size;
-            CharacterEditor::g_detached    = pc.detached;
-            CharacterEditor::g_win_pos     = pc.pos;
-            CharacterEditor::g_win_size    = pc.size;
-            SettingsEditor::g_detached     = ps.detached;
-            SettingsEditor::g_win_pos      = ps.pos;
-            SettingsEditor::g_win_size     = ps.size;
-        }
+        s_lay = EditorLayout::Layout{};        // reset to defaults first
+        EditorLayout::Load(layout_path, s_lay);
+        ItemEditor::g_detached         = s_lay.items.detached;
+        ItemEditor::g_win_pos          = s_lay.items.pos;
+        ItemEditor::g_win_size         = s_lay.items.size;
+        FactionEditor::g_detached      = s_lay.factions.detached;
+        FactionEditor::g_win_pos       = s_lay.factions.pos;
+        FactionEditor::g_win_size      = s_lay.factions.size;
+        NpcArchetypeEditor::g_detached = s_lay.npcs.detached;
+        NpcArchetypeEditor::g_win_pos  = s_lay.npcs.pos;
+        NpcArchetypeEditor::g_win_size = s_lay.npcs.size;
+        CharacterEditor::g_detached    = s_lay.chars.detached;
+        CharacterEditor::g_win_pos     = s_lay.chars.pos;
+        CharacterEditor::g_win_size    = s_lay.chars.size;
+        SettingsEditor::g_detached     = s_lay.settings.detached;
+        SettingsEditor::g_win_pos      = s_lay.settings.pos;
+        SettingsEditor::g_win_size     = s_lay.settings.size;
+        // Heightmap: DrawPanel() manages its own floating window — sync its internal statics
+        HmapEditor2D::s_detached = s_lay.heightmap.detached;
+        HmapEditor2D::s_win_pos  = s_lay.heightmap.pos;
+        HmapEditor2D::s_win_size = s_lay.heightmap.size;
+        // map/world/terrain/world3d used directly from s_lay in BuildUI
     }
-
     (void)overlay_top;
     MD_LOG(MD_LOG_INFO, "[EditorPanels] init complete");
 }
@@ -87,12 +92,16 @@ void editor_panels_init(void* ctx, void* /*gpu*/, void* /*window*/,
 // ── Shutdown — called before dlclose ─────────────────────────────────────────
 void editor_panels_shutdown(const char* layout_path) {
     if (layout_path && layout_path[0]) {
-        EditorLayout::Save(layout_path,
-            {ItemEditor::g_detached,         ItemEditor::g_win_pos,         ItemEditor::g_win_size},
-            {FactionEditor::g_detached,      FactionEditor::g_win_pos,      FactionEditor::g_win_size},
-            {NpcArchetypeEditor::g_detached, NpcArchetypeEditor::g_win_pos, NpcArchetypeEditor::g_win_size},
-            {CharacterEditor::g_detached,    CharacterEditor::g_win_pos,    CharacterEditor::g_win_size},
-            {SettingsEditor::g_detached,     SettingsEditor::g_win_pos,     SettingsEditor::g_win_size});
+        // Sync header-namespace states back into s_lay before saving
+        s_lay.items    = {ItemEditor::g_detached,         ItemEditor::g_win_pos,         ItemEditor::g_win_size};
+        s_lay.factions = {FactionEditor::g_detached,      FactionEditor::g_win_pos,      FactionEditor::g_win_size};
+        s_lay.npcs     = {NpcArchetypeEditor::g_detached, NpcArchetypeEditor::g_win_pos, NpcArchetypeEditor::g_win_size};
+        s_lay.chars    = {CharacterEditor::g_detached,    CharacterEditor::g_win_pos,    CharacterEditor::g_win_size};
+        s_lay.settings = {SettingsEditor::g_detached,     SettingsEditor::g_win_pos,     SettingsEditor::g_win_size};
+        // Heightmap: read back from DrawPanel()'s own statics
+        s_lay.heightmap = {HmapEditor2D::s_detached, HmapEditor2D::s_win_pos, HmapEditor2D::s_win_size};
+        // map/world/terrain/world3d are updated live in BuildUI → already in s_lay
+        EditorLayout::Save(layout_path, s_lay);
     }
     EditorCore::Get().Shutdown();
     MD_LOG(MD_LOG_INFO, "[EditorPanels] shutdown complete");
@@ -119,82 +128,340 @@ uint32_t editor_panels_build_ui(float dt, float toolbar_h,
         ImGuiWindowFlags_NoScrollWithMouse |
         ImGuiWindowFlags_NoBringToFrontOnFocus);
     ImGui::PopStyleVar();
-    ImGui::SetCursorPos({0, 0});
     ImGui::Separator();
-    ImGui::SetCursorPosX(4);
+
+    static constexpr ImGuiWindowFlags FLOAT_FLAGS =
+        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings;
 
     if (ImGui::BeginTabBar("##tabs")) {
         if (ImGui::BeginTabItem("Items")) {
-            ImGui::SetCursorPos({8, ImGui::GetCursorPosY() + 4});
-            if (ItemEditor::Draw("data/items/items.json") && status_msg)
-                snprintf(status_msg, 64, "Items saved!");
+            if (!ItemEditor::g_detached) {
+                float bw = ImGui::CalcTextSize("Detach##items").x + ImGui::GetStyle().FramePadding.x * 2 + 2;
+                ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - bw);
+                if (ImGui::SmallButton("Detach##items")) {
+                    ItemEditor::g_detached = true;
+                    ItemEditor::g_win_pos  = {10.f, 110.f};
+                    ItemEditor::g_win_size = {ImGui::GetIO().DisplaySize.x * 0.50f, 520.f};
+                }
+                ImGui::Separator();
+                ImGui::SetCursorPos({8, ImGui::GetCursorPosY() + 4});
+                if (ItemEditor::DrawContent("data/items/items.json") && status_msg)
+                    snprintf(status_msg, 64, "Items saved!");
+            } else {
+                ImVec2& pos = ItemEditor::g_win_pos;
+                ImVec2& sz  = ItemEditor::g_win_size;
+                const float min_y = toolbar_h + ImGui::GetFrameHeight() * 2 + 4.f;
+                if (pos.y < min_y) pos.y = min_y;
+                ImGui::SetNextWindowPos(pos, ImGuiCond_Appearing);
+                ImGui::SetNextWindowSize(sz,  ImGuiCond_Appearing);
+                if (ImGui::Begin("Items##float", &ItemEditor::g_detached, FLOAT_FLAGS)) {
+                    float bw = ImGui::CalcTextSize("Dock##items").x + ImGui::GetStyle().FramePadding.x * 2 + 2;
+                    ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - bw);
+                    if (ImGui::SmallButton("Dock##items")) ItemEditor::g_detached = false;
+                    ImGui::Separator();
+                    if (ItemEditor::DrawContent("data/items/items.json") && status_msg)
+                        snprintf(status_msg, 64, "Items saved!");
+                }
+                pos = ImGui::GetWindowPos();
+                if (pos.y < min_y) { pos.y = min_y; ImGui::SetWindowPos(pos); }
+                sz = ImGui::GetWindowSize();
+                ImGui::End();
+            }
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Factions")) {
-            ImGui::SetCursorPos({8, ImGui::GetCursorPosY() + 4});
-            if (FactionEditor::Draw("data/factions/factions.json") && status_msg)
-                snprintf(status_msg, 64, "Factions saved!");
+            if (!FactionEditor::g_detached) {
+                float bw = ImGui::CalcTextSize("Detach##fac").x + ImGui::GetStyle().FramePadding.x * 2 + 2;
+                ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - bw);
+                if (ImGui::SmallButton("Detach##fac")) {
+                    FactionEditor::g_detached = true;
+                    FactionEditor::g_win_pos  = {10.f, 110.f};
+                    FactionEditor::g_win_size = {ImGui::GetIO().DisplaySize.x * 0.50f, 500.f};
+                }
+                ImGui::Separator();
+                ImGui::SetCursorPos({8, ImGui::GetCursorPosY() + 4});
+                if (FactionEditor::DrawContent("data/factions/factions.json") && status_msg)
+                    snprintf(status_msg, 64, "Factions saved!");
+            } else {
+                ImVec2& pos = FactionEditor::g_win_pos;
+                ImVec2& sz  = FactionEditor::g_win_size;
+                const float min_y = toolbar_h + ImGui::GetFrameHeight() * 2 + 4.f;
+                if (pos.y < min_y) pos.y = min_y;
+                ImGui::SetNextWindowPos(pos, ImGuiCond_Appearing);
+                ImGui::SetNextWindowSize(sz,  ImGuiCond_Appearing);
+                if (ImGui::Begin("Factions##float", &FactionEditor::g_detached, FLOAT_FLAGS)) {
+                    float bw = ImGui::CalcTextSize("Dock##fac").x + ImGui::GetStyle().FramePadding.x * 2 + 2;
+                    ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - bw);
+                    if (ImGui::SmallButton("Dock##fac")) FactionEditor::g_detached = false;
+                    ImGui::Separator();
+                    if (FactionEditor::DrawContent("data/factions/factions.json") && status_msg)
+                        snprintf(status_msg, 64, "Factions saved!");
+                }
+                pos = ImGui::GetWindowPos();
+                if (pos.y < min_y) { pos.y = min_y; ImGui::SetWindowPos(pos); }
+                sz = ImGui::GetWindowSize();
+                ImGui::End();
+            }
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Map")) {
             flags |= (1u << 3);
-            ImGui::SetCursorPos({8, ImGui::GetCursorPosY() + 4});
-            ImGuiIO& mio = ImGui::GetIO();
-            if (mio.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z, false))
-                MapViewPanel::Get().Undo();
-            if (mio.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Y, false))
-                MapViewPanel::Get().Redo();
-            MapViewPanel::Get().Draw(dt);
+            auto draw_map = [&]() {
+                ImGuiIO& mio = ImGui::GetIO();
+                if (mio.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z, false)) MapViewPanel::Get().Undo();
+                if (mio.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Y, false)) MapViewPanel::Get().Redo();
+                MapViewPanel::Get().Draw(dt);
+            };
+            if (!s_lay.map.detached) {
+                float bw = ImGui::CalcTextSize("Detach##map").x + ImGui::GetStyle().FramePadding.x * 2 + 2;
+                ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - bw);
+                if (ImGui::SmallButton("Detach##map")) {
+                    s_lay.map.detached = true;
+                    s_lay.map.pos  = {10.f, 110.f};
+                    s_lay.map.size = {fio.DisplaySize.x * 0.70f, 600.f};
+                }
+                ImGui::Separator();
+                ImGui::SetCursorPos({8, ImGui::GetCursorPosY() + 4});
+                draw_map();
+            } else {
+                ImVec2& pos = s_lay.map.pos; ImVec2& sz = s_lay.map.size;
+                const float min_y = toolbar_h + ImGui::GetFrameHeight() * 2 + 4.f;
+                if (pos.y < min_y) pos.y = min_y;
+                ImGui::SetNextWindowPos(pos, ImGuiCond_Appearing);
+                ImGui::SetNextWindowSize(sz,  ImGuiCond_Appearing);
+                if (ImGui::Begin("Map##float", &s_lay.map.detached, FLOAT_FLAGS)) {
+                    float bw = ImGui::CalcTextSize("Dock##map").x + ImGui::GetStyle().FramePadding.x * 2 + 2;
+                    ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - bw);
+                    if (ImGui::SmallButton("Dock##map")) s_lay.map.detached = false;
+                    ImGui::Separator();
+                    draw_map();
+                }
+                pos = ImGui::GetWindowPos();
+                if (pos.y < min_y) { pos.y = min_y; ImGui::SetWindowPos(pos); }
+                sz = ImGui::GetWindowSize();
+                ImGui::End();
+            }
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("World")) {
-            ImGui::SetCursorPos({8, ImGui::GetCursorPosY() + 4});
-            WorldPanel::Draw(dt);
+            if (!s_lay.world.detached) {
+                float bw = ImGui::CalcTextSize("Detach##world").x + ImGui::GetStyle().FramePadding.x * 2 + 2;
+                ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - bw);
+                if (ImGui::SmallButton("Detach##world")) {
+                    s_lay.world.detached = true;
+                    s_lay.world.pos  = {10.f, 110.f};
+                    s_lay.world.size = {fio.DisplaySize.x * 0.60f, 600.f};
+                }
+                ImGui::Separator();
+                ImGui::SetCursorPos({8, ImGui::GetCursorPosY() + 4});
+                WorldPanel::Draw(dt);
+            } else {
+                ImVec2& pos = s_lay.world.pos; ImVec2& sz = s_lay.world.size;
+                const float min_y = toolbar_h + ImGui::GetFrameHeight() * 2 + 4.f;
+                if (pos.y < min_y) pos.y = min_y;
+                ImGui::SetNextWindowPos(pos, ImGuiCond_Appearing);
+                ImGui::SetNextWindowSize(sz,  ImGuiCond_Appearing);
+                if (ImGui::Begin("World##float", &s_lay.world.detached, FLOAT_FLAGS)) {
+                    float bw = ImGui::CalcTextSize("Dock##world").x + ImGui::GetStyle().FramePadding.x * 2 + 2;
+                    ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - bw);
+                    if (ImGui::SmallButton("Dock##world")) s_lay.world.detached = false;
+                    ImGui::Separator();
+                    WorldPanel::Draw(dt);
+                }
+                pos = ImGui::GetWindowPos();
+                if (pos.y < min_y) { pos.y = min_y; ImGui::SetWindowPos(pos); }
+                sz = ImGui::GetWindowSize();
+                ImGui::End();
+            }
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Terrain")) {
-            ImVec2 avail = ImGui::GetContentRegionAvail();
-            float graph_w = avail.x * 0.70f;
-            ImGui::BeginChild("##terrain_ng", {graph_w, avail.y}, false,
-                ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-            EditorNodeGraphPanel::Get().DrawContent();
-            ImGui::EndChild();
-            ImGui::SameLine(0, 4);
-            ImGui::BeginChild("##terrain_sculpt", {0, avail.y}, false);
-            EditorTerrainPanel::Get().DrawContent(dt);
-            ImGui::EndChild();
+            auto draw_terrain = [&]() {
+                ImVec2 avail = ImGui::GetContentRegionAvail();
+                float graph_w = avail.x * 0.70f;
+                ImGui::BeginChild("##terrain_ng", {graph_w, avail.y}, false,
+                    ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+                EditorNodeGraphPanel::Get().DrawContent();
+                ImGui::EndChild();
+                ImGui::SameLine(0, 4);
+                ImGui::BeginChild("##terrain_sculpt", {0, avail.y}, false);
+                EditorTerrainPanel::Get().DrawContent(dt);
+                ImGui::EndChild();
+            };
+            if (!s_lay.terrain.detached) {
+                float bw = ImGui::CalcTextSize("Detach##terrain").x + ImGui::GetStyle().FramePadding.x * 2 + 2;
+                ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - bw);
+                if (ImGui::SmallButton("Detach##terrain")) {
+                    s_lay.terrain.detached = true;
+                    s_lay.terrain.pos  = {10.f, 110.f};
+                    s_lay.terrain.size = {fio.DisplaySize.x * 0.80f, 600.f};
+                }
+                ImGui::Separator();
+                draw_terrain();
+            } else {
+                ImVec2& pos = s_lay.terrain.pos; ImVec2& sz = s_lay.terrain.size;
+                const float min_y = toolbar_h + ImGui::GetFrameHeight() * 2 + 4.f;
+                if (pos.y < min_y) pos.y = min_y;
+                ImGui::SetNextWindowPos(pos, ImGuiCond_Appearing);
+                ImGui::SetNextWindowSize(sz,  ImGuiCond_Appearing);
+                if (ImGui::Begin("Terrain##float", &s_lay.terrain.detached, FLOAT_FLAGS)) {
+                    float bw = ImGui::CalcTextSize("Dock##terrain").x + ImGui::GetStyle().FramePadding.x * 2 + 2;
+                    ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - bw);
+                    if (ImGui::SmallButton("Dock##terrain")) s_lay.terrain.detached = false;
+                    ImGui::Separator();
+                    draw_terrain();
+                }
+                pos = ImGui::GetWindowPos();
+                if (pos.y < min_y) { pos.y = min_y; ImGui::SetWindowPos(pos); }
+                sz = ImGui::GetWindowSize();
+                ImGui::End();
+            }
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Heightmap")) {
             flags |= (1u << 2);
-            HmapEditor2D::DrawPanel();
+            HmapEditor2D::DrawPanel();  // handles own Detach/Dock + floating window internally
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("3D World")) {
             flags |= (1u << 0);
-            ImVec2 avail = ImGui::GetContentRegionAvail();
-            WorldEditor3D_SDLGPU::DrawImGui(avail.x, avail.y - 2, dt);
+            if (!s_lay.world3d.detached) {
+                float bw = ImGui::CalcTextSize("Detach##w3d").x + ImGui::GetStyle().FramePadding.x * 2 + 2;
+                ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - bw);
+                if (ImGui::SmallButton("Detach##w3d")) {
+                    s_lay.world3d.detached = true;
+                    s_lay.world3d.pos  = {10.f, 110.f};
+                    s_lay.world3d.size = {fio.DisplaySize.x * 0.80f, 700.f};
+                }
+                ImGui::Separator();
+                ImVec2 avail = ImGui::GetContentRegionAvail();
+                WorldEditor3D_SDLGPU::DrawImGui(avail.x, avail.y - 2, dt);
+            } else {
+                ImVec2& pos = s_lay.world3d.pos; ImVec2& sz = s_lay.world3d.size;
+                const float min_y = toolbar_h + ImGui::GetFrameHeight() * 2 + 4.f;
+                if (pos.y < min_y) pos.y = min_y;
+                ImGui::SetNextWindowPos(pos, ImGuiCond_Appearing);
+                ImGui::SetNextWindowSize(sz,  ImGuiCond_Appearing);
+                if (ImGui::Begin("3D World##float", &s_lay.world3d.detached, FLOAT_FLAGS)) {
+                    float bw = ImGui::CalcTextSize("Dock##w3d").x + ImGui::GetStyle().FramePadding.x * 2 + 2;
+                    ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - bw);
+                    if (ImGui::SmallButton("Dock##w3d")) s_lay.world3d.detached = false;
+                    ImGui::Separator();
+                    ImVec2 avail = ImGui::GetContentRegionAvail();
+                    WorldEditor3D_SDLGPU::DrawImGui(avail.x, avail.y - 2, dt);
+                }
+                pos = ImGui::GetWindowPos();
+                if (pos.y < min_y) { pos.y = min_y; ImGui::SetWindowPos(pos); }
+                sz = ImGui::GetWindowSize();
+                ImGui::End();
+            }
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("NPCs")) {
-            ImGui::SetCursorPos({8, ImGui::GetCursorPosY() + 4});
-            NpcArchetypeEditor::Draw();
+            if (!NpcArchetypeEditor::g_detached) {
+                float bw = ImGui::CalcTextSize("Detach##npcs").x + ImGui::GetStyle().FramePadding.x * 2 + 2;
+                ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - bw);
+                if (ImGui::SmallButton("Detach##npcs")) {
+                    NpcArchetypeEditor::g_detached = true;
+                    NpcArchetypeEditor::g_win_pos  = {10.f, 110.f};
+                    NpcArchetypeEditor::g_win_size = {ImGui::GetIO().DisplaySize.x * 0.50f, 540.f};
+                }
+                ImGui::Separator();
+                ImGui::SetCursorPos({8, ImGui::GetCursorPosY() + 4});
+                NpcArchetypeEditor::DrawContent();
+            } else {
+                ImVec2& pos = NpcArchetypeEditor::g_win_pos;
+                ImVec2& sz  = NpcArchetypeEditor::g_win_size;
+                const float min_y = toolbar_h + ImGui::GetFrameHeight() * 2 + 4.f;
+                if (pos.y < min_y) pos.y = min_y;
+                ImGui::SetNextWindowPos(pos, ImGuiCond_Appearing);
+                ImGui::SetNextWindowSize(sz,  ImGuiCond_Appearing);
+                if (ImGui::Begin("NPC Archetypes##float", &NpcArchetypeEditor::g_detached, FLOAT_FLAGS)) {
+                    float bw = ImGui::CalcTextSize("Dock##npcs").x + ImGui::GetStyle().FramePadding.x * 2 + 2;
+                    ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - bw);
+                    if (ImGui::SmallButton("Dock##npcs")) NpcArchetypeEditor::g_detached = false;
+                    ImGui::Separator();
+                    NpcArchetypeEditor::DrawContent();
+                }
+                pos = ImGui::GetWindowPos();
+                if (pos.y < min_y) { pos.y = min_y; ImGui::SetWindowPos(pos); }
+                sz = ImGui::GetWindowSize();
+                ImGui::End();
+            }
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Characters")) {
             flags |= (1u << 1);
-            ImGui::SetCursorPos({8, ImGui::GetCursorPosY() + 4});
-            CharacterEditor::Draw(false);
+            if (!CharacterEditor::g_detached) {
+                float bw = ImGui::CalcTextSize("Detach##chars").x + ImGui::GetStyle().FramePadding.x * 2 + 2;
+                ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - bw);
+                if (ImGui::SmallButton("Detach##chars")) {
+                    CharacterEditor::g_detached = true;
+                    CharacterEditor::g_win_pos  = {10.f, 110.f};
+                    CharacterEditor::g_win_size = {fio.DisplaySize.x * 0.70f, 640.f};
+                }
+                ImGui::Separator();
+                ImGui::SetCursorPos({8, ImGui::GetCursorPosY() + 4});
+                CharacterEditor::Draw(false);
+            } else {
+                ImVec2& pos = CharacterEditor::g_win_pos;
+                ImVec2& sz  = CharacterEditor::g_win_size;
+                const float min_y = toolbar_h + ImGui::GetFrameHeight() * 2 + 4.f;
+                if (pos.y < min_y) pos.y = min_y;
+                ImGui::SetNextWindowPos(pos, ImGuiCond_Appearing);
+                ImGui::SetNextWindowSize(sz,  ImGuiCond_Appearing);
+                if (ImGui::Begin("Characters##float", &CharacterEditor::g_detached, FLOAT_FLAGS)) {
+                    float bw = ImGui::CalcTextSize("Dock##chars").x + ImGui::GetStyle().FramePadding.x * 2 + 2;
+                    ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - bw);
+                    if (ImGui::SmallButton("Dock##chars")) CharacterEditor::g_detached = false;
+                    ImGui::Separator();
+                    CharacterEditor::Draw(false);
+                }
+                pos = ImGui::GetWindowPos();
+                if (pos.y < min_y) { pos.y = min_y; ImGui::SetWindowPos(pos); }
+                sz = ImGui::GetWindowSize();
+                ImGui::End();
+            }
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Settings")) {
-            ImGui::SetCursorPos({12, ImGui::GetCursorPosY() + 6});
-            SettingsEditor::Draw(CFG_PATH, status_msg, status_timer);
+            if (!SettingsEditor::g_detached) {
+                // Embedded — Detach button right-aligned
+                float bw = ImGui::CalcTextSize("Detach##set").x
+                           + ImGui::GetStyle().FramePadding.x * 2 + 2;
+                ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - bw);
+                if (ImGui::SmallButton("Detach##set")) SettingsEditor::g_detached = true;
+                ImGui::Separator();
+                ImGui::SetCursorPos({12, ImGui::GetCursorPosY() + 4});
+                SettingsEditor::DrawContent(CFG_PATH, status_msg, status_timer);
+            } else {
+                // Floating window INSIDE BeginTabItem scope (F3 pattern).
+                // Only visible while Settings tab is active; ImGui auto-hides otherwise.
+                ImVec2& pos = SettingsEditor::g_win_pos;
+                ImVec2& sz  = SettingsEditor::g_win_size;
+                const float min_y = toolbar_h + ImGui::GetFrameHeight() * 2 + 4.f;
+                if (pos.y < min_y) pos.y = min_y;
+                ImGui::SetNextWindowPos(pos, ImGuiCond_Appearing);
+                ImGui::SetNextWindowSize(sz,  ImGuiCond_Appearing);
+                if (ImGui::Begin("Settings##float", &SettingsEditor::g_detached, FLOAT_FLAGS)) {
+                    float bw = ImGui::CalcTextSize("Dock##set").x
+                               + ImGui::GetStyle().FramePadding.x * 2 + 2;
+                    ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - bw);
+                    if (ImGui::SmallButton("Dock##set")) SettingsEditor::g_detached = false;
+                    ImGui::Separator();
+                    SettingsEditor::DrawContent(CFG_PATH, status_msg, status_timer);
+                }
+                pos = ImGui::GetWindowPos();
+                if (pos.y < min_y) { pos.y = min_y; ImGui::SetWindowPos(pos); }
+                sz = ImGui::GetWindowSize();
+                ImGui::End();
+            }
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
     }
     ImGui::End();
+
     return flags;
 }
 

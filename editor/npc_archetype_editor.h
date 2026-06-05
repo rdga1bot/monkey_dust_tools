@@ -145,24 +145,10 @@ inline bool Save(const char* path) {
 }
 
 
-// ── Draw — inline or floating depending on g_detached ─────────────────────
-inline void Draw() {
+// ── DrawContent — чистий контент без управління вікном ────
+inline void DrawContent() {
     static const char* weapon_names[] = { "Blunt", "Cut", "Pierce" };
     static const char* armor_names[]  = { "None", "Leather", "Chain", "Plate" };
-
-    if (g_detached) {
-        ImGui::SetNextWindowPos(g_win_pos,   ImGuiCond_Appearing);
-        ImGui::SetNextWindowSize(g_win_size, ImGuiCond_Appearing);
-        bool open = true;
-        if (!ImGui::Begin("NPC Archetypes##float", &open)) {
-            ImGui::End();
-            if (!open) g_detached = false;
-            ImGui::Dummy({0,0});
-            return;
-        }
-        g_win_pos  = ImGui::GetWindowPos();
-        g_win_size = ImGui::GetWindowSize();
-    }
 
     // ── Toolbar ──────────────────────────────────────────────────────────
     if (ImGui::Button("+ New")) {
@@ -197,17 +183,6 @@ inline void Draw() {
     if (ImGui::Button(g_dirty ? "Save*##arc" : "Save##arc"))
         Save(g_path);
     ImGui::PopStyleColor();
-    // Detach/Dock — right-aligned on same toolbar row
-    {
-        const char* lbl = g_detached ? "Dock##arc" : "Detach##arc";
-        float btn_w = ImGui::CalcTextSize(lbl).x + ImGui::GetStyle().FramePadding.x * 2.f;
-        ImGui::SameLine(ImGui::GetContentRegionMax().x - btn_w);
-        ImGui::PushStyleColor(ImGuiCol_Button,
-            g_detached ? ImVec4(0.25f,0.45f,0.65f,1.f)
-                       : ImVec4(0.18f,0.18f,0.28f,1.f));
-        if (ImGui::Button(lbl)) g_detached = !g_detached;
-        ImGui::PopStyleColor();
-    }
 
     ImGui::Separator();
 
@@ -278,8 +253,6 @@ inline void Draw() {
     }
 
     ImGui::Columns(1);
-
-    if (g_detached) { ImGui::End(); ImGui::Dummy({0,0}); }
 }
 
 } // namespace NpcArchetypeEditor

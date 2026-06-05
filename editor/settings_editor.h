@@ -1,37 +1,33 @@
 #pragma once
-#include "editor_ui.h"
 #include "editor_world_3d_sdlgpu.h"
 #include "editor_core.h"
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
-#include <dirent.h>
 
 // ─────────────────────────────────────────────────────────
 // SettingsEditor — вкладка налаштувань (ImGui).
-// Зберігає/читає data/editor_config.json.
-// Зміни шрифтів застосовуються після перезапуску.
-// Зміни камери застосовуються негайно.
+// Window management (Detach/Dock, floating) is handled by
+// editor_panels_entry.cpp, mirroring the F3 editor pattern.
 // ─────────────────────────────────────────────────────────
 
 namespace SettingsEditor {
 
 struct Config {
-    // Fonts
-    int   ui_size         = 14;     // Arimo Regular/Bold pixel size
-    int   mono_size       = 13;     // UbuntuMono pixel size
-    // 3D World camera
-    float w3d_wasd_speed  = 1000.f; // m/s WASD
-    float w3d_scroll_step = 0.03f;  // step = s_cy * step * wheel
-    float w3d_zoom_in     = 0.94f;  // s_cy multiplier on scroll up
-    float w3d_zoom_out    = 1.06f;  // s_cy multiplier on scroll down
-    // F3 Flythrough camera
-    float fly_speed       = 100.f;  // m/s WASD
+    int   ui_size         = 14;
+    int   mono_size       = 13;
+    float w3d_wasd_speed  = 1000.f;
+    float w3d_scroll_step = 0.03f;
+    float w3d_zoom_in     = 0.94f;
+    float w3d_zoom_out    = 1.06f;
+    float fly_speed       = 100.f;
 };
 static Config g_cfg;
+
+// Detach state + window geometry — managed by editor_panels_entry.cpp.
 static bool   g_detached = false;
-static ImVec2 g_win_pos  = {180.f, 100.f};
-static ImVec2 g_win_size = {560.f, 380.f};
+static ImVec2 g_win_pos  = {620.f, 110.f};
+static ImVec2 g_win_size = {560.f, 440.f};
 
 // ── Load / Save ───────────────────────────────────────────
 
@@ -61,7 +57,6 @@ inline bool Load(const char* path) {
     g_cfg.w3d_zoom_in     = rfloat("\"w3d_zoom_in\"",     g_cfg.w3d_zoom_in);
     g_cfg.w3d_zoom_out    = rfloat("\"w3d_zoom_out\"",    g_cfg.w3d_zoom_out);
     g_cfg.fly_speed       = rfloat("\"fly_speed\"",       g_cfg.fly_speed);
-    // Apply camera values immediately after load
 #ifdef MD_SDL_GPU
     WorldEditor3D_SDLGPU::ApplyCameraConfig(
         g_cfg.w3d_wasd_speed, g_cfg.w3d_scroll_step,
@@ -72,7 +67,6 @@ inline bool Load(const char* path) {
 }
 
 inline bool Save(const char* path) {
-    // Sync live values before writing
     g_cfg.fly_speed = EditorCore::Get().cam_speed;
 #ifdef MD_SDL_GPU
     g_cfg.w3d_wasd_speed  = WorldEditor3D_SDLGPU::GetWasdSpeed();
@@ -100,35 +94,11 @@ inline bool Save(const char* path) {
     return true;
 }
 
-// ── Draw ──────────────────────────────────────────────────
-inline void Draw(const char* config_path,
-                 char* status_msg, float* status_timer)
+// ── DrawContent — pure content, no window management ──────
+// Called either embedded in ##editor or inside "Settings##float".
+inline void DrawContent(const char* config_path,
+                        char* status_msg, float* status_timer)
 {
-    if (g_detached) {
-        ImGui::SetNextWindowPos(g_win_pos,   ImGuiCond_Appearing);
-        ImGui::SetNextWindowSize(g_win_size, ImGuiCond_Appearing);
-        bool open = true;
-        if (!ImGui::Begin("Settings##float", &open)) {
-            ImGui::End();
-            if (!open) g_detached = false;
-            ImGui::Dummy({0,0});
-            return;
-        }
-        g_win_pos  = ImGui::GetWindowPos();
-        g_win_size = ImGui::GetWindowSize();
-    }
-
-    // Detach / Dock button (right-aligned)
-    {
-        const char* lbl = g_detached ? "Dock##set" : "Detach##set";
-        float btn_w = ImGui::CalcTextSize(lbl).x + ImGui::GetStyle().FramePadding.x * 2.f;
-        ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - btn_w);
-        ImGui::PushStyleColor(ImGuiCol_Button,
-            g_detached ? ImVec4(0.25f,0.45f,0.65f,1.f) : ImVec4(0.18f,0.18f,0.28f,1.f));
-        if (ImGui::Button(lbl)) g_detached = !g_detached;
-        ImGui::PopStyleColor();
-    }
-
     const float MARGIN = 12.0f;
     ImGui::Spacing();
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + MARGIN);
@@ -147,8 +117,6 @@ inline void Draw(const char* config_path,
     ImGui::TextDisabled("Restart editor to apply size changes.");
 
     ImGui::Spacing();
-
-    // ── Camera Settings ───────────────────────────────────
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + MARGIN);
     ImGui::SeparatorText("3D World Camera");
     ImGui::Spacing();
@@ -164,7 +132,6 @@ inline void Draw(const char* config_path,
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + MARGIN);
     ImGui::SetNextItemWidth(160.f);
     ImGui::SliderFloat("Zoom out factor##w3d",    &g_cfg.w3d_zoom_out, 1.01f, 1.25f, "%.3f");
-    // Apply immediately as user drags sliders
 #ifdef MD_SDL_GPU
     WorldEditor3D_SDLGPU::ApplyCameraConfig(
         g_cfg.w3d_wasd_speed, g_cfg.w3d_scroll_step,
@@ -182,8 +149,6 @@ inline void Draw(const char* config_path,
     ImGui::TextDisabled("  (same as Camera tab > Move Speed)");
 
     ImGui::Spacing();
-
-    // ── Save ──────────────────────────────────────────────
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + MARGIN);
     ImGui::PushStyleColor(ImGuiCol_Button,        {0.14f, 0.43f, 0.22f, 1.0f});
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {0.20f, 0.58f, 0.30f, 1.0f});
@@ -198,11 +163,8 @@ inline void Draw(const char* config_path,
         }
     }
     ImGui::PopStyleColor(3);
-
     ImGui::SameLine();
     ImGui::TextDisabled("(перезапустити редактор для застосування шрифтів)");
-
-    if (g_detached) { ImGui::End(); ImGui::Dummy({0,0}); }
 }
 
 } // namespace SettingsEditor
