@@ -15,7 +15,9 @@
 #include "editor_game_context.h"
 #include <monkey_dust/nav/nav_system.h>
 #include <monkey_dust/save/save_system.h>
+#ifndef MONKEY_DUST_STANDALONE_EDITOR
 #include "debug_system.h"
+#endif
 #include "scene_serializer.h"
 #include "icon_definitions.h"
 #include <monkey_dust/platform/md_log.h>
@@ -215,6 +217,7 @@ void EditorToolbar::DrawMenuBar() {
         ImGui::EndMenu();
     }
 
+#ifndef MONKEY_DUST_STANDALONE_EDITOR
     // ── Debug ─────────────────────────────────────────────────
     if (ImGui::BeginMenu("Debug")) {
         auto& ds = DebugSystem::Get();
@@ -226,6 +229,7 @@ void EditorToolbar::DrawMenuBar() {
         ImGui::MenuItem("Physics Paused", nullptr, &EditorCore::Get().physics_paused);
         ImGui::EndMenu();
     }
+#endif
 
     // ── Help ──────────────────────────────────────────────────
     if (ImGui::BeginMenu("Help")) {

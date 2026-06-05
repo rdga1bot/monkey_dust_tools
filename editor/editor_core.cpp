@@ -2,7 +2,9 @@
 #include "editor_core.h"
 #include "editor_toolbar.h"
 #include "editor_hierarchy.h"
+#ifndef MONKEY_DUST_STANDALONE_EDITOR
 #include "editor_inspector.h"
+#endif
 #include "editor_camera_panel.h"
 #include "editor_console.h"
 #include "editor_animation_panel.h"
@@ -211,9 +213,11 @@ void EditorCore::Update(float dt) {
                 EditorHierarchy::Get().DrawContent();
                 ImGui::EndChild();
                 ImGui::SameLine(0, 4);
+#ifndef MONKEY_DUST_STANDALONE_EDITOR
                 ImGui::BeginChild("##f3i", {0.f, av.y}, false);
                 EditorInspector::Get().DrawContent();
                 ImGui::EndChild();
+#endif
             } else {
                 if (f3_pos_scene.y < min_y) f3_pos_scene.y = min_y;
                 ImGui::SetNextWindowPos(f3_pos_scene, ImGuiCond_Appearing);
@@ -225,10 +229,12 @@ void EditorCore::Update(float dt) {
                     ImGui::BeginChild("##fh", {av.x * 0.30f, av.y}, false);
                     EditorHierarchy::Get().DrawContent();
                     ImGui::EndChild();
+#ifndef MONKEY_DUST_STANDALONE_EDITOR
                     ImGui::SameLine(0, 4);
                     ImGui::BeginChild("##fi", {0.f, av.y}, false);
                     EditorInspector::Get().DrawContent();
                     ImGui::EndChild();
+#endif
                 }
                 f3_end(f3_pos_scene, f3_size_scene);
             }

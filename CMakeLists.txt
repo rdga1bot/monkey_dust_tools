@@ -40,8 +40,6 @@ add_executable(monkey_dust_editor
     ${CMAKE_SOURCE_DIR}/engine/src/vendor/glad_impl.cpp    # satisfies engine lib GL refs (never called in SDL_GPU mode)
     ${CMAKE_SOURCE_DIR}/engine/src/vendor/stb_image_impl.cpp
     ${CMAKE_SOURCE_DIR}/engine/src/render/cgltf_impl.cpp
-    ${CMAKE_SOURCE_DIR}/game/src/world/character_def.cpp
-    ${CMAKE_SOURCE_DIR}/game/src/world/world_registry.cpp
     # Third-party panels
     ${CMAKE_SOURCE_DIR}/tools/third_party/imnodes/imnodes.cpp
     ${CMAKE_SOURCE_DIR}/tools/third_party/ImGuiColorTextEdit/TextEditor.cpp
@@ -79,7 +77,6 @@ target_include_directories(monkey_dust_editor PRIVATE
     ${CMAKE_SOURCE_DIR}/engine/third_party/recastnavigation/DetourCrowd/Include
     ${CMAKE_SOURCE_DIR}/engine/src/vendor
     ${CMAKE_SOURCE_DIR}/engine/src/render
-    ${CMAKE_SOURCE_DIR}/game/src
 )
 # (third-party sources already added above)
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
@@ -111,9 +108,6 @@ if(MONKEY_DUST_EDITOR_HOT_RELOAD)
         ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-node-editor/imgui_node_editor_api.cpp
         ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-node-editor/imgui_canvas.cpp
         ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-node-editor/crude_json.cpp
-        # Game-side sources needed by panels
-        ${CMAKE_SOURCE_DIR}/game/src/world/character_def.cpp
-        ${CMAKE_SOURCE_DIR}/game/src/world/world_registry.cpp
     )
     add_library(monkey_dust_editor_panels SHARED ${EDITOR_PANELS_HOT_SRCS})
     target_compile_definitions(monkey_dust_editor_panels PRIVATE
@@ -140,7 +134,6 @@ if(MONKEY_DUST_EDITOR_HOT_RELOAD)
         ${CMAKE_SOURCE_DIR}/engine/third_party/recastnavigation/Recast/Include
         ${CMAKE_SOURCE_DIR}/engine/third_party/recastnavigation/Detour/Include
         ${CMAKE_SOURCE_DIR}/engine/third_party/recastnavigation/DetourCrowd/Include
-        ${CMAKE_SOURCE_DIR}/game/src
     )
     # Symbols resolved from host exe at dlopen time (host built with --export-dynamic).
     target_link_options(monkey_dust_editor_panels PRIVATE -Wl,--allow-shlib-undefined)

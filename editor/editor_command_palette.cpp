@@ -10,7 +10,9 @@
 #include <monkey_dust/components/renderable.h>
 #include <monkey_dust/nav/nav_system.h>
 #include <monkey_dust/save/save_system.h>
+#ifndef MONKEY_DUST_STANDALONE_EDITOR
 #include "debug_system.h"
+#endif
 #include <monkey_dust/platform/md_log.h>
 #include <cstring>
 
@@ -76,10 +78,12 @@ static const PaletteCmd kCommands[] = {
     }},
     // Physics
     { "Physics: Toggle Pause",   "",          []{ EditorCore::Get().physics_paused ^= true; } },
+#ifndef MONKEY_DUST_STANDALONE_EDITOR
     // Debug
     { "Debug: Toggle Overlay",   "F1",        []{ DebugSystem::Get().overlay_on ^= true; } },
     { "Debug: Toggle Grid",      "F2",        []{ DebugSystem::Get().grid_on ^= true;     } },
     { "Debug: Toggle NavMesh",   "",          []{ DebugSystem::Get().navmesh_on ^= true;  } },
+#endif
     // Panels
     { "Panel: Hierarchy",        "",          []{ EditorCore::Get().panels_visible[0] ^= true; } },
     { "Panel: Inspector",        "",          []{ EditorCore::Get().panels_visible[1] ^= true; } },

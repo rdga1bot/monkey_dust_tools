@@ -13,16 +13,13 @@
 #include "editor_ui.h"
 #include "item_editor.h"
 #include "faction_editor.h"
-#include "settings_editor.h"
 #include "editor_world_panel.h"
-#include "editor_world_3d_sdlgpu.h"
 #include "editor_hmap_2d.h"
 #include "editor_char_preview_sdlgpu.h"
 #include "character_editor.h"
 #include "npc_archetype_editor.h"
 #include "editor_map_view.h"
 #include "editor_node_graph.h"
-#include "editor_terrain_panel.h"
 #include "editor_layout.h"
 #include "bug_capture.h"
 #include <cstdio>
@@ -46,14 +43,10 @@ void editor_panels_init(void* ctx, void* /*gpu*/, void* /*window*/,
     // Share host's ImGui context — CRITICAL, must be first.
     ImGui::SetCurrentContext(static_cast<ImGuiContext*>(ctx));
 
-    SettingsEditor::Load(CFG_PATH);
     ItemEditor::Load("data/items/items.json");
     FactionEditor::Load("data/factions/factions.json");
     NpcArchetypeEditor::Load("game/data/defs/npc_archetypes.json");
     WorldPanel::Init();
-
-    WorldEditor3D_SDLGPU::Init(
-        "game/data/textures/md_terrain.png", 29, 25);
 
     CharacterEditor::LoadJSON("game/data/chars/player.chardef");
     CharacterEditor::LoadMorphNames("game/data/chars/morph_names.txt");
@@ -76,9 +69,6 @@ void editor_panels_init(void* ctx, void* /*gpu*/, void* /*window*/,
         CharacterEditor::g_detached    = s_lay.chars.detached;
         CharacterEditor::g_win_pos     = s_lay.chars.pos;
         CharacterEditor::g_win_size    = s_lay.chars.size;
-        SettingsEditor::g_detached     = s_lay.settings.detached;
-        SettingsEditor::g_win_pos      = s_lay.settings.pos;
-        SettingsEditor::g_win_size     = s_lay.settings.size;
         // Heightmap: DrawPanel() manages its own floating window — sync its internal statics
         HmapEditor2D::s_detached = s_lay.heightmap.detached;
         HmapEditor2D::s_win_pos  = s_lay.heightmap.pos;
@@ -97,7 +87,6 @@ void editor_panels_shutdown(const char* layout_path) {
         s_lay.factions = {FactionEditor::g_detached,      FactionEditor::g_win_pos,      FactionEditor::g_win_size};
         s_lay.npcs     = {NpcArchetypeEditor::g_detached, NpcArchetypeEditor::g_win_pos, NpcArchetypeEditor::g_win_size};
         s_lay.chars    = {CharacterEditor::g_detached,    CharacterEditor::g_win_pos,    CharacterEditor::g_win_size};
-        s_lay.settings = {SettingsEditor::g_detached,     SettingsEditor::g_win_pos,     SettingsEditor::g_win_size};
         // Heightmap: read back from DrawPanel()'s own statics
         s_lay.heightmap = {HmapEditor2D::s_detached, HmapEditor2D::s_win_pos, HmapEditor2D::s_win_size};
         // map/world/terrain/world3d are updated live in BuildUI → already in s_lay
@@ -275,86 +264,9 @@ uint32_t editor_panels_build_ui(float dt, float toolbar_h,
             }
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Terrain")) {
-            auto draw_terrain = [&]() {
-                ImVec2 avail = ImGui::GetContentRegionAvail();
-                float graph_w = avail.x * 0.70f;
-                ImGui::BeginChild("##terrain_ng", {graph_w, avail.y}, false,
-                    ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-                EditorNodeGraphPanel::Get().DrawContent();
-                ImGui::EndChild();
-                ImGui::SameLine(0, 4);
-                ImGui::BeginChild("##terrain_sculpt", {0, avail.y}, false);
-                EditorTerrainPanel::Get().DrawContent(dt);
-                ImGui::EndChild();
-            };
-            if (!s_lay.terrain.detached) {
-                float bw = ImGui::CalcTextSize("Detach##terrain").x + ImGui::GetStyle().FramePadding.x * 2 + 2;
-                ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - bw);
-                if (ImGui::SmallButton("Detach##terrain")) {
-                    s_lay.terrain.detached = true;
-                    s_lay.terrain.pos  = {10.f, 110.f};
-                    s_lay.terrain.size = {fio.DisplaySize.x * 0.80f, 600.f};
-                }
-                ImGui::Separator();
-                draw_terrain();
-            } else {
-                ImVec2& pos = s_lay.terrain.pos; ImVec2& sz = s_lay.terrain.size;
-                const float min_y = toolbar_h + ImGui::GetFrameHeight() * 2 + 4.f;
-                if (pos.y < min_y) pos.y = min_y;
-                ImGui::SetNextWindowPos(pos, ImGuiCond_Appearing);
-                ImGui::SetNextWindowSize(sz,  ImGuiCond_Appearing);
-                if (ImGui::Begin("Terrain##float", &s_lay.terrain.detached, FLOAT_FLAGS)) {
-                    float bw = ImGui::CalcTextSize("Dock##terrain").x + ImGui::GetStyle().FramePadding.x * 2 + 2;
-                    ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - bw);
-                    if (ImGui::SmallButton("Dock##terrain")) s_lay.terrain.detached = false;
-                    ImGui::Separator();
-                    draw_terrain();
-                }
-                pos = ImGui::GetWindowPos();
-                if (pos.y < min_y) { pos.y = min_y; ImGui::SetWindowPos(pos); }
-                sz = ImGui::GetWindowSize();
-                ImGui::End();
-            }
-            ImGui::EndTabItem();
-        }
         if (ImGui::BeginTabItem("Heightmap")) {
             flags |= (1u << 2);
             HmapEditor2D::DrawPanel();  // handles own Detach/Dock + floating window internally
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("3D World")) {
-            flags |= (1u << 0);
-            if (!s_lay.world3d.detached) {
-                float bw = ImGui::CalcTextSize("Detach##w3d").x + ImGui::GetStyle().FramePadding.x * 2 + 2;
-                ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - bw);
-                if (ImGui::SmallButton("Detach##w3d")) {
-                    s_lay.world3d.detached = true;
-                    s_lay.world3d.pos  = {10.f, 110.f};
-                    s_lay.world3d.size = {fio.DisplaySize.x * 0.80f, 700.f};
-                }
-                ImGui::Separator();
-                ImVec2 avail = ImGui::GetContentRegionAvail();
-                WorldEditor3D_SDLGPU::DrawImGui(avail.x, avail.y - 2, dt);
-            } else {
-                ImVec2& pos = s_lay.world3d.pos; ImVec2& sz = s_lay.world3d.size;
-                const float min_y = toolbar_h + ImGui::GetFrameHeight() * 2 + 4.f;
-                if (pos.y < min_y) pos.y = min_y;
-                ImGui::SetNextWindowPos(pos, ImGuiCond_Appearing);
-                ImGui::SetNextWindowSize(sz,  ImGuiCond_Appearing);
-                if (ImGui::Begin("3D World##float", &s_lay.world3d.detached, FLOAT_FLAGS)) {
-                    float bw = ImGui::CalcTextSize("Dock##w3d").x + ImGui::GetStyle().FramePadding.x * 2 + 2;
-                    ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - bw);
-                    if (ImGui::SmallButton("Dock##w3d")) s_lay.world3d.detached = false;
-                    ImGui::Separator();
-                    ImVec2 avail = ImGui::GetContentRegionAvail();
-                    WorldEditor3D_SDLGPU::DrawImGui(avail.x, avail.y - 2, dt);
-                }
-                pos = ImGui::GetWindowPos();
-                if (pos.y < min_y) { pos.y = min_y; ImGui::SetWindowPos(pos); }
-                sz = ImGui::GetWindowSize();
-                ImGui::End();
-            }
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("NPCs")) {
@@ -424,40 +336,6 @@ uint32_t editor_panels_build_ui(float dt, float toolbar_h,
             }
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Settings")) {
-            if (!SettingsEditor::g_detached) {
-                // Embedded — Detach button right-aligned
-                float bw = ImGui::CalcTextSize("Detach##set").x
-                           + ImGui::GetStyle().FramePadding.x * 2 + 2;
-                ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - bw);
-                if (ImGui::SmallButton("Detach##set")) SettingsEditor::g_detached = true;
-                ImGui::Separator();
-                ImGui::SetCursorPos({12, ImGui::GetCursorPosY() + 4});
-                SettingsEditor::DrawContent(CFG_PATH, status_msg, status_timer);
-            } else {
-                // Floating window INSIDE BeginTabItem scope (F3 pattern).
-                // Only visible while Settings tab is active; ImGui auto-hides otherwise.
-                ImVec2& pos = SettingsEditor::g_win_pos;
-                ImVec2& sz  = SettingsEditor::g_win_size;
-                const float min_y = toolbar_h + ImGui::GetFrameHeight() * 2 + 4.f;
-                if (pos.y < min_y) pos.y = min_y;
-                ImGui::SetNextWindowPos(pos, ImGuiCond_Appearing);
-                ImGui::SetNextWindowSize(sz,  ImGuiCond_Appearing);
-                if (ImGui::Begin("Settings##float", &SettingsEditor::g_detached, FLOAT_FLAGS)) {
-                    float bw = ImGui::CalcTextSize("Dock##set").x
-                               + ImGui::GetStyle().FramePadding.x * 2 + 2;
-                    ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - bw);
-                    if (ImGui::SmallButton("Dock##set")) SettingsEditor::g_detached = false;
-                    ImGui::Separator();
-                    SettingsEditor::DrawContent(CFG_PATH, status_msg, status_timer);
-                }
-                pos = ImGui::GetWindowPos();
-                if (pos.y < min_y) { pos.y = min_y; ImGui::SetWindowPos(pos); }
-                sz = ImGui::GetWindowSize();
-                ImGui::End();
-            }
-            ImGui::EndTabItem();
-        }
         ImGui::EndTabBar();
     }
     ImGui::End();
@@ -470,7 +348,6 @@ uint32_t editor_panels_build_ui(float dt, float toolbar_h,
 void editor_panels_render(void* cmd_ptr, float dt, uint32_t active_flags) {
     auto* cmd = static_cast<SDL_GPUCommandBuffer*>(cmd_ptr);
     if ((active_flags >> 2) & 1) HmapEditor2D::UploadTexture(cmd);
-    WorldEditor3D_SDLGPU::RenderFrame(cmd, dt, (active_flags >> 0) & 1);
     if ((active_flags >> 1) & 1) CharPreviewSDLGPU::RenderFrame(cmd);
     if ((active_flags >> 3) & 1) MapViewPanel::Get().RenderFrame(cmd);
 }
@@ -484,13 +361,6 @@ void editor_panels_dump_state(void* file_ptr) {
 #ifdef MD_SDL_GPU
     CharPreviewSDLGPU::DumpState(f);
 #endif
-}
-
-// ── UploadTerrainHeightmap — bridge from terrain panel ────────────────────────
-void editor_panels_upload_hmap(const float* hmap, int W, int H,
-                                float world_size_m, int chunk_x, int chunk_z) {
-    WorldEditor3D_SDLGPU::UploadTerrainHeightmap(hmap, W, H, world_size_m,
-                                                  chunk_x, chunk_z);
 }
 
 // ── ReloadShaders — /reload-shaders console command ───────────────────────────

@@ -3,7 +3,9 @@
 #include "editor_core.h"
 #include "imgui.h"
 #include <monkey_dust/tools/graphics_settings.h>
+#ifndef MONKEY_DUST_STANDALONE_EDITOR
 #include "debug_system.h"
+#endif
 #include <monkey_dust/platform/window.h>
 
 void EditorGraphicsPanel::Draw() {
@@ -17,7 +19,9 @@ void EditorGraphicsPanel::Draw() {
     }
 
     auto& gs  = GraphicsSettings::Get();
+#ifndef MONKEY_DUST_STANDALONE_EDITOR
     auto& dbg = DebugSystem::Get();
+#endif
 
     // ── Rendering ─────────────────────────────────────────────────────────
     if (ImGui::CollapsingHeader("Rendering", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -50,6 +54,7 @@ void EditorGraphicsPanel::Draw() {
         ImGui::TextDisabled("Requires MD_OPENGL43_ENABLED");
     }
 
+#ifndef MONKEY_DUST_STANDALONE_EDITOR
     // ── Debug Rendering ───────────────────────────────────────────────────
     if (ImGui::CollapsingHeader("Debug Rendering", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::Checkbox("Debug Overlay (F1)##gfx",  &dbg.overlay_on);
@@ -62,6 +67,7 @@ void EditorGraphicsPanel::Draw() {
         if (ImGui::Checkbox("Physics Paused##gfx", &phys))
             EditorCore::Get().physics_paused = phys;
     }
+#endif
 
     // ── Reset ─────────────────────────────────────────────────────────────
     ImGui::Separator();

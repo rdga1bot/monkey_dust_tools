@@ -16,9 +16,11 @@
 #include "editor_ui.h"
 #include "item_editor.h"
 #include "faction_editor.h"
+#ifndef MONKEY_DUST_EDITOR_HOT_RELOAD
 #include "settings_editor.h"
-#include "editor_world_panel.h"
 #include "editor_world_3d_sdlgpu.h"
+#endif
+#include "editor_world_panel.h"
 #include "editor_3d_bridge.h"
 #include "editor_hmap_2d.h"
 #include "editor_char_preview_sdlgpu.h"
@@ -26,7 +28,9 @@
 #include "npc_archetype_editor.h"
 #include "editor_map_view.h"
 #include "editor_node_graph.h"
+#ifndef MONKEY_DUST_EDITOR_HOT_RELOAD
 #include "editor_terrain_panel.h"
+#endif
 #include "editor_layout.h"
 #include "bug_capture.h"
 #include <cstdio>
@@ -96,10 +100,9 @@ int main(void) {
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;
     io.Fonts->Clear();
-    SettingsEditor::Load(CFG_PATH);  // load saved sizes (path/font fields removed)
     float sc      = EditorUI::ui_scale;
-    float ui_sz   = (float)SettingsEditor::g_cfg.ui_size   * sc; if (ui_sz   < 8.f) ui_sz   = 8.f;
-    float mono_sz = (float)SettingsEditor::g_cfg.mono_size * sc; if (mono_sz < 8.f) mono_sz = 8.f;
+    float ui_sz   = 14.f * sc; if (ui_sz   < 8.f) ui_sz   = 8.f;
+    float mono_sz = 13.f * sc; if (mono_sz < 8.f) mono_sz = 8.f;
     MdFonts::Load(ui_sz, mono_sz);  // embedded Arimo + UbuntuMono — no system dependency
     EditorUI::font_regular = MdFonts::regular;
     EditorUI::font_bold    = MdFonts::bold;
@@ -342,28 +345,9 @@ int main(void) {
                 WorldPanel::Draw(dt);
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Terrain")) {
-                ImVec2 avail = ImGui::GetContentRegionAvail();
-                float graph_w = avail.x * 0.70f;
-                ImGui::BeginChild("##terrain_ng", {graph_w, avail.y}, false,
-                    ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-                EditorNodeGraphPanel::Get().DrawContent();
-                ImGui::EndChild();
-                ImGui::SameLine(0, 4);
-                ImGui::BeginChild("##terrain_sculpt", {0, avail.y}, false);
-                EditorTerrainPanel::Get().DrawContent(dt);
-                ImGui::EndChild();
-                ImGui::EndTabItem();
-            }
             if (ImGui::BeginTabItem("Heightmap")) {
                 s_hmap_was_active = true;
                 HmapEditor2D::DrawPanel();
-                ImGui::EndTabItem();
-            }
-            if (ImGui::BeginTabItem("3D World")) {
-                s_world3d_was_active = true;  // tell EditorCore next frame to pass through mouse
-                ImVec2 avail = ImGui::GetContentRegionAvail();
-                WorldEditor3D_SDLGPU::DrawImGui(avail.x, avail.y-2, dt);
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("NPCs")) {
@@ -377,11 +361,6 @@ int main(void) {
                 CharacterEditor::Draw(false);  // tools editor uses EditorUI navy theme
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Settings")) {
-                ImGui::SetCursorPos({12,ImGui::GetCursorPosY()+6});
-                SettingsEditor::DrawContent(CFG_PATH, status_msg, &status_timer);
-                ImGui::EndTabItem();
-            }
             ImGui::EndTabBar();
         }
         ImGui::End();
@@ -390,9 +369,8 @@ int main(void) {
         // ── SDL_GPU: render terrain RTT + ImGui to swapchain ─────────────────
         SDL_GPUCommandBuffer* cmd = md::GpuDevice::Get().AcquireCommandBuffer();
         if (cmd) {
-            // 1. Render 3D terrain + character preview + tile map to off-screen RTTs
+            // 1. Render character preview + tile map + heightmap to off-screen RTTs
             if (s_hmap_was_active)    HmapEditor2D::UploadTexture(cmd);
-            WorldEditor3D_SDLGPU::RenderFrame(cmd, dt, s_world3d_was_active);
             if (s_charpreview_active) CharPreviewSDLGPU::RenderFrame(cmd);
             if (s_mapview_active)     MapViewPanel::Get().RenderFrame(cmd);
 
@@ -433,7 +411,6 @@ int main(void) {
         lay.factions = {FactionEditor::g_detached,      FactionEditor::g_win_pos,      FactionEditor::g_win_size};
         lay.npcs     = {NpcArchetypeEditor::g_detached, NpcArchetypeEditor::g_win_pos, NpcArchetypeEditor::g_win_size};
         lay.chars    = {CharacterEditor::g_detached,    CharacterEditor::g_win_pos,    CharacterEditor::g_win_size};
-        lay.settings = {SettingsEditor::g_detached,     SettingsEditor::g_win_pos,     SettingsEditor::g_win_size};
         EditorLayout::Save(LAYOUT_PATH, lay);
     }
     EditorCore::Get().Shutdown();
