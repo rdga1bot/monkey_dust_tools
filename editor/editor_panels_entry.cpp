@@ -14,6 +14,7 @@
 #include "item_editor.h"
 #include "faction_editor.h"
 #include "editor_world_panel.h"
+#include "editor_world_3d_sdlgpu.h"
 #include "editor_hmap_2d.h"
 #include "editor_char_preview_sdlgpu.h"
 #include "character_editor.h"
@@ -48,6 +49,7 @@ void editor_panels_init(void* ctx, void* /*gpu*/, void* /*window*/,
     NpcArchetypeEditor::Load("game/data/defs/npc_archetypes.json");
     WorldPanel::Init();
 
+    WorldEditor3D_SDLGPU::Init("game/data/textures/md_terrain.png", 29, 25);
     CharacterEditor::LoadJSON("game/data/chars/player.chardef");
     CharacterEditor::LoadMorphNames("game/data/chars/morph_names.txt");
     MapViewPanel::Get().Init();
@@ -123,6 +125,12 @@ uint32_t editor_panels_build_ui(float dt, float toolbar_h,
         ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings;
 
     if (ImGui::BeginTabBar("##tabs")) {
+        if (ImGui::BeginTabItem("3D World")) {
+            flags |= (1u << 0);
+            ImVec2 avail = ImGui::GetContentRegionAvail();
+            WorldEditor3D_SDLGPU::DrawImGui(avail.x, avail.y - 2, dt);
+            ImGui::EndTabItem();
+        }
         if (ImGui::BeginTabItem("Items")) {
             if (!ItemEditor::g_detached) {
                 float bw = ImGui::CalcTextSize("Detach##items").x + ImGui::GetStyle().FramePadding.x * 2 + 2;
@@ -347,6 +355,7 @@ uint32_t editor_panels_build_ui(float dt, float toolbar_h,
 // active_flags: bitmask from PREVIOUS frame's BuildUI call (1-frame lag OK)
 void editor_panels_render(void* cmd_ptr, float dt, uint32_t active_flags) {
     auto* cmd = static_cast<SDL_GPUCommandBuffer*>(cmd_ptr);
+    if ((active_flags >> 0) & 1) WorldEditor3D_SDLGPU::RenderFrame(cmd, dt, (active_flags >> 0) & 1);
     if ((active_flags >> 2) & 1) HmapEditor2D::UploadTexture(cmd);
     if ((active_flags >> 1) & 1) CharPreviewSDLGPU::RenderFrame(cmd);
     if ((active_flags >> 3) & 1) MapViewPanel::Get().RenderFrame(cmd);

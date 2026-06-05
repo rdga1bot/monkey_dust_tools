@@ -35,11 +35,12 @@ static int             s_scene_ni = 0;
 static SkinMesh        s_mesh;
 static GpuPipeline     s_pipeline;
 static GpuStaticBuffer s_skin_vbo;           // SkinVertex stride=52 (re-uploaded for morphs)
-// Bone matrix texture: 120×1 RGBA32F — 30 bones × 4 vec4 columns.
-// Uploaded via copy pass before render pass; bound as vert sampler (set=0 binding=0).
-// vert_storage_bufs=0 keeps Intel HD 520 frag_samplers working (no Intel binding bug).
+// Bone matrix texture: kept for hair pipeline (char_hair.vert uses vert sampler, frag_samplers=0 → passes Intel validation).
+// Body/cloth pipelines now use a UBO (set=1 binding=1) to avoid vert_samplers+frag_samplers Intel Gen9 hang.
 static SDL_GPUTexture* s_bones_tex     = nullptr;
 static SDL_GPUSampler* s_bones_sampler = nullptr;
+// CPU copy of bone matrices for body/cloth UBO push (30 mat4 = 1920 bytes).
+static float           s_bones_cpu[30*16];
 // Fragment textures (set=2 binding=0..3): body, head, muscle, blood
 static GpuTexture      s_tex_body;
 static GpuTexture      s_tex_head;
@@ -351,14 +352,14 @@ static bool Init(const char* glb_path, const char* tex_path) {
     }
 
     // ── Character pipeline: char_preview.vert + char_preview.frag ────────────
-    // vert_storage_bufs=0 → no Intel HD 520 frag_samplers binding bug.
-    // Bone matrices via vert sampler (set=0 binding=0): 120×1 RGBA32F texture.
+    // vert_samplers=0 to avoid Intel HD 520 Gen9 ANV hang (vert_samplers+frag_samplers>0).
+    // Bone matrices via UBO (set=1 binding=1: BoneMats, 30 mat4 = 1920 bytes).
     {
         GpuPipeline::Desc pd;
         pd.vert_path         = "shaders/char_preview.vert";
         pd.frag_path         = "shaders/char_preview.frag";
-        pd.vert_uniform_bufs = 1;      // set=1 binding=0: VU (MVP 64B)
-        pd.vert_samplers     = 1;      // set=0 binding=0: uBoneMats 120×1 RGBA32F
+        pd.vert_uniform_bufs = 2;      // set=1 binding=0: VU (MVP 64B), binding=1: BoneMats (30 mat4)
+        pd.vert_samplers     = 0;      // was 1 — removed to fix Intel Gen9 ANV hang
         pd.frag_samplers     = 4;      // set=2 binding=0..3: body,head,muscle,blood
         pd.frag_uniform_bufs = 1;      // set=3 binding=0: FU (skin/sat/bri/hair)
         pd.has_depth_target  = true;
@@ -501,8 +502,8 @@ static bool Init(const char* glb_path, const char* tex_path) {
         cpd.layout.attribs[2]={2, 24, GpuAttribFmt::F2   };  // aUV (unused in frag)
         cpd.layout.attribs[3]={3, 32, GpuAttribFmt::U8x4 };  // aJoints
         cpd.layout.attribs[4]={4, 36, GpuAttribFmt::F4   };  // aWeights
-        cpd.vert_samplers    =1;   // set=0: uBoneMats
-        cpd.vert_uniform_bufs=1;   // set=1: VU (mvp)
+        cpd.vert_samplers    =0;   // was 1 — removed, char_preview.vert now uses UBO for bones
+        cpd.vert_uniform_bufs=2;   // set=1 binding=0: VU (mvp), binding=1: BoneMats (30 mat4)
         cpd.frag_samplers    =0;
         cpd.frag_uniform_bufs=1;   // set=3: ClothFU
         cpd.raster.depth_test=true; cpd.raster.depth_write=true; cpd.raster.cull_back=true;
@@ -526,6 +527,7 @@ static void upload_bones(SDL_GPUCommandBuffer* cmd, float t) {
     CharScales scales;
     CharCustomization_ComputeScales(s_body_cache, s_face_cache, s_mesh.bone_count, scales);
     s_mesh.GetFinalBonesScaled(s_idle_clip, t, scales, bones);
+    memcpy(s_bones_cpu, bones, 30*16*sizeof(float));
 
     SDL_GPUDevice* dev=md::GpuDevice::Get().SDLDevice();
     uint32_t up_sz=120*4*sizeof(float);
@@ -614,7 +616,7 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
     }
 
     // ── Character mesh ────────────────────────────────────────────────────────
-    if(s_bones_tex&&s_bones_sampler){
+    if(s_pipeline.SDLPipeline()&&s_skin_vbo.SDLBuffer()){
         SDL_BindGPUGraphicsPipeline(rp,s_pipeline.SDLPipeline());
 
         SDL_GPUBufferBinding vb={s_skin_vbo.SDLBuffer(),0};
@@ -623,12 +625,9 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
         SDL_GPUBufferBinding ib={s_mesh.ibo.SDLBuffer(),0};
         SDL_BindGPUIndexBuffer(rp,&ib,s_mesh.indices_u16?SDL_GPU_INDEXELEMENTSIZE_16BIT:SDL_GPU_INDEXELEMENTSIZE_32BIT);
 
-        // Vertex sampler: bone matrices (set=0 binding=0)
-        SDL_GPUTextureSamplerBinding bsb{s_bones_tex,s_bones_sampler};
-        SDL_BindGPUVertexSamplers(rp,0,&bsb,1);
-
-        // Vertex uniform: MVP (set=1 binding=0)
+        // Vertex uniforms: MVP (set=1 binding=0), BoneMats 30 mat4 (set=1 binding=1)
         SDL_PushGPUVertexUniformData(cmd,0,vp,64);
+        SDL_PushGPUVertexUniformData(cmd,1,s_bones_cpu,30*16*sizeof(float));
 
         // Fragment samplers: body, head, muscle, blood (set=2 binding=0..3)
         SDL_GPUTextureSamplerBinding ftb[4]={
@@ -650,9 +649,8 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
         for(int sl=0; sl<CLOTH_MAX_SLOTS; ++sl) {
             if(!s_cloth[sl].loaded || s_cloth[sl].ni==0) continue;
             SDL_BindGPUGraphicsPipeline(rp, s_cloth_pipeline.SDLPipeline());
-            SDL_GPUTextureSamplerBinding cbsb{s_bones_tex, s_bones_sampler};
-            SDL_BindGPUVertexSamplers(rp, 0, &cbsb, 1);
             SDL_PushGPUVertexUniformData(cmd, 0, vp, 64);
+            SDL_PushGPUVertexUniformData(cmd, 1, s_bones_cpu, 30*16*sizeof(float));
             ClothFU cfu;
             cfu.color[0]=s_cloth_color[sl][0]; cfu.color[1]=s_cloth_color[sl][1];
             cfu.color[2]=s_cloth_color[sl][2]; cfu.pad=0;
