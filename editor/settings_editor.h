@@ -1,6 +1,5 @@
 #pragma once
 #include "editor_world_3d_sdlgpu.h"
-#include "editor_core.h"
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
@@ -20,7 +19,6 @@ struct Config {
     float w3d_scroll_step = 0.03f;
     float w3d_zoom_in     = 0.94f;
     float w3d_zoom_out    = 1.06f;
-    float fly_speed       = 100.f;
 };
 static Config g_cfg;
 
@@ -56,18 +54,15 @@ inline bool Load(const char* path) {
     g_cfg.w3d_scroll_step = rfloat("\"w3d_scroll_step\"", g_cfg.w3d_scroll_step);
     g_cfg.w3d_zoom_in     = rfloat("\"w3d_zoom_in\"",     g_cfg.w3d_zoom_in);
     g_cfg.w3d_zoom_out    = rfloat("\"w3d_zoom_out\"",    g_cfg.w3d_zoom_out);
-    g_cfg.fly_speed       = rfloat("\"fly_speed\"",       g_cfg.fly_speed);
 #ifdef MD_SDL_GPU
     WorldEditor3D_SDLGPU::ApplyCameraConfig(
         g_cfg.w3d_wasd_speed, g_cfg.w3d_scroll_step,
         g_cfg.w3d_zoom_in, g_cfg.w3d_zoom_out);
 #endif
-    EditorCore::Get().cam_speed = g_cfg.fly_speed;
     return true;
 }
 
 inline bool Save(const char* path) {
-    g_cfg.fly_speed = EditorCore::Get().cam_speed;
 #ifdef MD_SDL_GPU
     g_cfg.w3d_wasd_speed  = WorldEditor3D_SDLGPU::GetWasdSpeed();
     g_cfg.w3d_scroll_step = WorldEditor3D_SDLGPU::GetScrollStep();
@@ -83,13 +78,11 @@ inline bool Save(const char* path) {
         "  \"w3d_wasd_speed\": %.2f,\n"
         "  \"w3d_scroll_step\": %.4f,\n"
         "  \"w3d_zoom_in\": %.4f,\n"
-        "  \"w3d_zoom_out\": %.4f,\n"
-        "  \"fly_speed\": %.1f\n"
+        "  \"w3d_zoom_out\": %.4f\n"
         "}\n",
         g_cfg.ui_size, g_cfg.mono_size,
         g_cfg.w3d_wasd_speed, g_cfg.w3d_scroll_step,
-        g_cfg.w3d_zoom_in, g_cfg.w3d_zoom_out,
-        g_cfg.fly_speed);
+        g_cfg.w3d_zoom_in, g_cfg.w3d_zoom_out);
     fclose(f);
     return true;
 }
@@ -137,16 +130,6 @@ inline void DrawContent(const char* config_path,
         g_cfg.w3d_wasd_speed, g_cfg.w3d_scroll_step,
         g_cfg.w3d_zoom_in, g_cfg.w3d_zoom_out);
 #endif
-
-    ImGui::Spacing();
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + MARGIN);
-    ImGui::SeparatorText("F3 Flythrough Camera");
-    ImGui::Spacing();
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + MARGIN);
-    ImGui::SetNextItemWidth(160.f);
-    ImGui::SliderFloat("Fly speed (m/s)##fly",   &g_cfg.fly_speed, 5.f, 5000.f, "%.0f", ImGuiSliderFlags_Logarithmic);
-    EditorCore::Get().cam_speed = g_cfg.fly_speed;
-    ImGui::TextDisabled("  (same as Camera tab > Move Speed)");
 
     ImGui::Spacing();
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + MARGIN);

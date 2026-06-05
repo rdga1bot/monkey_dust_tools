@@ -31,6 +31,8 @@ static constexpr const char* F3_LAYOUT_PATH = "data/editor_f3_layout.json";
 // Version tag written by f3_save; file without it is from a different/stale session — ignored.
 static constexpr const char* F3_VERSION_TAG = "\"v\":1";
 
+struct F3SettingsState { bool det; ImVec2 pos, siz; };
+
 static float f3_parse_f(const char* buf, const char* key) {
     const char* p = strstr(buf, key); if (!p) return 0.f;
     p += strlen(key);
@@ -38,10 +40,11 @@ static float f3_parse_f(const char* buf, const char* key) {
     return (float)atof(p);
 }
 
-static void f3_load(bool det[6], ImVec2 pos[6], ImVec2 siz[6]) {
+static void f3_load(bool det[6], ImVec2 pos[6], ImVec2 siz[6],
+                    float* out_fspd = nullptr, F3SettingsState* out_set = nullptr) {
     FILE* f = fopen(F3_LAYOUT_PATH, "rb");
     if (!f) return;
-    char buf[512]; size_t n = fread(buf, 1, 511, f); buf[n] = '\0'; fclose(f);
+    char buf[600]; size_t n = fread(buf, 1, 599, f); buf[n] = '\0'; fclose(f);
     // Reject files not written by this code (no version tag = stale/foreign file).
     if (!strstr(buf, F3_VERSION_TAG)) return;
     const char* dk[6] = {"\"scene\"","\"ai\"","\"anim\"","\"flow\"","\"debug\"","\"cam\""};
@@ -66,25 +69,46 @@ static void f3_load(bool det[6], ImVec2 pos[6], ImVec2 siz[6]) {
             siz[i] = { w, f3_parse_f(buf, pk[i][3]) };
         }
     }
+    if (out_fspd) {
+        float v = f3_parse_f(buf, "\"fspd\"");
+        if (v > 0.f) *out_fspd = v;
+    }
+    if (out_set) {
+        const char* p = strstr(buf, "\"sdet\"");
+        if (p) {
+            p += 6; while (*p == ':' || *p == ' ') ++p;
+            out_set->det = (*p == '1');
+        }
+        float w = f3_parse_f(buf, "\"stw\"");
+        if (w > 0.f) {
+            out_set->pos = { f3_parse_f(buf, "\"stx\""), f3_parse_f(buf, "\"sty\"") };
+            out_set->siz = { w, f3_parse_f(buf, "\"sth\"") };
+        }
+    }
 }
 
-static void f3_save(const bool det[6], const ImVec2 pos[6], const ImVec2 siz[6]) {
+static void f3_save(const bool det[6], const ImVec2 pos[6], const ImVec2 siz[6],
+                    float fspd, F3SettingsState set) {
     FILE* f = fopen(F3_LAYOUT_PATH, "w"); if (!f) return;
     fprintf(f,
         "{\"v\":1,\"scene\":%d,\"ai\":%d,\"anim\":%d,\"flow\":%d,\"debug\":%d,\"cam\":%d,"
+        "\"fspd\":%.1f,\"sdet\":%d,"
         "\"scx\":%.0f,\"scy\":%.0f,\"scw\":%.0f,\"sch\":%.0f,"
         "\"aix\":%.0f,\"aiy\":%.0f,\"aiw\":%.0f,\"aih\":%.0f,"
         "\"anx\":%.0f,\"any\":%.0f,\"anw\":%.0f,\"anh\":%.0f,"
         "\"flx\":%.0f,\"fly\":%.0f,\"flw\":%.0f,\"flh\":%.0f,"
         "\"dbx\":%.0f,\"dby\":%.0f,\"dbw\":%.0f,\"dbh\":%.0f,"
-        "\"cmx\":%.0f,\"cmy\":%.0f,\"cmw\":%.0f,\"cmh\":%.0f}\n",
+        "\"cmx\":%.0f,\"cmy\":%.0f,\"cmw\":%.0f,\"cmh\":%.0f,"
+        "\"stx\":%.0f,\"sty\":%.0f,\"stw\":%.0f,\"sth\":%.0f}\n",
         (int)det[0],(int)det[1],(int)det[2],(int)det[3],(int)det[4],(int)det[5],
+        fspd,(int)set.det,
         pos[0].x,pos[0].y,siz[0].x,siz[0].y,
         pos[1].x,pos[1].y,siz[1].x,siz[1].y,
         pos[2].x,pos[2].y,siz[2].x,siz[2].y,
         pos[3].x,pos[3].y,siz[3].x,siz[3].y,
         pos[4].x,pos[4].y,siz[4].x,siz[4].y,
-        pos[5].x,pos[5].y,siz[5].x,siz[5].y);
+        pos[5].x,pos[5].y,siz[5].x,siz[5].y,
+        set.pos.x,set.pos.y,set.siz.x,set.siz.y);
     fclose(f);
 }
 
@@ -97,11 +121,14 @@ void EditorCore::Init() {
     bool det6[6] = {};
     ImVec2 pos6[6] = { f3_pos_scene, f3_pos_ai, f3_pos_anim, f3_pos_flow, f3_pos_debug, f3_pos_cam };
     ImVec2 siz6[6] = { f3_size_scene, f3_size_ai, f3_size_anim, f3_size_flow, f3_size_debug, f3_size_cam };
-    f3_load(det6, pos6, siz6);
+    F3SettingsState set6{f3_det_settings, f3_pos_settings, f3_size_settings};
+    f3_load(det6, pos6, siz6, &cam_speed, &set6);
     f3_det_scene = det6[0];  f3_det_ai    = det6[1]; f3_det_anim  = det6[2];
     f3_det_flow  = det6[3];  f3_det_debug = det6[4]; f3_det_cam   = det6[5];
+    f3_det_settings = set6.det;
     f3_pos_scene = pos6[0];  f3_pos_ai    = pos6[1]; f3_pos_anim  = pos6[2];
     f3_pos_flow  = pos6[3];  f3_pos_debug = pos6[4]; f3_pos_cam   = pos6[5];
+    f3_pos_settings  = set6.pos;  f3_size_settings = set6.siz;
     f3_size_scene = siz6[0]; f3_size_ai   = siz6[1]; f3_size_anim = siz6[2];
     f3_size_flow  = siz6[3]; f3_size_debug = siz6[4]; f3_size_cam = siz6[5];
 
@@ -137,13 +164,15 @@ void EditorCore::Update(float dt) {
     active_tab = s_f3_active_tab;
     static bool g_det_char = false;
     static ImVec2 f3_pos_char{400.f,200.f}, f3_size_char{420.f,280.f};
-    const bool det7[7] = { g_det_scene, g_det_ai, g_det_anim, g_det_flow, g_det_debug, g_det_cam, g_det_char };
     ImGuiWindowFlags f3_flags =
         ImGuiWindowFlags_NoTitleBar  | ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoMove      | ImGuiWindowFlags_NoScrollbar |
         ImGuiWindowFlags_NoScrollWithMouse |
         ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoSavedSettings;
-    if (s_f3_active_tab < 7 && det7[s_f3_active_tab]) f3_flags |= ImGuiWindowFlags_NoBackground;
+    // Camera tab (index 5) always shows the game world — no opaque backdrop needed.
+    // All other tabs (Scene/AI/Animation/FlowGraph/Debug/Characters/Settings) keep
+    // the opaque ##f3editor background whether docked or detached.
+    if (s_f3_active_tab == 5) f3_flags |= ImGuiWindowFlags_NoBackground;
     if (f3_passthrough)        f3_flags |= ImGuiWindowFlags_NoMouseInputs;
 
     ImGui::SetNextWindowPos({0.f, toolbar_h});
@@ -357,6 +386,50 @@ void EditorCore::Update(float dt) {
             }
             ImGui::EndTabItem();
         }
+        if (ImGui::BeginTabItem("Settings")) { s_f3_active_tab = 7;
+            bool&   g_det_set  = f3_det_settings;
+            ImVec2& f3_pos_set = f3_pos_settings;
+            ImVec2& f3_size_set = f3_size_settings;
+            static char   s_st_msg[64] = {};
+            static float  s_st_t = 0.f;
+            if (s_st_t > 0.f) s_st_t -= io.DeltaTime;
+            auto draw_settings = [&]() {
+                ImGui::TextUnformatted("F3 Flythrough Camera");
+                ImGui::Separator();
+                ImGui::SetNextItemWidth(220.f);
+                ImGui::SliderFloat("Fly speed (m/s)##fset", &cam_speed, 5.f, 5000.f, "%.0f",
+                                   ImGuiSliderFlags_Logarithmic);
+                if (ImGui::Button("Save config##fset")) {
+                    bool det[6]   = {f3_det_scene, f3_det_ai, f3_det_anim, f3_det_flow, f3_det_debug, f3_det_cam};
+                    ImVec2 pos[6] = {f3_pos_scene, f3_pos_ai, f3_pos_anim, f3_pos_flow, f3_pos_debug, f3_pos_cam};
+                    ImVec2 siz[6] = {f3_size_scene, f3_size_ai, f3_size_anim, f3_size_flow, f3_size_debug, f3_size_cam};
+                    F3SettingsState ss{f3_det_settings, f3_pos_settings, f3_size_settings};
+                    f3_save(det, pos, siz, cam_speed, ss);
+                    snprintf(s_st_msg, sizeof(s_st_msg), "Saved");
+                    s_st_t = 2.f;
+                }
+                if (s_st_t > 0.f) {
+                    ImGui::SameLine();
+                    ImGui::TextColored({0.4f, 0.9f, 0.4f, 1.f}, "%s", s_st_msg);
+                }
+            };
+            if (!g_det_set) {
+                if (det_right("Detach##set")) g_det_set = true;
+                ImGui::Separator();
+                draw_settings();
+            } else {
+                if (f3_pos_set.y < min_y) f3_pos_set.y = min_y;
+                ImGui::SetNextWindowPos(f3_pos_set,  ImGuiCond_Appearing);
+                ImGui::SetNextWindowSize(f3_size_set, ImGuiCond_Appearing);
+                if (ImGui::Begin("Settings##float", &g_det_set, FLOAT_FLAGS)) {
+                    if (det_right("Dock##set")) g_det_set = false;
+                    ImGui::Separator();
+                    draw_settings();
+                }
+                f3_end(f3_pos_set, f3_size_set);
+            }
+            ImGui::EndTabItem();
+        }
         ImGui::EndTabBar();
     }
     ImGui::End();
@@ -367,7 +440,8 @@ void EditorCore::Shutdown() {
     bool det6[6]  = { f3_det_scene, f3_det_ai, f3_det_anim, f3_det_flow, f3_det_debug, f3_det_cam };
     ImVec2 pos6[6] = { f3_pos_scene, f3_pos_ai, f3_pos_anim, f3_pos_flow, f3_pos_debug, f3_pos_cam };
     ImVec2 siz6[6] = { f3_size_scene, f3_size_ai, f3_size_anim, f3_size_flow, f3_size_debug, f3_size_cam };
-    f3_save(det6, pos6, siz6);
+    F3SettingsState set6{f3_det_settings, f3_pos_settings, f3_size_settings};
+    f3_save(det6, pos6, siz6, cam_speed, set6);
     EditorNodeGraphPanel::Get().Shutdown();
     EditorFlowGraphPanel::Get().Shutdown();
     DeselectAll();
