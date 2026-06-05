@@ -842,8 +842,8 @@ static bool s_create_pipelines(const char* glb_path) {
     pd.raster.depth_test = true;
     pd.raster.depth_write = true;
     pd.raster.cull_back = true;   // inner torso faces must be culled — cull_back=false caused arm/torso Z-fight
-    pd.vert_uniform_bufs = 1;   // set=1 binding=0: VU
-    pd.vert_samplers = 1;       // set=1 binding=1: uBoneScales (bone scale texture)
+    pd.vert_uniform_bufs = 2;   // set=1 binding=0: VU, binding=1: BoneMats (30 mat4)
+    pd.vert_samplers = 0;
     pd.frag_samplers = 4;       // set=2: body_diffuse, head_diffuse, muscle_mask, blood_overlay
     pd.frag_uniform_bufs = 1;   // set=3
     pd.color_format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
@@ -1204,8 +1204,7 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd) {
         !s_tex.SDLTexture()        || !s_tex.SDLSampler()        ||
         !s_tex_head.SDLTexture()   || !s_tex_head.SDLSampler()   ||
         !s_tex_muscle.SDLTexture() || !s_tex_muscle.SDLSampler() ||
-        !s_tex_blood.SDLTexture()  || !s_tex_blood.SDLSampler()  ||
-        !s_bones_tex               || !s_bones_sampler) {
+        !s_tex_blood.SDLTexture()  || !s_tex_blood.SDLSampler()) {
         SDL_EndGPURenderPass(rp); return;
     }
 
@@ -1217,12 +1216,9 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd) {
     SDL_GPUBufferBinding ib{s_ibo.SDLBuffer(),0u};
     SDL_BindGPUIndexBuffer(rp,&ib,SDL_GPU_INDEXELEMENTSIZE_32BIT);
 
-    // Bind bone scale texture as vertex sampler slot 0
-    SDL_GPUTextureSamplerBinding bsb{s_bones_tex, s_bones_sampler};
-    SDL_BindGPUVertexSamplers(rp,0,&bsb,1);
-
     VU vu; memcpy(vu.mvp, mvp.m, 64);
     SDL_PushGPUVertexUniformData(cmd,0,&vu,sizeof(vu));
+    SDL_PushGPUVertexUniformData(cmd,1,s_ws_mat,sizeof(s_ws_mat));
 
     FU fu{};
     fu.skin[0]=s_skin[0]; fu.skin[1]=s_skin[1]; fu.skin[2]=s_skin[2];
