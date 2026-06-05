@@ -40,10 +40,8 @@ add_executable(monkey_dust_editor
     ${CMAKE_SOURCE_DIR}/engine/src/vendor/glad_impl.cpp    # satisfies engine lib GL refs (never called in SDL_GPU mode)
     ${CMAKE_SOURCE_DIR}/engine/src/vendor/stb_image_impl.cpp
     ${CMAKE_SOURCE_DIR}/engine/src/render/cgltf_impl.cpp
-    # Game-side sources needed for 3D World tab (WorldRegistry, CharacterDef, W3D viewport)
+    # Game-side panel: 3D World viewport (depends only on engine/ — no game/ data types)
     ${CMAKE_SOURCE_DIR}/game/src/editor/editor_world_3d_sdlgpu.cpp
-    ${CMAKE_SOURCE_DIR}/game/src/world/character_def.cpp
-    ${CMAKE_SOURCE_DIR}/game/src/world/world_registry.cpp
     # Third-party panels
     ${CMAKE_SOURCE_DIR}/tools/third_party/imnodes/imnodes.cpp
     ${CMAKE_SOURCE_DIR}/tools/third_party/ImGuiColorTextEdit/TextEditor.cpp
@@ -69,7 +67,6 @@ target_link_libraries(monkey_dust_editor PRIVATE
 )
 target_include_directories(monkey_dust_editor PRIVATE
     editor/
-    ${CMAKE_SOURCE_DIR}/game/src
     ${CMAKE_SOURCE_DIR}/game/src/editor
     ${CMAKE_SOURCE_DIR}/tools/third_party/imgui
     ${CMAKE_SOURCE_DIR}/tools/third_party/imgui/backends
@@ -104,10 +101,8 @@ if(MONKEY_DUST_EDITOR_HOT_RELOAD)
     list(REMOVE_ITEM _EDITOR_PANELS_CPP "${CMAKE_CURRENT_SOURCE_DIR}/editor/main.cpp")
     set(EDITOR_PANELS_HOT_SRCS
         ${_EDITOR_PANELS_CPP}
-        # Game-side panels + dependencies (3D World viewport: terrain/WorldRegistry/CharDef)
+        # Game-side panel: 3D World viewport (depends only on engine/ — no game/ data types)
         ${CMAKE_SOURCE_DIR}/game/src/editor/editor_world_3d_sdlgpu.cpp
-        ${CMAKE_SOURCE_DIR}/game/src/world/character_def.cpp
-        ${CMAKE_SOURCE_DIR}/game/src/world/world_registry.cpp
         # Third-party panels
         ${CMAKE_SOURCE_DIR}/tools/third_party/imnodes/imnodes.cpp
         ${CMAKE_SOURCE_DIR}/tools/third_party/ImGuiColorTextEdit/TextEditor.cpp
@@ -126,7 +121,6 @@ if(MONKEY_DUST_EDITOR_HOT_RELOAD)
         DEBUG)  # MONKEY_DUST_EDITOR always enables DEBUG (see engine/CMakeLists.txt)
     target_include_directories(monkey_dust_editor_panels PRIVATE
         editor/
-        ${CMAKE_SOURCE_DIR}/game/src
         ${CMAKE_SOURCE_DIR}/game/src/editor
         ${CMAKE_SOURCE_DIR}/tools/third_party/imgui
         ${CMAKE_SOURCE_DIR}/tools/third_party/imgui/backends
