@@ -22,6 +22,7 @@
 #include "editor_map_view.h"
 #include "editor_node_graph.h"
 #include "editor_layout.h"
+#include "settings_editor.h"
 #include "bug_capture.h"
 #include <cstdio>
 #include <cstring>
@@ -44,6 +45,7 @@ void editor_panels_init(void* ctx, void* /*gpu*/, void* /*window*/,
     // Share host's ImGui context — CRITICAL, must be first.
     ImGui::SetCurrentContext(static_cast<ImGuiContext*>(ctx));
 
+    SettingsEditor::Load(CFG_PATH);
     ItemEditor::Load("data/items/items.json");
     FactionEditor::Load("data/factions/factions.json");
     NpcArchetypeEditor::Load("game/data/defs/npc_archetypes.json");
@@ -71,6 +73,9 @@ void editor_panels_init(void* ctx, void* /*gpu*/, void* /*window*/,
         CharacterEditor::g_detached    = s_lay.chars.detached;
         CharacterEditor::g_win_pos     = s_lay.chars.pos;
         CharacterEditor::g_win_size    = s_lay.chars.size;
+        SettingsEditor::g_detached     = s_lay.settings.detached;
+        SettingsEditor::g_win_pos      = s_lay.settings.pos;
+        SettingsEditor::g_win_size     = s_lay.settings.size;
         // Heightmap: DrawPanel() manages its own floating window — sync its internal statics
         HmapEditor2D::s_detached = s_lay.heightmap.detached;
         HmapEditor2D::s_win_pos  = s_lay.heightmap.pos;
@@ -89,6 +94,7 @@ void editor_panels_shutdown(const char* layout_path) {
         s_lay.factions = {FactionEditor::g_detached,      FactionEditor::g_win_pos,      FactionEditor::g_win_size};
         s_lay.npcs     = {NpcArchetypeEditor::g_detached, NpcArchetypeEditor::g_win_pos, NpcArchetypeEditor::g_win_size};
         s_lay.chars    = {CharacterEditor::g_detached,    CharacterEditor::g_win_pos,    CharacterEditor::g_win_size};
+        s_lay.settings = {SettingsEditor::g_detached,    SettingsEditor::g_win_pos,     SettingsEditor::g_win_size};
         // Heightmap: read back from DrawPanel()'s own statics
         s_lay.heightmap = {HmapEditor2D::s_detached, HmapEditor2D::s_win_pos, HmapEditor2D::s_win_size};
         // map/world/terrain/world3d are updated live in BuildUI → already in s_lay
@@ -336,6 +342,35 @@ uint32_t editor_panels_build_ui(float dt, float toolbar_h,
                     if (ImGui::SmallButton("Dock##chars")) CharacterEditor::g_detached = false;
                     ImGui::Separator();
                     CharacterEditor::Draw(false);
+                }
+                pos = ImGui::GetWindowPos();
+                if (pos.y < min_y) { pos.y = min_y; ImGui::SetWindowPos(pos); }
+                sz = ImGui::GetWindowSize();
+                ImGui::End();
+            }
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Settings")) {
+            if (!SettingsEditor::g_detached) {
+                float bw = ImGui::CalcTextSize("Detach##set").x + ImGui::GetStyle().FramePadding.x * 2 + 2;
+                ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - bw);
+                if (ImGui::SmallButton("Detach##set")) SettingsEditor::g_detached = true;
+                ImGui::Separator();
+                ImGui::SetCursorPos({12, ImGui::GetCursorPosY() + 4});
+                SettingsEditor::DrawContent(CFG_PATH, status_msg, status_timer);
+            } else {
+                ImVec2& pos = SettingsEditor::g_win_pos;
+                ImVec2& sz  = SettingsEditor::g_win_size;
+                const float min_y = toolbar_h + ImGui::GetFrameHeight() * 2 + 4.f;
+                if (pos.y < min_y) pos.y = min_y;
+                ImGui::SetNextWindowPos(pos, ImGuiCond_Appearing);
+                ImGui::SetNextWindowSize(sz,  ImGuiCond_Appearing);
+                if (ImGui::Begin("Settings##float", &SettingsEditor::g_detached, FLOAT_FLAGS)) {
+                    float bw = ImGui::CalcTextSize("Dock##set").x + ImGui::GetStyle().FramePadding.x * 2 + 2;
+                    ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - bw);
+                    if (ImGui::SmallButton("Dock##set")) SettingsEditor::g_detached = false;
+                    ImGui::Separator();
+                    SettingsEditor::DrawContent(CFG_PATH, status_msg, status_timer);
                 }
                 pos = ImGui::GetWindowPos();
                 if (pos.y < min_y) { pos.y = min_y; ImGui::SetWindowPos(pos); }
