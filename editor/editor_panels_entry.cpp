@@ -125,12 +125,6 @@ uint32_t editor_panels_build_ui(float dt, float toolbar_h,
         ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings;
 
     if (ImGui::BeginTabBar("##tabs")) {
-        if (ImGui::BeginTabItem("3D World")) {
-            flags |= (1u << 0);
-            ImVec2 avail = ImGui::GetContentRegionAvail();
-            WorldEditor3D_SDLGPU::DrawImGui(avail.x, avail.y - 2, dt);
-            ImGui::EndTabItem();
-        }
         if (ImGui::BeginTabItem("Items")) {
             if (!ItemEditor::g_detached) {
                 float bw = ImGui::CalcTextSize("Detach##items").x + ImGui::GetStyle().FramePadding.x * 2 + 2;
@@ -275,6 +269,12 @@ uint32_t editor_panels_build_ui(float dt, float toolbar_h,
         if (ImGui::BeginTabItem("Heightmap")) {
             flags |= (1u << 2);
             HmapEditor2D::DrawPanel();  // handles own Detach/Dock + floating window internally
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("3D World")) {
+            flags |= (1u << 0);
+            ImVec2 avail = ImGui::GetContentRegionAvail();
+            WorldEditor3D_SDLGPU::DrawImGui(avail.x, avail.y - 2, dt);
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("NPCs")) {
