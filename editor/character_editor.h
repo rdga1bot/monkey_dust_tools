@@ -928,12 +928,12 @@ static void Draw(bool kenshi_theme = true) {
         // Kenshi-style: bias toward centre of range (±1/3 of range from neutral),
         // not pure uniform random — prevents all-extreme values simultaneously.
         auto randDef = [](float lo, float hi, float def) -> float {
-            // 80% chance within [def - third, def + third], 20% full range
-            float third = (hi - lo) * 0.33f;
+            // 92% chance within [def - quarter, def + quarter], 8% full range
+            float quarter = (hi - lo) * 0.25f;
             float r01 = (float)(rand() % 1000) / 999.f;
-            if (r01 < 0.80f) {
-                float a = def - third > lo ? def - third : lo;
-                float b = def + third < hi ? def + third : hi;
+            if (r01 < 0.92f) {
+                float a = def - quarter > lo ? def - quarter : lo;
+                float b = def + quarter < hi ? def + quarter : hi;
                 int rng = (int)(b - a); if (rng < 1) rng = 1;
                 return a + (float)(rand() % rng);
             }
