@@ -394,14 +394,14 @@ static bool SaveJSON(const char* path) {
     fprintf(f, "  \"hair_r\": %.4f, \"hair_g\": %.4f, \"hair_b\": %.4f,\n",
             s_def.hair_rgb[0], s_def.hair_rgb[1], s_def.hair_rgb[2]);
     fprintf(f, "  \"color_str\": %.4f,\n", s_def.color_strength);
-    auto save_arr = [&](const char* key, const float* arr, int n) {
+    auto save_arr = [&](const char* key, const float* arr, int n, bool comma) {
         fprintf(f, "  \"%s\": [", key);
         for (int i=0;i<n;++i) fprintf(f, "%s%.2f", i?",":"", arr[i]);
-        fprintf(f, "]%s\n", n<HAIR_N?",":" ");
+        fprintf(f, "]%s\n", comma ? "," : "");
     };
-    save_arr("body",   s_def.body,   BODY_N);
-    save_arr("face",   s_def.face,   FACE_N);
-    save_arr("hair_f", s_def.hair_f, HAIR_N);
+    save_arr("body",   s_def.body,   BODY_N, true);
+    save_arr("face",   s_def.face,   FACE_N, true);
+    save_arr("hair_f", s_def.hair_f, HAIR_N, false);
     fprintf(f, "}\n"); fclose(f); return true;
 }
 
@@ -621,10 +621,24 @@ static void Draw(bool kenshi_theme = true) {
 
     // Import / Export
     {
+        static char s_io_msg[48] = {};
+        static float s_io_msg_t = 0.f;
         float hw = (ImGui::GetContentRegionAvail().x - spc) * 0.5f;
-        if (ImGui::Button("IMPORT##cc", {hw, 0.f})) LoadJSON(s_path);
+        if (ImGui::Button("IMPORT##cc", {hw, 0.f})) {
+            if (LoadJSON(s_path)) { strncpy(s_io_msg, "Loaded.", 47); }
+            else                  { strncpy(s_io_msg, "Load FAILED.", 47); }
+            s_io_msg_t = 2.5f;
+        }
         ImGui::SameLine(0.f, spc);
-        if (ImGui::Button("EXPORT##cc", {hw, 0.f})) SaveJSON(s_path);
+        if (ImGui::Button("EXPORT##cc", {hw, 0.f})) {
+            if (SaveJSON(s_path)) { strncpy(s_io_msg, "Saved.", 47); }
+            else                  { strncpy(s_io_msg, "Save FAILED.", 47); }
+            s_io_msg_t = 2.5f;
+        }
+        if (s_io_msg_t > 0.f) {
+            s_io_msg_t -= ImGui::GetIO().DeltaTime;
+            ImGui::TextDisabled("%s", s_io_msg);
+        }
     }
 
     // Clothes toggle
