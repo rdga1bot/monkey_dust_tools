@@ -234,6 +234,7 @@ static constexpr int   SYNTH_N          = 256;   // 256×256 quads, 125m/quad �
 static GpuStaticBuffer s_synth_vbo;               // TerrainVertex, (SYNTH_N+1)²
 static GpuStaticBuffer s_synth_ibo;               // uint32 IBO, SYNTH_N²×6
 static bool            s_synth_built    = false;
+static GpuPipeline     s_synth_pipeline;          // terrain_forward + depth bias (pushes behind LOD)
 
 static void s_build_synth_hmap() {
     static const float WORLD_SIZE = (float)(EDITOR_TNKN * CHUNK_SIZE); // 32000m
@@ -249,8 +250,8 @@ static void s_build_synth_hmap() {
             int cz = (int)(wz / CHUNK_SIZE); if (cz >= EDITOR_TNKN) cz = EDITOR_TNKN-1;
             int col = (int)((wx - cx*CHUNK_SIZE) / TERRAIN_STEP); if (col >= TERRAIN_GRID) col = TERRAIN_GRID-1;
             int row = (int)((wz - cz*CHUNK_SIZE) / TERRAIN_STEP); if (row >= TERRAIN_GRID) row = TERRAIN_GRID-1;
-            float y = s_chunks[cz][cx].loaded
-                    ? s_chunks[cz][cx].heightmap.h[row*(TERRAIN_GRID+1)+col] : 0.f;
+            float y = (s_chunks[cz][cx].loaded
+                    ? s_chunks[cz][cx].heightmap.h[row*(TERRAIN_GRID+1)+col] : 0.f);
             // Finite-difference normal
             auto h_at = [&](int ttx, int tty) -> float {
                 float wwx = ttx*cell, wwz = tty*cell;
@@ -367,13 +368,15 @@ static int             s_rtt_w = 0, s_rtt_h = 0;
 static int             s_last_w = 1280, s_last_h = 720;  // use prev frame size
 
 // Camera (free-fly world-space)
-static float s_cam_x    = 16000.f;
-static float s_cam_z    = 14000.f;
+// Default at grid(23,28) = world(11750,14250) — vivid orange Great Desert area
+// (avoid Vain/Ashlands center at 16000,14000 which is sat=0 gray in Kenshi colour map)
+static float s_cam_x    = 11750.f;
+static float s_cam_z    = 14250.f;
 static float s_cam_az   = 0.f;
 static float s_cam_el   = 0.70f;
 static float s_cam_dist = 22.f;
 // Free-fly state
-static float s_cx = 16000.f, s_cy = 1500.f, s_cz = 14000.f;
+static float s_cx = 11750.f, s_cy = 1500.f, s_cz = 14250.f;
 static float s_yaw = 0.f, s_pitch = 0.38f;
 static float s_speed       = 1000.f;  // m/s; Shift+Scroll to adjust
 static float s_scroll_step = 0.03f;   // step = s_cy * s_scroll_step * wheel
@@ -599,9 +602,9 @@ static void ensure_rtt(int w, int h) {
 
 // ── Init — loads master hmap synchronously (257 KiB), background: renderer ──
 bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
-    s_cx = 16000.f;
+    s_cx = 11750.f;
     s_cy = 8000.f;   // start high to see whole world
-    s_cz = 16000.f;
+    s_cz = 14250.f;
     s_yaw = 0.f; s_pitch = 0.38f;
 
     s_load_zone_amplitudes("game/data/terrain_config.txt");
@@ -630,6 +633,30 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
     s_loader_thread = std::thread([op]() {
         if (!s_terrain.Init()) {
             fprintf(stderr, "[W3D-SDLGPU] TerrainRenderer init failed\n"); return;
+        }
+        // Synthesis pipeline: same as terrain_forward but with depth bias so synthesis always
+        // loses depth test against LOD terrain at the same world position (no world-Y offset needed).
+        {
+            GpuPipeline::Desc sd;
+            sd.vert_path = "shaders/terrain_forward.vert";
+            sd.frag_path = "shaders/terrain_forward.frag";
+            sd.layout.count      = 4;
+            sd.layout.stride     = 52;
+            sd.layout.attribs[0] = { 0,  0, GpuAttribFmt::F3 };
+            sd.layout.attribs[1] = { 1, 12, GpuAttribFmt::F3 };
+            sd.layout.attribs[2] = { 2, 24, GpuAttribFmt::F2 };
+            sd.layout.attribs[3] = { 3, 32, GpuAttribFmt::F4 };
+            sd.raster.depth_test        = true;
+            sd.raster.depth_write       = true;
+            sd.raster.cull_back         = false;
+            sd.raster.depth_bias_enable = true;
+            sd.raster.depth_bias_slope  = 2.0f;   // push synthesis behind LOD at all slope angles
+            sd.raster.depth_bias_constant = 64.0f;
+            sd.has_depth_target   = true;
+            sd.vert_uniform_bufs  = 1;
+            sd.frag_uniform_bufs  = 1;
+            sd.frag_samplers      = 2;  // binding 0: colour, binding 1: detail
+            s_synth_pipeline.Create(sd);
         }
         s_props.Init("game/data/props/rocks/rock_01.glb"); // no-op if missing
         s_terrain.InitKenshiOverlay(op);
@@ -733,7 +760,7 @@ static void handle_input(float dt) {
     if (kb[SDL_SCANCODE_Q]||kb[SDL_SCANCODE_PAGEDOWN]) s_cy-=sp;
     if (kb[SDL_SCANCODE_E]||kb[SDL_SCANCODE_PAGEUP])   s_cy+=sp;
     if (ImGui::IsKeyPressed(ImGuiKey_R)) rebuild_inplace();
-    if (ImGui::IsKeyPressed(ImGuiKey_T)) { s_cx=16000.f; s_cy=8000.f; s_cz=16000.f; }
+    if (ImGui::IsKeyPressed(ImGuiKey_T)) { s_cx=11750.f; s_cy=8000.f; s_cz=14250.f; }
     if (io.MouseWheel != 0.f) {
         if (shift) {
             // Shift+Scroll = adjust WASD speed
@@ -852,9 +879,9 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
             // terrain shaders expect surface→sun (positive Y up); LightSystem = sun→surface → negate.
             sun.dir[0] = -ls.sun_dir.x; sun.dir[1] = -ls.sun_dir.y; sun.dir[2] = -ls.sun_dir.z;
             sun.strength   = 1.1f;
-            sun.ambient[0] = biome.fog_r * 0.4f + 0.35f;
-            sun.ambient[1] = biome.fog_g * 0.4f + 0.37f;
-            sun.ambient[2] = biome.fog_b * 0.4f + 0.40f;
+            sun.ambient[0] = biome.fog_r * 0.2f + 0.22f;
+            sun.ambient[1] = biome.fog_g * 0.2f + 0.23f;
+            sun.ambient[2] = biome.fog_b * 0.2f + 0.26f;
 
             // Rebuild compact VBOs 0.5s after last brush edit (debounced).
             if (s_cvbo_dirty) {
@@ -872,8 +899,10 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
             // Phase 2: Synthesis VBO — always render as full-world background.
             // Near chunks render on top via depth test (no z-fight: chunks are
             // more precise, synthesis is background filler beyond LOD2 range).
-            if (s_synth_built && s_synth_vbo.SDLBuffer() && s_synth_ibo.SDLBuffer()) {
-                s_terrain.BeginRawBatch(rp, cmd, vp.m, sun, WCX, WCZ, W2UV, 1);
+            if (s_synth_built && s_synth_vbo.SDLBuffer() && s_synth_ibo.SDLBuffer()
+                    && s_synth_pipeline.SDLPipeline()) {
+                s_terrain.BeginRawBatch(rp, cmd, vp.m, sun, WCX, WCZ, W2UV, 1); // set uniforms
+                SDL_BindGPUGraphicsPipeline(rp, s_synth_pipeline.SDLPipeline()); // override: depth bias
                 SDL_GPUBufferBinding sib { s_synth_ibo.SDLBuffer(), 0u };
                 SDL_BindGPUIndexBuffer(rp, &sib, SDL_GPU_INDEXELEMENTSIZE_32BIT);
                 SDL_GPUBufferBinding svb { s_synth_vbo.SDLBuffer(), 0u };

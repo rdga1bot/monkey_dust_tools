@@ -35,4 +35,4 @@ for ty in range(GRID):
 
 os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
 result.save(OUT_PATH, "PNG", optimize=False)
-print(f"\nSaved: {OUT_PATH}  ({IMG_SIZE}×{IMG_SIZE} RGB)")
+print(f"Saved: {OUT_PATH}  ({IMG_SIZE}×{IMG_SIZE} RGB)")
