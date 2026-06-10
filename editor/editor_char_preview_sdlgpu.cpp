@@ -39,7 +39,7 @@ struct FU {                                          // 48 bytes, set=3
 static GpuPipeline     s_bg_pipeline;
 static GpuTexture      s_bg_sand;   // desert_sand.jpg — ground texture
 static GpuTexture      s_bg_dune;   // desert_dune.jpg — large-scale dune pattern
-static GpuPipeline     s_scene_pipeline;  // platform + pole flat-color
+static GpuPipeline     s_scene_pipeline;  // anthropometer pole, flat-color
 static GpuStaticBuffer s_scene_vbo;
 static GpuStaticBuffer s_scene_ibo;
 static int             s_scene_ni = 0;
@@ -323,6 +323,7 @@ static bool   s_morphs_dirty    = false;
 
 // Params saved by DrawInImGui → consumed by RenderFrame
 static float s_height = 1.f, s_bulk = 1.f;
+static float s_leg_y  = 0.95f;  // cached from SetBoneScalesFromDef for foot grounding
 static float s_skin[3] = {0.82f, 0.65f, 0.52f};
 static float s_str = 0.55f, s_sat = 1.f, s_bri = 0.f;
 static float s_muscle = 0.f;
@@ -891,7 +892,7 @@ static bool s_create_pipelines(const char* glb_path) {
         load_bg(s_bg_dune,"game/data/textures/terrain/desert_dune.jpg");
     }
 
-    // ── Scene pipeline: platform planks + anthropometer pole ─────────────────
+    // ── Scene pipeline: anthropometer pole ─────────────────
     {
         GpuPipeline::Desc spd;
         spd.vert_path = "shaders/char_scene.vert";
@@ -912,9 +913,8 @@ static bool s_create_pipelines(const char* glb_path) {
         if (!s_scene_pipeline.Create(spd))
             fprintf(stderr,"[CharPreview] scene pipeline create failed\n");
 
-        // ── Procedural geometry: platform + anthropometer ───────────────────
+        // ── Procedural geometry: anthropometer pole ───────────────────
         // Coordinate system: Y=0 = character feet level.
-        // Platform: flat raised dock, planks run in Z, Y from -0.14 to 0.
         // Pole: X=+0.65, Z=0, Y from 0 to 2.2m, with tick marks.
 
         struct SV { float x,y,z, r,g,b; };
@@ -930,30 +930,6 @@ static bool s_create_pipelines(const char* glb_path) {
             idxs[ii++]=base; idxs[ii++]=base+2; idxs[ii++]=base+3;
         };
         auto rgb=[](float r,float g,float b){ return SV{0,0,0,r,g,b}; };
-
-        // ── Platform planks ───────────────────────────────────────────────
-        // 7 planks, each 0.26m wide, 0.015m gap, running Z: -0.7 to +0.9
-        // Total width: 7*0.26 + 6*0.015 = 1.82 + 0.09 = 1.91m → x: -0.955..+0.955
-        float pz0=-0.7f, pz1=0.9f;
-        float px=-0.955f;
-        float plank_w=0.26f, gap=0.015f;
-        float py_top=0.01f, py_bot=-0.13f;  // +1cm above foot Y=0 to avoid Z-fight
-        for(int p=0;p<7;p++){
-            float px0=px, px1=px+plank_w;
-            float shade=(p%2==0)?0.f:0.06f;
-            float dr=0.32f+shade, dg=0.20f+shade*0.7f, db=0.11f+shade*0.4f;
-            float sr=0.38f+shade, sg=0.25f+shade*0.7f, sb=0.14f+shade*0.4f;
-            SV tl={px0,py_top,pz0,sr,sg,sb}, tr={px1,py_top,pz0,sr,sg,sb};
-            SV bl={px0,py_top,pz1,dr,dg,db}, br={px1,py_top,pz1,dr,dg,db};
-            quad(tl,tr,br,bl);   // top face
-            // Front edge face (Z=pz1, facing +Z)
-            SV fe0={px0,py_bot,pz1,0.18f,0.11f,0.06f};
-            SV fe1={px1,py_bot,pz1,0.18f,0.11f,0.06f};
-            SV fe2={px1,py_top,pz1,0.22f,0.14f,0.08f};
-            SV fe3={px0,py_top,pz1,0.22f,0.14f,0.08f};
-            quad(fe0,fe1,fe2,fe3);
-            px += plank_w + gap;
-        }
 
         // ── Anthropometer pole ────────────────────────────────────────────
         // Positioned X=+0.65 (viewer's right of character), Z=0
@@ -1121,11 +1097,19 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd) {
     // Translate: put feet (bind-pose Y ≈ -0.95) at ground (Y=0); offset scales with H.
     M4 model = m4_translate(0.f, -s_height*0.95f, 0.f);
 
+    // Foot grounding: for non-default leg_Y the calf/foot bind-pose X-translation
+    // is scaled by leg_Y → feet drift above platform top. Shift character-only downward.
+    // foot_adj = (default_leg_Y - actual_leg_Y) * (calf_bind_X + foot_bind_X)
+    //          = (0.95 - s_leg_y) * (0.439 + 0.461) = (0.95 - s_leg_y) * 0.9
+    float foot_adj = (0.95f - s_leg_y) * 0.9f;
+    M4 char_model  = m4_translate(0.f, -(s_height*0.95f + foot_adj), 0.f);
+
     // Orbit view + perspective
     M4 view = m4_mul(m4_translate(0.f, -s_lookat_y, -s_dist), m4_mul(m4_rotX(s_pit), m4_rotY(s_yaw)));
     float asp=(float)s_rtt_w/(float)s_rtt_h;
     M4 proj = m4_persp(0.78f, asp, 0.05f, 10.f);
-    M4 mvp  = m4_mul(proj, m4_mul(view, model));
+    M4 mvp      = m4_mul(proj, m4_mul(view, model));       // scene geometry (platform, pole)
+    M4 char_mvp = m4_mul(proj, m4_mul(view, char_model));  // character + hair
 
     // Eye position in MODEL space for hair shader (V = normalize(eye_model - bone_pos)).
     // eye_world = inv(view) translation column.
@@ -1135,7 +1119,7 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd) {
     {
         float inv_v[16]; m4inv_rigid(inv_v, view.m);
         HairShading::g_params.eye_pos[0] = inv_v[12];
-        HairShading::g_params.eye_pos[1] = inv_v[13] + s_height * 0.95f;
+        HairShading::g_params.eye_pos[1] = inv_v[13] + s_height * 0.95f + foot_adj;
         HairShading::g_params.eye_pos[2] = inv_v[14];
         HairShading::g_params.eye_pos[3] = 0.f;
     }
@@ -1188,7 +1172,7 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd) {
         SDL_DrawGPUPrimitives(rp, 3, 1, 0, 0);
     }
 
-    // ── Scene geometry: platform + pole ──────────────────────────────────────
+    // ── Scene geometry: anthropometer pole ──────────────────────────────────────
     if (s_scene_pipeline.SDLPipeline() && s_scene_vbo.SDLBuffer() && s_scene_ni > 0) {
         SDL_BindGPUGraphicsPipeline(rp, s_scene_pipeline.SDLPipeline());
         SDL_GPUBufferBinding svb{s_scene_vbo.SDLBuffer(),0u};
@@ -1216,7 +1200,7 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd) {
     SDL_GPUBufferBinding ib{s_ibo.SDLBuffer(),0u};
     SDL_BindGPUIndexBuffer(rp,&ib,SDL_GPU_INDEXELEMENTSIZE_32BIT);
 
-    VU vu; memcpy(vu.mvp, mvp.m, 64);
+    VU vu; memcpy(vu.mvp, char_mvp.m, 64);
     SDL_PushGPUVertexUniformData(cmd,0,&vu,sizeof(vu));
     SDL_PushGPUVertexUniformData(cmd,1,s_ws_mat,sizeof(s_ws_mat));
 
@@ -1245,7 +1229,7 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd) {
         SDL_BindGPUVertexSamplers(rp, 0, &hvtb, 1);
         // Vertex uniform: MVP only (64 bytes — safe on Intel HD 520).
         // eye_pos is passed in model space via frag UB so no second matrix needed.
-        VU hvu; memcpy(hvu.mvp, mvp.m, 64);
+        VU hvu; memcpy(hvu.mvp, char_mvp.m, 64);
         SDL_PushGPUVertexUniformData(cmd, 0, &hvu, sizeof(hvu));
         // Fragment uniform slot 0: hair color
         HairFU hfu; hfu.hair[0]=s_hair[0]; hfu.hair[1]=s_hair[1]; hfu.hair[2]=s_hair[2]; hfu.pad=0;
@@ -1370,6 +1354,7 @@ void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     // overall_XZ = (LgShape*LgBulk + (Hips-1)/3) * Frame   [Kenshi line 263670]
     float overall_XZ = cl((LgS * LgB + (Hips - 1.f) / 3.f) * Fr);
     float leg_Y = cl((H + LL - 1.f) * 0.95f);  // vertex height for thigh+calf
+    s_leg_y = leg_Y;
 
     // Pelvis [1]: setBoneSize(comp(Hips,0.6)*Fr, H, comp(Hips,0.6)*Fr)   [Kenshi RE line 263670]
     setBS(1, H, comp(Hips,0.6f)*Fr, comp(Hips,0.6f)*Fr);
