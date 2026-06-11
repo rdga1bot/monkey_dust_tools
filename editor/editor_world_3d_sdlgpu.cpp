@@ -655,7 +655,7 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
             sd.has_depth_target   = true;
             sd.vert_uniform_bufs  = 1;
             sd.frag_uniform_bufs  = 1;
-            sd.frag_samplers      = 2;  // binding 0: colour, binding 1: detail
+            sd.frag_samplers      = 1;  // binding 0: colour only
             s_synth_pipeline.Create(sd);
         }
         s_props.Init("game/data/props/rocks/rock_01.glb"); // no-op if missing
