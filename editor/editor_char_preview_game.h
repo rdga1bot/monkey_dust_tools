@@ -95,7 +95,8 @@ static ClothSlot       s_cloth[CLOTH_MAX_SLOTS];
 static GpuPipeline     s_cloth_pipeline;
 static bool            s_clothes_visible = true;
 
-static int s_sex = 0;  // 0=Male 1=Female — set by Init(), drives cloth path selection
+static int   s_sex   = 0;    // 0=Male 1=Female — set by Init(), drives cloth path selection
+static float s_leg_y = 0.95f; // cached leg scale from body sliders; drives foot grounding
 
 struct ClothItemDef {
     const char* name;
@@ -552,8 +553,8 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
 
     if(s_morphs_dirty) upload_morphed();
 
-    // Idle animation: time-based t (breathing/idle clip plays continuously)
-    float anim_t = (float)(SDL_GetTicks() % 10000u) * 0.001f;
+    // Frame 0 only: last frame of idle_stand_normal breaks head tilt + hand clipping.
+    float anim_t = 0.f;
 
     // Upload bone matrices to texture via copy pass BEFORE render pass
     upload_bones(cmd, anim_t);
@@ -615,6 +616,20 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
         SDL_DrawGPUIndexedPrimitives(rp,s_scene_ni,1,0,0,0);
     }
 
+    // Foot grounding: raise character so feet land on platform top (y=pt=0.01).
+    // foot_adj = (s_leg_y - 0.95) * 0.9: longer legs drift down without this.
+    // Apply to char/hair/clothes VP only — platform stays at vp (world y=0).
+    float char_vp[16];
+    {
+        float ty = (s_leg_y - 0.95f) * 0.9f;
+        memcpy(char_vp, vp, 64);
+        // vp * translate(0, ty, 0): adds ty*col1(vp) to col3(vp)
+        char_vp[12] += vp[4] * ty;
+        char_vp[13] += vp[5] * ty;
+        char_vp[14] += vp[6] * ty;
+        char_vp[15] += vp[7] * ty;
+    }
+
     // ── Character mesh ────────────────────────────────────────────────────────
     if(s_pipeline.SDLPipeline()&&s_skin_vbo.SDLBuffer()){
         SDL_BindGPUGraphicsPipeline(rp,s_pipeline.SDLPipeline());
@@ -626,7 +641,7 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
         SDL_BindGPUIndexBuffer(rp,&ib,s_mesh.indices_u16?SDL_GPU_INDEXELEMENTSIZE_16BIT:SDL_GPU_INDEXELEMENTSIZE_32BIT);
 
         // Vertex uniforms: MVP (set=1 binding=0), BoneMats 30 mat4 (set=1 binding=1)
-        SDL_PushGPUVertexUniformData(cmd,0,vp,64);
+        SDL_PushGPUVertexUniformData(cmd,0,char_vp,64);
         SDL_PushGPUVertexUniformData(cmd,1,s_bones_cpu,30*16*sizeof(float));
 
         // Fragment samplers: body, head, muscle, blood (set=2 binding=0..3)
@@ -649,7 +664,7 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
         for(int sl=0; sl<CLOTH_MAX_SLOTS; ++sl) {
             if(!s_cloth[sl].loaded || s_cloth[sl].ni==0) continue;
             SDL_BindGPUGraphicsPipeline(rp, s_cloth_pipeline.SDLPipeline());
-            SDL_PushGPUVertexUniformData(cmd, 0, vp, 64);
+            SDL_PushGPUVertexUniformData(cmd, 0, char_vp, 64);
             SDL_PushGPUVertexUniformData(cmd, 1, s_bones_cpu, 30*16*sizeof(float));
             ClothFU cfu;
             cfu.color[0]=s_cloth_color[sl][0]; cfu.color[1]=s_cloth_color[sl][1];
@@ -668,7 +683,7 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
         SDL_BindGPUGraphicsPipeline(rp,s_hair_pipeline.SDLPipeline());
         SDL_GPUTextureSamplerBinding hbsb{s_bones_tex,s_bones_sampler};
         SDL_BindGPUVertexSamplers(rp,0,&hbsb,1);
-        SDL_PushGPUVertexUniformData(cmd,0,vp,64);
+        SDL_PushGPUVertexUniformData(cmd,0,char_vp,64);
         HairFU hfu; hfu.hair[0]=s_hair[0]; hfu.hair[1]=s_hair[1]; hfu.hair[2]=s_hair[2]; hfu.pad=0;
         SDL_PushGPUFragmentUniformData(cmd,0,&hfu,sizeof(hfu));
         SDL_PushGPUFragmentUniformData(cmd,1,&HairShading::g_params,sizeof(HairShadingFU));
@@ -686,6 +701,9 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
 static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     memcpy(s_body_cache, body, CHARCC_BODY_N * sizeof(float));
     memcpy(s_face_cache, face, CHARCC_FACE_N * sizeof(float));
+    // leg_Y = clamp(H + LL - 1): body[2]=height, body[7]=leg_length (same formula as char_customization.cpp)
+    float ly = body[2] / 100.f + body[7] / 100.f - 1.f;
+    s_leg_y = ly < 0.f ? 0.f : (ly > 1.f ? 1.f : ly);
 }
 static void SetBodyMorphWeights(const float body[18], const float face[24]) {
     auto pd=[](float v,float n,float r)->float{float d=(v-n)/r;return d<0?0:(d>1?1:d);};
