@@ -6,6 +6,9 @@
 #include <dirent.h>
 #include <cstring>
 #include <cstdio>
+#ifdef __linux__
+#include <unistd.h>
+#endif
 
 // ─────────────────────────────────────────────────────────────────────────────
 static bool StrEndsWith(const char* s, const char* ext) {
@@ -184,9 +187,12 @@ void EditorAssetBrowser::Draw() {
     ImGui::SameLine();
 #ifdef __linux__
     if (ImGui::SmallButton("[Open]")) {
-        char cmd[MAX_PATH + 32];
-        snprintf(cmd, sizeof(cmd), "xdg-open %s &", current_path_);
-        system(cmd);
+        pid_t pid = fork();
+        if (pid == 0) {
+            char* argv[] = { (char*)"xdg-open", current_path_, nullptr };
+            execvp("xdg-open", argv);
+            _exit(1);
+        }
     }
 #endif
 
