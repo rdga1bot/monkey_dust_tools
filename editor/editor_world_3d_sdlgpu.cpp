@@ -649,9 +649,6 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
             sd.raster.depth_test        = true;
             sd.raster.depth_write       = true;
             sd.raster.cull_back         = false;
-            sd.raster.depth_bias_enable = true;
-            sd.raster.depth_bias_slope  = 2.0f;   // push synthesis behind LOD at all slope angles
-            sd.raster.depth_bias_constant = 64.0f;
             sd.has_depth_target   = true;
             sd.vert_uniform_bufs  = 1;
             sd.frag_uniform_bufs  = 1;
@@ -660,6 +657,7 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
         }
         s_props.Init("game/data/props/rocks/rock_01.glb"); // no-op if missing
         s_terrain.InitKenshiOverlay(op);
+        s_terrain.InitGroundTextureArray();
         TerrainRenderer::PomParams pom; pom.height_scale=0.04f; pom.layers_min=4; pom.layers_max=8;
         s_terrain.InitPOM("game/data/textures/terrain_pom_rock.png", pom);
         s_master_ready = true;
