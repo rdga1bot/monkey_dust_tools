@@ -1,3 +1,4 @@
-tools/qa/captures/
+qa/captures/
+re_analysis/
 __pycache__/
 *.pyc
