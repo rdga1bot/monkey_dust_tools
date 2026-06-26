@@ -267,6 +267,9 @@ static const char* const kStatNames[7] = {
 };
 
 // ── Data struct ───────────────────────────────────────────────────────────────
+// KEN-ATTR-1: free attribute points at char creation (Kenshi RE: char+0x198).
+static constexpr int ATTR_FREE_TOTAL = 15;  // points to distribute
+
 struct Def {
     char    name[32]       = {};
     uint8_t sex            = 0;   // 0=Male, 1=Female
@@ -277,6 +280,8 @@ struct Def {
     float   skin_rgb[3]    = { 0.82f, 0.65f, 0.52f };
     float   hair_rgb[3]    = { 0.18f, 0.12f, 0.08f };
     float   color_strength = 0.55f;
+    // KEN-ATTR-1: points spent per stat at char creation (indices match kStatNames[7])
+    int8_t  attr_spent[7]  = {};
 
     Def() {
         memset(name, 0, sizeof(name));
@@ -284,6 +289,13 @@ struct Def {
         for (int i = 0; i < BODY_N; ++i) body[i] = kBodyDef[i];
         for (int i = 0; i < FACE_N; ++i) face[i] = kFaceDef[i];
         for (int i = 0; i < HAIR_N; ++i) hair_f[i] = kHairDef[i];
+        for (int i = 0; i < 7; ++i) attr_spent[i] = 0;
+    }
+
+    int AttrRemaining() const {
+        int spent = 0;
+        for (int i = 0; i < 7; ++i) spent += attr_spent[i];
+        return ATTR_FREE_TOTAL - spent;
     }
 
     // Derived parameters for renderer.
@@ -383,6 +395,20 @@ static bool LoadJSON(const char* path) {
         if (s_def.face[i] < kFaceLo[i] || s_def.face[i] > kFaceHi[i])
             s_def.face[i] = kFaceDef[i];
 
+    // KEN-ATTR-1: load attr_spent[]
+    {
+        const char* p = strstr(buf, "\"attr_spent\"");
+        if (p) { p = strchr(p, '['); if (p) { ++p;
+            for (int i = 0; i < 7; ++i) {
+                while (*p && (*p == ' ' || *p == ',')) ++p;
+                if (!*p || *p == ']') break;
+                int v = atoi(p);
+                s_def.attr_spent[i] = (int8_t)(v < 0 ? 0 : (v > ATTR_FREE_TOTAL ? ATTR_FREE_TOTAL : v));
+                while (*p && *p != ',' && *p != ']') ++p;
+            }
+        }} else { for (int i = 0; i < 7; ++i) s_def.attr_spent[i] = 0; }
+    }
+
     free(buf); return true;
 }
 static bool SaveJSON(const char* path) {
@@ -401,7 +427,11 @@ static bool SaveJSON(const char* path) {
     };
     save_arr("body",   s_def.body,   BODY_N, true);
     save_arr("face",   s_def.face,   FACE_N, true);
-    save_arr("hair_f", s_def.hair_f, HAIR_N, false);
+    save_arr("hair_f", s_def.hair_f, HAIR_N, true);
+    // KEN-ATTR-1: save attr_spent[]
+    fprintf(f, "  \"attr_spent\": [");
+    for (int i = 0; i < 7; ++i) fprintf(f, "%s%d", i ? "," : "", (int)s_def.attr_spent[i]);
+    fprintf(f, "]\n");
     fprintf(f, "}\n"); fclose(f); return true;
 }
 
@@ -754,12 +784,51 @@ static void Draw(bool kenshi_theme = true) {
     if (kenshi_theme) ImGui::PopStyleColor();
 
     {
-        float stats_h = total_h - ImGui::GetCursorPosY() - 4.f;
-        if (stats_h < 60.f) stats_h = 60.f;
-        ImGui::BeginChild("##rc_stats", {0.f, stats_h}, false);
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {4.f, 1.f});
         for (int i = 0; i < 7; ++i)
             StatBar(kStatNames[i], (int)kr.stat_bonus[i]);
+        ImGui::PopStyleVar();
+    }
+
+    ImGui::Separator();
+
+    // ── KEN-ATTR-1: Free attribute points ───────────────────────
+    {
+        int remaining = s_def.AttrRemaining();
+        if (kenshi_theme) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.647f,0.510f,0.251f,1.f});
+        ImGui::Text("FREE ATTRIBUTES [%d]", remaining);
+        if (kenshi_theme) ImGui::PopStyleColor();
+
+        float stats_h = total_h - ImGui::GetCursorPosY() - 4.f;
+        if (stats_h < 80.f) stats_h = 80.f;
+        ImGui::BeginChild("##attr_free", {0.f, stats_h}, false);
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {2.f, 2.f});
+
+        for (int i = 0; i < 7; ++i) {
+            ImGui::AlignTextToFramePadding();
+            // Label (fixed 64px)
+            ImGui::TextUnformatted(kStatNames[i]);
+            ImGui::SameLine(64.f, 0.f);
+
+            char btn_minus[16], btn_plus[16];
+            snprintf(btn_minus, sizeof(btn_minus), "-##am%d", i);
+            snprintf(btn_plus,  sizeof(btn_plus),  "+##ap%d", i);
+
+            // [−] button: disabled when nothing spent on this stat
+            if (s_def.attr_spent[i] <= 0) ImGui::BeginDisabled();
+            if (ImGui::SmallButton(btn_minus)) s_def.attr_spent[i]--;
+            if (s_def.attr_spent[i] <= 0) ImGui::EndDisabled();
+
+            ImGui::SameLine(0.f, 2.f);
+            ImGui::Text("%2d", (int)s_def.attr_spent[i]);
+            ImGui::SameLine(0.f, 2.f);
+
+            // [+] button: disabled when no free points remain
+            if (remaining <= 0) ImGui::BeginDisabled();
+            if (ImGui::SmallButton(btn_plus)) { s_def.attr_spent[i]++; remaining--; }
+            if (remaining <= 0) ImGui::EndDisabled();
+        }
+
         ImGui::PopStyleVar();
         ImGui::EndChild();
     }

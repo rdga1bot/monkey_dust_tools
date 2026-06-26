@@ -9,6 +9,7 @@
 #include <monkey_dust/ecs/registry.h>
 #include <monkey_dust/components/char_body_state.h>
 #include <monkey_dust/components/player_controller.h>
+#include <monkey_dust/components/stat_sheet.h>
 #include "world/char_def.h"
 #include "render/npc_render.h"
 #include <cstdio>
@@ -53,6 +54,23 @@ private:
 
         auto& bs = reg.emplace_or_replace<CharBodyState>(pe);
         CharBodyState_InitFromDef(bs, cd);
+
+        // KEN-ATTR-1: apply free attribute points to player StatSheet.
+        // Stat index matches kStatNames[7]: Athletics Strength Toughness MeleeAtk Ranged Thievery Perception
+        static const Skill kAttrSkill[7] = {
+            Skill::Athletics, Skill::Strength, Skill::Toughness,
+            Skill::MeleeAttack, Skill::Crossbows, Skill::Thievery, Skill::Perception
+        };
+        if (auto* ss = reg.try_get<StatSheet>(pe)) {
+            const CharacterEditor::Def& def = CharacterEditor::s_def;
+            for (int i = 0; i < 7; ++i) {
+                int v = (int)(*ss)[kAttrSkill[i]] + def.attr_spent[i];
+                if (v < 0)  v = 0;
+                if (v > 99) v = 99;
+                (*ss)[kAttrSkill[i]] = (uint8_t)v;
+            }
+        }
+
         fprintf(stdout,"[CharPanel] Applied '%s' to player\n", cd.name);
     }
 };
