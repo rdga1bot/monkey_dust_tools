@@ -807,9 +807,11 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
     s_last_eye[0]=s_cx; s_last_eye[1]=s_cy; s_last_eye[2]=s_cz;
 
     // Rebuild dirty chunks (marked by s_apply_brush)
+    bool was_chunk_dirty = false;
     if (s_loaded) {
         for (int cz = 0; cz < EDITOR_TNKN; ++cz) for (int cx = 0; cx < EDITOR_TNKN; ++cx) {
             if (!s_chunk_dirty[cz][cx]) continue;
+            was_chunk_dirty = true;
             int chunk_zx = s_zone_ox_saved + cx, chunk_zz = s_zone_oz_saved + cz;
             ChunkCoord coord = { chunk_zx, chunk_zz };
             TerrainGenParams p; p.zone_origin_x = 0; p.zone_origin_z = 0;
@@ -821,6 +823,23 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
             s_chunk_dirty[cz][cx] = false;
             s_cvbo_dirty   = true;   // compact VBO needs refresh after edits
             s_cvbo_dirty_t = 0.f;
+        }
+    }
+
+    // Idle skip: if camera and scene unchanged, reuse last RTT (LOAD_OP_CLEAR not called
+    // → s_color keeps previous content → ImGui image shows last rendered frame).
+    // Allow 2 stable frames before skipping so final position is fully rendered.
+    {
+        static float s_pcx=-1e9f,s_pcy=-1e9f,s_pcz=-1e9f,s_pyaw=-1e9f,s_ppit=-1e9f;
+        static int   s_idle=0;
+        bool cam_same = fabsf(s_cx-s_pcx)<0.5f && fabsf(s_cy-s_pcy)<0.5f &&
+                        fabsf(s_cz-s_pcz)<0.5f && fabsf(s_yaw-s_pyaw)<0.001f &&
+                        fabsf(s_pitch-s_ppit)<0.001f;
+        if (cam_same && !was_chunk_dirty && !s_cvbo_dirty) {
+            if (++s_idle > 2) return;  // RTT retained → no GPU work needed
+        } else {
+            s_idle=0;
+            s_pcx=s_cx; s_pcy=s_cy; s_pcz=s_cz; s_pyaw=s_yaw; s_ppit=s_pitch;
         }
     }
 
