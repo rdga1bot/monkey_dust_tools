@@ -1456,7 +1456,20 @@ void SetBoneScalesFromDef(const float body[18], const float face[24]) {
         s_pose_ozz.Sample(s_pose_idle_clip, 0.f, ws_flat,
                           nullptr, s_boneScales, s_posScale);
         memcpy(s_ws_mat, ws_flat, 30 * 16 * sizeof(float));
+        // DIAG: one-shot print to check bone matrices for lower body
+        static bool s_diag_done = false;
+        if (!s_diag_done) {
+            s_diag_done = true;
+            fprintf(stdout,"[CharPreview DIAG] OzzPath active. bone0[0]=%.3f bone1[0]=%.3f bone2[0]=%.3f\n",
+                ws_flat[0], ws_flat[16], ws_flat[32]);
+            fprintf(stdout,"[CharPreview DIAG] bone0 NaN=%d bone1 NaN=%d bone2 NaN=%d\n",
+                (int)__builtin_isnan(ws_flat[0]), (int)__builtin_isnan(ws_flat[16]), (int)__builtin_isnan(ws_flat[32]));
+        }
     } else {
+        static bool s_diag_done2 = false;
+        if (!s_diag_done2) { s_diag_done2 = true;
+            fprintf(stdout,"[CharPreview DIAG] FALLBACK path (OzzAnimator not loaded or clip<0)\n"); }
+
         // Fallback: legacy custom FK (s_pose_rot[] loaded via cgltf).
         float new_world[30][16];
         for (int i = 0; i < 30; i++) {

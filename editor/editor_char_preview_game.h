@@ -420,41 +420,16 @@ static bool Init(const char* glb_path, const char* tex_path) {
             idxs[ii++]=(uint32_t)base;idxs[ii++]=(uint32_t)base+2;idxs[ii++]=(uint32_t)base+3;
         };
 
-        // Platform dimensions
-        float bx0=-0.955f,bx1=0.955f,bz0=-0.70f,bz1=0.90f,pt=0.01f,pb=-0.13f;
-        float pw=0.26f,pgap=0.015f;
-
-        // 7 planks — top face + front edge
-        float px=bx0;
-        for(int p=0;p<7;p++){
-            float px0=px,px1=px+pw,sh=(p%2==0)?0.f:0.06f;
-            float dr=0.32f+sh,dg=0.20f+sh*0.7f,db=0.11f+sh*0.4f;
-            float sr=0.38f+sh,sg=0.25f+sh*0.7f,sb=0.14f+sh*0.4f;
-            // top
-            quad({px0,pt,bz0,sr,sg,sb},{px1,pt,bz0,sr,sg,sb},{px1,pt,bz1,dr,dg,db},{px0,pt,bz1,dr,dg,db});
-            // front edge (Z=bz1 face)
-            quad({px0,pb,bz1,.18f,.11f,.06f},{px1,pb,bz1,.18f,.11f,.06f},{px1,pt,bz1,.22f,.14f,.08f},{px0,pt,bz1,.22f,.14f,.08f});
-            px+=pw+pgap;
-        }
-
-        // Platform solid sides (makes it look grounded, not floating)
-        // Left face (X=bx0)
-        quad({bx0,pb,bz0,.14f,.08f,.04f},{bx0,pb,bz1,.14f,.08f,.04f},{bx0,pt,bz1,.17f,.10f,.06f},{bx0,pt,bz0,.17f,.10f,.06f});
-        // Right face (X=bx1)
-        quad({bx1,pb,bz1,.14f,.08f,.04f},{bx1,pb,bz0,.14f,.08f,.04f},{bx1,pt,bz0,.17f,.10f,.06f},{bx1,pt,bz1,.17f,.10f,.06f});
-        // Back face (Z=bz0)
-        quad({bx1,pb,bz0,.13f,.08f,.04f},{bx0,pb,bz0,.13f,.08f,.04f},{bx0,pt,bz0,.16f,.10f,.05f},{bx1,pt,bz0,.16f,.10f,.05f});
-        // Bottom (Z=bz0 → bz1, flush with desert sand at pb=-0.13)
-        quad({bx0,pb,bz1,.11f,.07f,.04f},{bx1,pb,bz1,.11f,.07f,.04f},{bx1,pb,bz0,.11f,.07f,.04f},{bx0,pb,bz0,.11f,.07f,.04f});
+        // No platform — character stands directly on desert ground (Y=0).
 
         // Anthropometer pole
         float px0=0.630f,px1=0.658f,pz0=-0.014f,pz1=0.014f,py0=0.f,py1=2.10f;
-        float pr=0.30f,pg=0.22f,ppb=0.15f;
+        float pr=0.95f,pg=0.90f,ppb=0.10f;  // YELLOW pole — build verification marker
         quad({px0,py0,pz1,pr,pg,ppb},{px1,py0,pz1,pr,pg,ppb},{px1,py1,pz1,pr,pg,ppb},{px0,py1,pz1,pr,pg,ppb});
-        quad({px1,py0,pz0,.22f,.16f,.10f},{px0,py0,pz0,.22f,.16f,.10f},{px0,py1,pz0,.22f,.16f,.10f},{px1,py1,pz0,.22f,.16f,.10f});
-        quad({px1,py0,pz0,.26f,.19f,.12f},{px1,py0,pz1,.26f,.19f,.12f},{px1,py1,pz1,.26f,.19f,.12f},{px1,py1,pz0,.26f,.19f,.12f});
+        quad({px1,py0,pz0,.70f,.65f,.05f},{px0,py0,pz0,.70f,.65f,.05f},{px0,py1,pz0,.70f,.65f,.05f},{px1,py1,pz0,.70f,.65f,.05f});
+        quad({px1,py0,pz0,.80f,.75f,.08f},{px1,py0,pz1,.80f,.75f,.08f},{px1,py1,pz1,.80f,.75f,.08f},{px1,py1,pz0,.80f,.75f,.08f});
         // Tick marks
-        float tr=0.55f,tg=0.45f,tb=0.32f;
+        float tr=0.95f,tg=0.85f,tb=0.10f;  // yellow ticks
         for(int ti=1;ti<=20;ti++){
             float ty=(float)ti*.10f,th=0.007f;
             bool major=(ti%10==0),medium=(ti%5==0);
@@ -593,7 +568,7 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
         struct{float right[4],up[4],fwd[4],eye4[4];} bgu;
         bgu.right[0]=inv_view[0];bgu.right[1]=inv_view[1];bgu.right[2]=inv_view[2];bgu.right[3]=tan_hfov;
         bgu.up[0]=inv_view[4];   bgu.up[1]=inv_view[5];   bgu.up[2]=inv_view[6];   bgu.up[3]=tan_vfov;
-        bgu.fwd[0]=-inv_view[8]; bgu.fwd[1]=-inv_view[9]; bgu.fwd[2]=-inv_view[10]; bgu.fwd[3]=-0.13f;
+        bgu.fwd[0]=-inv_view[8]; bgu.fwd[1]=-inv_view[9]; bgu.fwd[2]=-inv_view[10]; bgu.fwd[3]=0.0f;
         bgu.eye4[0]=inv_view[12];bgu.eye4[1]=inv_view[13];bgu.eye4[2]=inv_view[14];bgu.eye4[3]=0;
         SDL_PushGPUFragmentUniformData(cmd,0,&bgu,sizeof(bgu));
         if(s_bg_sand.SDLTexture()&&s_bg_dune.SDLTexture()){
@@ -605,7 +580,8 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
         SDL_DrawGPUPrimitives(rp,3,1,0,0);
     }
 
-    // ── Platform + pole ──────────────────────────────────────────────────────
+    // ── Pole ─────────────────────────────────────────────────────────────────
+    { static int _sc=0; if(_sc++<2) fprintf(stdout,"[SCENE] s_scene_ni=%d vbo=%p\n",s_scene_ni,(void*)s_scene_vbo.SDLBuffer()); }
     if(s_scene_pipeline.SDLPipeline()&&s_scene_vbo.SDLBuffer()&&s_scene_ni>0){
         SDL_BindGPUGraphicsPipeline(rp,s_scene_pipeline.SDLPipeline());
         SDL_GPUBufferBinding svb={s_scene_vbo.SDLBuffer(),0};
@@ -616,14 +592,17 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
         SDL_DrawGPUIndexedPrimitives(rp,s_scene_ni,1,0,0,0);
     }
 
-    // Foot grounding: raise character so feet land on platform top (y=pt=0.01).
-    // foot_adj = (s_leg_y - 0.95) * 0.9: longer legs drift down without this.
-    // Apply to char/hair/clothes VP only — platform stays at vp (world y=0).
+    // Foot grounding: bring sole to Y=0 (desert ground) for any leg scale.
+    // Calibration: at idle t=0, identity pos[] scales, Python measured foot bone Y=0.1004
+    // when the sole vertex is exactly at Y=0. dy = that reference minus current foot Y.
     float char_vp[16];
     {
-        float ty = (s_leg_y - 0.95f) * 0.9f;
+        float foot_y = s_mesh.LastBoneWorldY(4);
+        static int s_grnd_dbg = 0;
+        if (s_grnd_dbg++ < 2)
+            fprintf(stdout, "[GRND] foot_bone_y=%.4f  ty=%.4f\n", foot_y, 0.1004f - foot_y);
+        float ty = 0.1004f - foot_y;
         memcpy(char_vp, vp, 64);
-        // vp * translate(0, ty, 0): adds ty*col1(vp) to col3(vp)
         char_vp[12] += vp[4] * ty;
         char_vp[13] += vp[5] * ty;
         char_vp[14] += vp[6] * ty;

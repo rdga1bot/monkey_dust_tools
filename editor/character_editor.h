@@ -610,7 +610,6 @@ static void Draw(bool kenshi_theme = true) {
     if (kenshi_theme) ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4{0.090f,0.070f,0.043f,1.f});
     ImGui::BeginChild("##cc_left", {left_w, total_h}, true,
                       ImGuiWindowFlags_NoScrollbar);
-    if (kenshi_theme) ImGui::PopStyleColor();
 
     // Name field
     ImGui::SetNextItemWidth(-1.f);
@@ -767,13 +766,13 @@ static void Draw(bool kenshi_theme = true) {
         float desc_h = total_h * 0.22f;
         if (kenshi_theme) ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4{0.07f,0.055f,0.033f,1.f});
         ImGui::BeginChild("##rc_desc", {0.f, desc_h}, false);
-        if (kenshi_theme) ImGui::PopStyleColor();
         ImGui::PushTextWrapPos(0.f);
         if (kenshi_theme) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.73f,0.66f,0.51f,1.f});
         ImGui::TextWrapped("%s", kr.desc);
         if (kenshi_theme) ImGui::PopStyleColor();
         ImGui::PopTextWrapPos();
         ImGui::EndChild();
+        if (kenshi_theme) ImGui::PopStyleColor();  // ChildBg for rc_desc
     }
 
     ImGui::Separator();
@@ -834,6 +833,7 @@ static void Draw(bool kenshi_theme = true) {
     }
 
     ImGui::EndChild();  // left
+    if (kenshi_theme) ImGui::PopStyleColor();  // ChildBg for cc_left
 
     // ═══════════════════════════════════════════════════════════════
     // CENTER: 3D PREVIEW
@@ -841,7 +841,6 @@ static void Draw(bool kenshi_theme = true) {
     ImGui::SameLine(0.f, spc);
     if (kenshi_theme) ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4{0.055f,0.043f,0.027f,1.f});
     ImGui::BeginChild("##cc_center", {center_w, total_h}, false);
-    if (kenshi_theme) ImGui::PopStyleColor();
 
     {
         static int s_prev_sex = -1;
@@ -886,6 +885,7 @@ static void Draw(bool kenshi_theme = true) {
 #endif
 
     ImGui::EndChild();  // center
+    if (kenshi_theme) ImGui::PopStyleColor();  // ChildBg for cc_center
 
     // ═══════════════════════════════════════════════════════════════
     // RIGHT PANEL: BODY / FACE / HAIR
@@ -894,7 +894,6 @@ static void Draw(bool kenshi_theme = true) {
     if (kenshi_theme) ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4{0.090f,0.070f,0.043f,1.f});
     ImGui::BeginChild("##cc_right", {right_w, total_h}, true,
                       ImGuiWindowFlags_NoScrollbar);
-    if (kenshi_theme) ImGui::PopStyleColor();
 
     // ── BODY / FACE / HAIR tab buttons ───────────────────────────
     {
@@ -1040,6 +1039,7 @@ static void Draw(bool kenshi_theme = true) {
     }
 
     ImGui::EndChild();  // right
+    if (kenshi_theme) ImGui::PopStyleColor();  // ChildBg for cc_right
 
     ImGui::PopStyleVar(2);
     if (kenshi_theme) PopKenshiTheme();
