@@ -202,6 +202,7 @@ add_executable(md_flare_demo
     flare_demo/main.cpp
     ${CMAKE_SOURCE_DIR}/engine/src/vendor/glad_impl.cpp
     ${CMAKE_SOURCE_DIR}/engine/src/vendor/stb_image_impl.cpp
+    ${CMAKE_SOURCE_DIR}/engine/src/render/cgltf_impl.cpp
 )
 target_compile_definitions(md_flare_demo PRIVATE
     MD_SDL_GPU

@@ -54,8 +54,10 @@ static int             s_rtt_w = 0, s_rtt_h = 0;
 static bool  s_ok          = false;
 static int   s_idle_clip   = -1;
 static bool  s_morphs_dirty = true;
+static bool  s_bones_dirty  = true;  // recompute ComputeScales+GetFinalBones only when sliders change
 static float s_body_cache[CHARCC_BODY_N];
 static float s_face_cache[CHARCC_FACE_N];
+static float s_prev_face_morph[CHARCC_FACE_N];  // detect face-morph changes without per-frame upload
 // Camera
 static float s_yaw = 0.f, s_pit = -0.06f, s_dist = 3.5f, s_lookat_y = 0.9f;
 static float s_height = 1.f;
@@ -499,6 +501,8 @@ static bool Init(const char* glb_path, const char* tex_path) {
 // ── Upload bone matrices to 120×1 RGBA32F texture (copy pass) ────────────────
 static void upload_bones(SDL_GPUCommandBuffer* cmd, float t) {
     if(!s_bones_tex||s_idle_clip<0) return;
+    if(!s_bones_dirty) return;  // sliders unchanged — skip CPU LBS (15504 verts × 30 bones)
+    s_bones_dirty = false;
     static float bones[MAX_SKIN_BONES*16];
     CharScales scales;
     CharCustomization_ComputeScales(s_body_cache, s_face_cache, s_mesh.bone_count, scales);
@@ -678,9 +682,12 @@ static void RenderFrame(SDL_GPUCommandBuffer* cmd) {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 static void SetBoneScalesFromDef(const float body[18], const float face[24]) {
+    bool body_ch = memcmp(s_body_cache, body, CHARCC_BODY_N*sizeof(float)) != 0;
+    bool face_ch = memcmp(s_face_cache, face, CHARCC_FACE_N*sizeof(float)) != 0;
+    if (!body_ch && !face_ch) return;  // nothing changed — skip
     memcpy(s_body_cache, body, CHARCC_BODY_N * sizeof(float));
     memcpy(s_face_cache, face, CHARCC_FACE_N * sizeof(float));
-    // leg_Y = clamp(H + LL - 1): body[2]=height, body[7]=leg_length (same formula as char_customization.cpp)
+    s_bones_dirty = true;
     float ly = body[2] / 100.f + body[7] / 100.f - 1.f;
     s_leg_y = ly < 0.f ? 0.f : (ly > 1.f ? 1.f : ly);
 }
@@ -701,6 +708,8 @@ static void SetBodyMorphWeights(const float body[18], const float face[24]) {
 }
 static void SetMorphWeightsFromFace(const float face[], const float def[],
                                      const float lo[], const float hi[]) {
+    if (memcmp(face, s_prev_face_morph, CHARCC_FACE_N*sizeof(float)) == 0) return;
+    memcpy(s_prev_face_morph, face, CHARCC_FACE_N*sizeof(float));
     CharCustomization_ApplyMorphs(face, def, lo, hi, s_mesh);
     s_morphs_dirty = true;
 }
