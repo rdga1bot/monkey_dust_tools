@@ -112,8 +112,7 @@ static float      s_breath_len = 0.f;
 static bool       s_breath_loaded = false;
 
 // ── Slider pose animations (Kenshi RE: postures/neck_set/shoulder_set) ────────
-// Each has 2 keyframes. Sampled at t = anim_length * slider_value * 0.01
-// to freeze the skeleton in the slider's posed position.
+// Sampled at t = anim_length * slider_value * 0.01 (Kenshi RE line 19458).
 struct SliderAnim {
     float rot0[30][4];   // keyframe 0 (slider=0)
     float rot_mid[30][4];// keyframe at slider=50 (middle frame)
@@ -121,6 +120,11 @@ struct SliderAnim {
     bool  has[30];
     float length = 0.f;
     bool  loaded = false;
+    // Full keyframe storage for N-keyframe anims (e.g. "postures" has 6 frames).
+    static constexpr int MAX_KEYS = 8;
+    int   key_count = 0;
+    float key_times[MAX_KEYS];
+    float key_rot[MAX_KEYS][30][4];
 };
 static SliderAnim s_anim_postures;    // body[4]  Posture    → "postures"
 static SliderAnim s_anim_neck_set;    // body[5]  Shoulder set → "neck set" (Kenshi naming)
@@ -204,7 +208,7 @@ static void m4mul(float* C, const float* A, const float* B) {
 // For 3-keyframe anims (shoulder set, neck set), setTimePosition at alpha=0.5
 // hits EXACTLY the middle keyframe — stored in rot_mid for direct use.
 static void LoadSliderAnim(cgltf_data* d, int* node_to_ji, SliderAnim& out, const char* name) {
-    out.loaded = false; out.length = 0.f;
+    out.loaded = false; out.length = 0.f; out.key_count = 0;
     memset(out.has, 0, sizeof(out.has));
     for(int i=0;i<30;i++){
         out.rot0[i][3]=1; out.rot_mid[i][3]=1; out.rot1[i][3]=1;
@@ -212,12 +216,26 @@ static void LoadSliderAnim(cgltf_data* d, int* node_to_ji, SliderAnim& out, cons
     for(int ai=0;ai<(int)d->animations_count;++ai){
         cgltf_animation& anim=d->animations[ai];
         if (!anim.name||strcmp(anim.name,name)!=0) continue;
-        for(int ci=0;ci<(int)anim.channels_count&&out.length==0.f;++ci){
+        // Read keyframe count and times from first rotation channel.
+        int kf_cnt = 0;
+        for(int ci=0;ci<(int)anim.channels_count;++ci){
             cgltf_animation_channel& ch=anim.channels[ci];
             if (!ch.sampler||!ch.sampler->input||ch.sampler->input->count==0) continue;
-            float lt=0.f;
-            cgltf_accessor_read_float(ch.sampler->input, ch.sampler->input->count-1, &lt, 1);
-            out.length = lt;
+            if (ch.target_path!=cgltf_animation_path_type_rotation) continue;
+            if (out.length==0.f){
+                float lt=0.f;
+                cgltf_accessor_read_float(ch.sampler->input, ch.sampler->input->count-1, &lt, 1);
+                out.length = lt;
+            }
+            kf_cnt = (int)ch.sampler->input->count;
+            int store = kf_cnt < SliderAnim::MAX_KEYS ? kf_cnt : SliderAnim::MAX_KEYS;
+            out.key_count = store;
+            for(int k=0;k<store;k++)
+                cgltf_accessor_read_float(ch.sampler->input, k, &out.key_times[k], 1);
+            // init all key_rot slots to identity
+            for(int k=0;k<store;k++)
+                for(int b=0;b<30;b++){out.key_rot[k][b][0]=0;out.key_rot[k][b][1]=0;out.key_rot[k][b][2]=0;out.key_rot[k][b][3]=1;}
+            break;
         }
         for(int ci=0;ci<(int)anim.channels_count;++ci){
             cgltf_animation_channel& ch=anim.channels[ci];
@@ -231,18 +249,37 @@ static void LoadSliderAnim(cgltf_data* d, int* node_to_ji, SliderAnim& out, cons
             if (cnt>=1) cgltf_accessor_read_float(ch.sampler->output, 0, out.rot0[ji], 4);
             if (cnt>=2) cgltf_accessor_read_float(ch.sampler->output, cnt-1, out.rot1[ji], 4);
             else        memcpy(out.rot1[ji], out.rot0[ji], 16);
-            // Middle keyframe = Kenshi slider=50 exact position (RE line 19458).
-            // For 3-frame anims (shoulder/neck set), this is keyframe[1].
-            // For 6-frame anims (postures), this is keyframe[cnt/2].
             { int mid = cnt/2; if(mid<0)mid=0; if(mid>=cnt)mid=cnt-1;
               cgltf_accessor_read_float(ch.sampler->output, mid, out.rot_mid[ji], 4); }
+            // Store all keyframes for full time-based sampling.
+            int store = cnt < SliderAnim::MAX_KEYS ? cnt : SliderAnim::MAX_KEYS;
+            for(int k=0;k<store;k++)
+                cgltf_accessor_read_float(ch.sampler->output, k, out.key_rot[k][ji], 4);
             out.has[ji]=true;
         }
         out.loaded=true;
         fprintf(stdout,"[CharPreview] slider anim '%s': %d keyframes, length=%.4fs\n",
-                name, (int)d->animations[ai].channels[0].sampler->output->count, out.length);
+                name, kf_cnt, out.length);
         break;
     }
+}
+
+// Sample a SliderAnim by animation time, interpolating between adjacent keyframes.
+// Kenshi RE: timePos = length * slider * 0.01
+static void SampleAnimAtTime(const SliderAnim& sa, int bone, float t, float out[4]) {
+    int n = sa.key_count;
+    if (n <= 0) { memcpy(out, sa.rot0[bone], 16); return; }
+    if (n == 1 || t <= sa.key_times[0]) { memcpy(out, sa.key_rot[0][bone], 16); return; }
+    if (t >= sa.key_times[n-1]) { memcpy(out, sa.key_rot[n-1][bone], 16); return; }
+    for (int k = 1; k < n; k++) {
+        if (t <= sa.key_times[k]) {
+            float span = sa.key_times[k] - sa.key_times[k-1];
+            float alpha = span > 1e-6f ? (t - sa.key_times[k-1]) / span : 0.f;
+            quat_nlerp(out, sa.key_rot[k-1][bone], sa.key_rot[k][bone], alpha);
+            return;
+        }
+    }
+    memcpy(out, sa.key_rot[n-1][bone], 16);
 }
 
 // Sample a SliderAnim and blend with existing pose_rot (ANIMBLEND_AVERAGE).
@@ -1304,8 +1341,9 @@ void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     for (int i = 0; i < 30; i++) {
         float sum[4]; memcpy(sum, s_idle_rot[i], 16);
         if (s_anim_postures.loaded && s_anim_postures.has[i]) {
-            float pa = body[4] * 0.01f;
-            float q[4]; quat_nlerp(q, s_anim_postures.rot0[i], s_anim_postures.rot1[i], pa);
+            // Kenshi RE: timePos = length * slider * 0.01. Full keyframe scrub (6 frames).
+            float t = s_anim_postures.length * body[4] / 99.0f;
+            float q[4]; SampleAnimAtTime(s_anim_postures, i, t, q);
             quat_blend_add(sum, q);
         }
         if (s_anim_neck_set.loaded && s_anim_neck_set.has[i]) {  // body[5] Shoulder set → neck_set
