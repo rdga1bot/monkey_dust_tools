@@ -97,7 +97,10 @@ static bool  s_idle_loaded = false;
 // ── Pose mesh + OzzAnimator (identical to in-game render pipeline) ───────────
 static SkinMesh    s_pose_mesh;
 static OzzAnimator s_pose_ozz;
-static int         s_pose_idle_clip = -1;
+static int         s_pose_idle_clip     = -1;
+static int         s_pose_postures_clip = -1;
+static int         s_pose_neck_clip     = -1;
+static int         s_pose_shoulder_clip = -1;
 
 // ── Breathing animation ───────────────────────────────────────────────────────
 struct BreathChan {
@@ -1024,9 +1027,13 @@ static bool s_create_pipelines(const char* glb_path) {
             ? "game/data/props/md_human.glb"   // female pose mesh (same skeleton)
             : "game/data/props/md_human.glb";
         if (s_pose_mesh.LoadGLB(pose_path)) {
-            s_pose_idle_clip = s_pose_mesh.ClipIndexByName("idle_stand_normal");
+            s_pose_idle_clip     = s_pose_mesh.ClipIndexByName("idle_stand_normal");
+            s_pose_postures_clip = s_pose_mesh.ClipIndexByName("postures");
+            s_pose_neck_clip     = s_pose_mesh.ClipIndexByName("neck set");
+            s_pose_shoulder_clip = s_pose_mesh.ClipIndexByName("shoulder set");
             if (s_pose_ozz.Init(s_pose_mesh))
-                fprintf(stdout, "[CharPreview] OzzAnimator ready, idle_clip=%d\n", s_pose_idle_clip);
+                fprintf(stdout, "[CharPreview] OzzAnimator ready, idle=%d postures=%d neck=%d shoulder=%d\n",
+                        s_pose_idle_clip, s_pose_postures_clip, s_pose_neck_clip, s_pose_shoulder_clip);
             else
                 fprintf(stderr, "[CharPreview] OzzAnimator init failed\n");
         } else {
@@ -1493,6 +1500,20 @@ void SetBoneScalesFromDef(const float body[18], const float face[24]) {
         static float ws_flat[OZZ_ANIM_MAX_BONES * 16];
         s_pose_ozz.Sample(s_pose_idle_clip, 0.f, ws_flat,
                           nullptr, s_boneScales, s_posScale);
+        // Posture/neck/shoulder slider anims via BlendAdditive (Kenshi RE: timePos = length * pct * 0.01).
+        // BlendAdditive: lerp(idle, slider_anim_at_t, 1.0) = full slider pose for those bones.
+        if (s_pose_postures_clip >= 0 && s_anim_postures.loaded) {
+            float pt = s_anim_postures.length * body[4] / 99.0f;
+            s_pose_ozz.BlendAdditive(ws_flat, s_pose_postures_clip, pt, 1.0f);
+        }
+        if (s_pose_neck_clip >= 0 && s_anim_neck_set.loaded && body[5] > 0.5f) {
+            float nt = s_anim_neck_set.length * body[5] / 99.0f;
+            s_pose_ozz.BlendAdditive(ws_flat, s_pose_neck_clip, nt, 1.0f);
+        }
+        if (s_pose_shoulder_clip >= 0 && s_anim_shoulder_set.loaded && body[6] > 0.5f) {
+            float st = s_anim_shoulder_set.length * body[6] / 99.0f;
+            s_pose_ozz.BlendAdditive(ws_flat, s_pose_shoulder_clip, st, 1.0f);
+        }
         memcpy(s_ws_mat, ws_flat, 30 * 16 * sizeof(float));
         // DIAG: one-shot print to check bone matrices for lower body
         static bool s_diag_done = false;
