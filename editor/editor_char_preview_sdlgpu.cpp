@@ -1502,10 +1502,12 @@ void SetBoneScalesFromDef(const float body[18], const float face[24]) {
                           nullptr, s_boneScales, s_posScale);
         // Posture/neck/shoulder slider anims via BlendAdditive (Kenshi RE: timePos = length * pct * 0.01).
         // BlendAdditive: lerp(idle, slider_anim_at_t, 1.0) = full slider pose for those bones.
+        float spine1_before = ws_flat[13*16 + 0];  // DIAG: Spine1 matrix[0,0] before posture
         if (s_pose_postures_clip >= 0 && s_anim_postures.loaded) {
             float pt = s_anim_postures.length * body[4] / 99.0f;
             s_pose_ozz.BlendAdditive(ws_flat, s_pose_postures_clip, pt, 1.0f);
         }
+        float spine1_after = ws_flat[13*16 + 0];   // DIAG: Spine1 matrix[0,0] after posture
         if (s_pose_neck_clip >= 0 && s_anim_neck_set.loaded && body[5] > 0.5f) {
             float nt = s_anim_neck_set.length * body[5] / 99.0f;
             s_pose_ozz.BlendAdditive(ws_flat, s_pose_neck_clip, nt, 1.0f);
@@ -1515,14 +1517,15 @@ void SetBoneScalesFromDef(const float body[18], const float face[24]) {
             s_pose_ozz.BlendAdditive(ws_flat, s_pose_shoulder_clip, st, 1.0f);
         }
         memcpy(s_ws_mat, ws_flat, 30 * 16 * sizeof(float));
-        // DIAG: one-shot print to check bone matrices for lower body
-        static bool s_diag_done = false;
-        if (!s_diag_done) {
-            s_diag_done = true;
-            fprintf(stdout,"[CharPreview DIAG] OzzPath active. bone0[0]=%.3f bone1[0]=%.3f bone2[0]=%.3f\n",
-                ws_flat[0], ws_flat[16], ws_flat[32]);
-            fprintf(stdout,"[CharPreview DIAG] bone0 NaN=%d bone1 NaN=%d bone2 NaN=%d\n",
-                (int)__builtin_isnan(ws_flat[0]), (int)__builtin_isnan(ws_flat[16]), (int)__builtin_isnan(ws_flat[32]));
+        // DIAG: periodic print every 180 frames — Spine1 matrix change with posture slider
+        static int s_diag_frame = 0;
+        if (++s_diag_frame >= 180) {
+            s_diag_frame = 0;
+            fprintf(stderr,"[POSTURE DIAG] OZZ path. body4=%.0f clip=%d loaded=%d "
+                "spine1_before=%.3f after=%.3f delta=%.3f\n",
+                body[4], s_pose_postures_clip, (int)s_anim_postures.loaded,
+                spine1_before, spine1_after, spine1_after - spine1_before);
+            fflush(stderr);
         }
     } else {
         static bool s_diag_done2 = false;
