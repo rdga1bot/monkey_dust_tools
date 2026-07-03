@@ -99,6 +99,8 @@ if(MONKEY_DUST_EDITOR_HOT_RELOAD)
     list(REMOVE_ITEM _EDITOR_PANELS_CPP "${CMAKE_CURRENT_SOURCE_DIR}/editor/main.cpp")
     set(EDITOR_PANELS_HOT_SRCS
         ${_EDITOR_PANELS_CPP}
+        # Engine sources needed by panels (not pulled via static lib at dlopen time)
+        ${CMAKE_SOURCE_DIR}/engine/src/render/char_customization.cpp
         # Third-party panels
         ${CMAKE_SOURCE_DIR}/tools/third_party/imnodes/imnodes.cpp
         ${CMAKE_SOURCE_DIR}/tools/third_party/ImGuiColorTextEdit/TextEditor.cpp

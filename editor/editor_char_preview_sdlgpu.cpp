@@ -12,6 +12,7 @@
 #include <monkey_dust/render/gpu_device.h>
 #include <monkey_dust/render/gpu_hal.h>
 #include <monkey_dust/render/skin_mesh.h>
+#include <monkey_dust/render/char_customization.h>
 #include <monkey_dust/render/ozz_animator.h>
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_gpu.h>
@@ -185,6 +186,13 @@ static void quat_blend_normalize(float q[4]) {
     float len=sqrtf(q[0]*q[0]+q[1]*q[1]+q[2]*q[2]+q[3]*q[3]);
     if(len>1e-6f){float il=1.f/len;q[0]*=il;q[1]*=il;q[2]*=il;q[3]*=il;}
     else{q[0]=0;q[1]=0;q[2]=0;q[3]=1;}
+}
+// Hamilton product a*b (xyzw storage).
+static void quat_mul(float out[4], const float a[4], const float b[4]) {
+    out[0] = a[3]*b[0] + a[0]*b[3] + a[1]*b[2] - a[2]*b[1];
+    out[1] = a[3]*b[1] - a[0]*b[2] + a[1]*b[3] + a[2]*b[0];
+    out[2] = a[3]*b[2] + a[0]*b[1] - a[1]*b[0] + a[2]*b[3];
+    out[3] = a[3]*b[3] - a[0]*b[0] - a[1]*b[1] - a[2]*b[2];
 }
 
 // All rotations come from idle_stand_normal. Breathing contributes only translation (vertical sway).
@@ -374,9 +382,8 @@ static SDL_GPUTexture* s_color = nullptr;
 static SDL_GPUTexture* s_depth = nullptr;
 static int             s_rtt_w = 0, s_rtt_h = 0;
 
-static float    s_yaw = 0.18f, s_pit = -0.06f, s_dist = 2.6f;
-static float    s_lookat_y = 0.f;   // vertical pivot offset (0=full body, ~0.88=face)
-static bool     s_drag = false;
+static float    s_yaw = 0.18f, s_pit = -0.06f, s_dist = 3.5f;
+static float    s_lookat_y = 0.9f;  // vertical pivot offset (0=full body, ~0.9=waist, ~0.88*h=face)
 static ImVec2   s_d0;
 static float    s_y0;
 static uint64_t s_anim_epoch_ms = 0; // breathing phase reset epoch
@@ -1458,229 +1465,25 @@ void ReloadPipelines() {
 // setBoneSize → s_boneScales (vertex deformation only, doesn't move children).
 // setBonePositionalSize → s_posScale (scales bind translation from parent).
 void SetBoneScalesFromDef(const float body[18], const float face[24]) {
-    // ── Pose: idle frame 0 + ANIMBLEND_AVERAGE for posture sliders ───────────
-    // Kenshi RE (line 19458): setTimePosition(length * slider * 0.01)
-    // RE slider→anim mapping (body[] indices in our array):
-    //   body[4] "Posture"       → "postures"     (6 keyframes 0/20/40/60/80/100%)
-    //   body[5] "Shoulder set"  → "neck set"     (3 keyframes 0/50/100%) [RE: ShoulderSet→neck_set]
-    //   body[6] "Neck position" → "shoulder set" (3 keyframes 0/50/100%) [RE: NeckPosition→shoulder_set]
-    // ANIMBLEND_AVERAGE: idle(base) + slider anims blended via quat_blend_add/normalize.
-    // Direct replacement was removed — causes flat-panel at high Ab+Fr without morphs.
-    auto sample3 = [](const float q0[4], const float qm[4], const float q1[4],
-                      float alpha, float out[4]) {
-        if (alpha <= 0.5f) quat_nlerp(out, q0, qm, alpha * 2.f);
-        else               quat_nlerp(out, qm, q1, (alpha - 0.5f) * 2.f);
-    };
-    for (int i = 0; i < 30; i++) {
-        float sum[4]; memcpy(sum, s_idle_rot[i], 16);
-        if (s_anim_postures.loaded && s_anim_postures.has[i]) {
-            // Kenshi RE: timePos = length * slider * 0.01. Full keyframe scrub (6 frames).
-            float t = s_anim_postures.length * body[4] / 99.0f;
-            float q[4]; SampleAnimAtTime(s_anim_postures, i, t, q);
-            quat_blend_add(sum, q);
-        }
-        if (s_anim_neck_set.loaded && s_anim_neck_set.has[i]) {  // body[5] Shoulder set → neck_set
-            float q[4]; sample3(s_anim_neck_set.rot0[i], s_anim_neck_set.rot_mid[i],
-                                s_anim_neck_set.rot1[i], body[5] * 0.01f, q);
-            quat_blend_add(sum, q);
-        }
-        // shoulder_set skipped for UpperArm (i==16,26): those bones use idle frame 1
-        // directly to match in-game natural hang. Adding shoulder_set on top of frame 1
-        // causes additive-blend artefact that spreads arms wide outward.
-        if (s_anim_shoulder_set.loaded && s_anim_shoulder_set.has[i] && i!=16 && i!=26) {
-            float q[4]; sample3(s_anim_shoulder_set.rot0[i], s_anim_shoulder_set.rot_mid[i],
-                                s_anim_shoulder_set.rot1[i], body[6] * 0.01f, q);
-            quat_blend_add(sum, q);
-        }
-        quat_blend_normalize(sum);
-        memcpy(s_pose_rot[i], sum, 16);
+    // Use CharCustomization_ComputeScales + GetFinalBonesScaled — same path as June 28
+    // CharPreviewGame. CharScales::rot[i] carries posture rotation for spine/neck/head.
+    // GetFinalBonesScaled samples idle_stand_normal TRS + applies scales + posture delta.
+    if (s_pose_idle_clip < 0 || !s_pose_mesh.loaded) return;
+
+    CharScales scales;
+    CharCustomization_ComputeScales(body, face, s_pose_mesh.bone_count, scales);
+
+    // s_leg_y for foot grounding (mirrors char_customization's leg_Y * thigh wy factor 0.95)
+    {
+        auto cl4 = [](float x) { return x<0.1f?0.1f:(x>4.f?4.f:x); };
+        s_leg_y = cl4(cl4(body[2]/100.f) + cl4(body[7]/100.f) - 1.f) * 0.95f;
     }
 
-    auto cl=[](float x) -> float { return x<0.1f?0.1f:(x>4.f?4.f:x); };
-    auto comp=[&](float x, float k) -> float { return cl(1.f + (x - 1.f)*k); };
-    // setBS(i, wy, wx, wz): s_boneScales for bone i. wy=local-X scale (height/length axis),
-    // wx=local-Y scale (lateral), wz=local-Z scale (depth).
-    auto setBS=[&](int i, float wy, float wx, float wz){
-        s_boneScales[i][0]=wy; s_boneScales[i][1]=wx; s_boneScales[i][2]=wz;
-    };
-
-    float H   = cl(body[2]  / 100.f);  // Height
-    float Fr  = cl(body[3]  / 100.f);  // Frame
-    float LL  = cl(body[7]  / 100.f);  // Leg length
-    float Wa  = cl(body[10] / 100.f);  // Waist
-    float St  = cl(body[13] / 100.f);  // Stomach
-    float Ch  = cl(body[12] / 100.f);  // Chest
-    float Ab  = cl(body[9]  / 100.f);  // Arm bulk
-    float Sh  = cl(body[8]  / 100.f);  // Shoulders
-    float Hips= cl(body[15] / 100.f);  // Hips
-    float LgB = cl(body[16] / 100.f);  // Legs bulk
-    float Hn  = cl(body[11] / 100.f);  // Hands
-    float Ft  = cl(body[17] / 100.f);  // Feet
-    float LgS = 1.f;  // LegShape — not in our body[], default neutral=1.0
-
-    // All factors = 1.0 at slider=100 → ws_mat=I → bind-pose appearance. ✓
-    // Kenshi RE: FUN_140015b63, race mults = 1.0 for Greenlander (baked into mesh).
-
-    // ── Lower body ────────────────────────────────────────────────────────────
-    // overall_XZ = (LgShape*LgBulk + (Hips-1)/3) * Frame   [Kenshi line 263670]
-    float overall_XZ = cl((LgS * LgB + (Hips - 1.f) / 3.f) * Fr);
-    float leg_Y = cl((H + LL - 1.f) * 0.95f);  // vertex height for thigh+calf
-    s_leg_y = leg_Y;
-
-    // Pelvis [1]: setBoneSize(comp(Hips,0.6)*Fr, H, comp(Hips,0.6)*Fr)   [Kenshi RE line 263670]
-    setBS(1, H, comp(Hips,0.6f)*Fr, comp(Hips,0.6f)*Fr);
-
-    // Thighs [2,7]: setBoneSize Y=(H+LL-1)*0.95, XZ=overall_XZ
-    // Thighs also get setBonePositionalSize Y = Fr*(2-H)*Hips (hip width adjustment)
-    // bind_local[thigh] = (0, ±0.099, 0) — Y is the lateral offset in Pelvis space
-    // → scale sl[1] (Y-translation = lateral) by thigh_pos_Y
-    setBS(2, leg_Y, overall_XZ, overall_XZ);
-    setBS(7, leg_Y, overall_XZ, overall_XZ);
-    float thigh_pos = cl(Fr * (2.f - H) * Hips);
-    s_posScale[2][1] = thigh_pos;  // Pelvis-local Y = lateral direction for thigh
-    s_posScale[7][1] = thigh_pos;
-
-    // Calves [3,8]: same vertex Y, different XZ (no setBonePositionalSize)
-    // bind_local[calf] = (+0.439, 0, 0) — X is along thigh bone direction
-    // Calf follows thigh origin (no posScale) — leg length from vertex deformation only
-    float calf_XZ = cl((2.f - LgS) * LgB * Fr);
-    setBS(3, leg_Y * calf_XZ, calf_XZ*calf_XZ, calf_XZ*calf_XZ);  // wy scales with bulk; XZ quadratic
-    setBS(8, leg_Y * calf_XZ, calf_XZ*calf_XZ, calf_XZ*calf_XZ);
-
-    // Feet [4,9]: setBoneSize(Feet²*H², LL*Ft*H, Feet²*H²)
-    float FtH = cl(Ft * H);
-    setBS(4, cl(LL * FtH), cl(FtH*FtH), cl(FtH*FtH));
-    setBS(9, cl(LL * FtH), cl(FtH*FtH), cl(FtH*FtH));
-
-    // Toes [5,10]: FtH² uniform + posScale Z=FtH (toe extends forward with foot size)
-    float FtH2 = FtH*FtH;
-    for(int ji:{5,10}){ s_boneScales[ji][0]=FtH2; s_boneScales[ji][1]=FtH2; s_boneScales[ji][2]=FtH2; }
-    s_posScale[5][2] = FtH;
-    s_posScale[10][2] = FtH;
-
-    // ── Torso ─────────────────────────────────────────────────────────────────
-    // Spine [12]: setBoneSize(comp(Hips,0.6)*Fr, H, comp(Hips,0.6)*St*Fr)   [line 263808/817]
-    float HipsC = comp(Hips, 0.6f);
-    setBS(12, H, HipsC*Fr, HipsC*St*Fr);
-
-    // Spine1 [13]: setBoneSize(Waist*Fr, H, Stomach*Fr)   [line 263835/842]
-    setBS(13, H, Wa*Fr, St*Fr);
-
-    // Spine2 [14]: setBoneSize(comp(Ch,0.45)*Fr, H, comp(Ch,0.9)*Fr)   [line 263851/858]
-    setBS(14, H, comp(Ch,0.45f)*Fr, comp(Ch,0.9f)*Fr);
-
-    // ── Arms ──────────────────────────────────────────────────────────────────
-    // Clavicles [15,25]: (Sh*Fr, comp(Sh,0.3)*Fr, Sh*Fr)   [line 264048/057]
-    float ShY = comp(Sh, 0.3f)*Fr;
-    for(int ji:{15,25}){ s_boneScales[ji][0]=Sh*Fr; s_boneScales[ji][1]=ShY; s_boneScales[ji][2]=Sh*Fr; }
-
-    // Arm bone axis mapping (verified from inverseBindMatrices, md_human_t.glb):
-    //   UpperArm/Forearm [16,17,26,27]: localX=world-Y(vertical), localY=world+X(along arm), localZ=world+Z(depth)
-    //   Hand [18,28]:                  localX=world-Y(vertical), localY=world±Z(depth),    localZ=world±X(along arm)
-    //
-    // Kenshi setBoneSize for UpperArm: Vector3(OGRE_X=AbFr², OGRE_Y=H*AbFr, OGRE_Z=comp(Ab,1.5)*Fr*AbFr)
-    //   → GLB [0]=H*AbFr (vertical=OGRE_Y), [1]=AbFr² (along arm=OGRE_X), [2]=comp*Fr*AbFr (depth=OGRE_Z)
-    //
-    // WITHOUT vertex morph targets, [1]=AbFr² (3x at Ab=1.45,Fr=1.2) stretches arm 3x along its axis
-    // → forearm/hand detach from body mesh. Clamp along-arm scale to H only (height-proportional).
-    // Arm THICKNESS is preserved via [0] and [2]. This is bone-only limitation vs Kenshi morph system.
-    float AbFr = Ab*Fr;
-    float AbZ  = comp(Ab, 1.5f)*Fr;
-    // [2] = AbZ (not AbZ*AbFr): depth grows linear with Fr, same rate as Clavicle[2]=Sh*Fr.
-    // Without vertex morphs, Fr² depth scale creates a 20% shoulder gap at Frame=120.
-    for(int ji:{16,26}){ s_boneScales[ji][0]=H*AbFr; s_boneScales[ji][1]=H; s_boneScales[ji][2]=AbZ; }
-    // pos_scales[16/26][0] = Sh*Fr: clavicle local-unit ≈ 1m (1:1 world scale, verified).
-    // Clavicle bone_scale[15][0]=Sh*Fr → shoulder vertices move Sh*Fr units outward.
-    // arm pos must match exactly → Sh*Fr. Without this: 18cm gap at Sh=1.44 Fr=1.76.
-    // Kenshi uses Sh (no Fr) because artist morph targets fill the gap. We have none.
-    s_posScale[16][0] = cl(Sh * Fr);
-    s_posScale[26][0] = cl(Sh * Fr);
-
-    // Forearm [17,27]: [2]=AbFr (linear, not AbFr²) for same reason as UpperArm
-    for(int ji:{17,27}){ s_boneScales[ji][0]=H*AbFr; s_boneScales[ji][1]=H; s_boneScales[ji][2]=AbFr; }
-
-    // Hand [18,28]: localZ=along arm → [2]=AbFr*Hn² (modest: Hn≤1.15), [0]=H*Hn², [1]=AbFr*Hn²
-    for(int ji:{18,28}){ s_boneScales[ji][0]=H*Hn*Hn; s_boneScales[ji][1]=AbFr*Hn*Hn; s_boneScales[ji][2]=Hn*Hn; }
-
-    // ── Head/Neck ─────────────────────────────────────────────────────────────
-    float Nw  = cl(face[3]  / 100.f);  // Neck width
-    float Nl  = cl(face[4]  / 100.f);  // Neck length
-    float jaw = cl(face[17] / 100.f);  // Jaw — also drives Neck bone Z (depth)
-    // Neck [20]: wy=Nl, wx=Nw*Fr, wz=jaw*Fr   [Kenshi RE line 264237]
-    setBS(20, Nl, Nw*Fr, jaw*Fr);
-
-    // Head [21]: wy=comp(Fr,0.25)*Hd, wx=same*Hsp, wz=same   [line 264251]
-    float Hd  = cl(face[0] / 100.f);
-    float FrH = comp(Fr, 0.25f);
-    float Hsp = cl(face[1] / 100.f);
-    setBS(21, FrH*Hd, FrH*Hd*Hsp, FrH*Hd);
-
-    // Jaw [23]: wy=FrH*Hd, wx=FrH*Hd*Hsp*jaw, wz=FrH*Hd   [line 264290]
-    s_boneScales[23][0]=FrH*Hd; s_boneScales[23][1]=FrH*Hd*Hsp*jaw; s_boneScales[23][2]=FrH*Hd;
-
-    // Use OzzAnimator::Sample with both bone_scales AND pos_scales.
-    // This applies ScaleSoATranslations (pos_scales) before LocalToModel,
-    // moving arm origins to track clavicle expansion — identical to game NPC path.
-    // Previously used SampleWorldMats which ignored s_posScale entirely.
-    if (s_pose_ozz.IsLoaded() && s_pose_idle_clip >= 0) {
-        static float ws_flat[OZZ_ANIM_MAX_BONES * 16];
-        s_pose_ozz.Sample(s_pose_idle_clip, 0.f, ws_flat,
-                          nullptr, s_boneScales, s_posScale);
-        // Posture/neck/shoulder slider anims via BlendAdditive (Kenshi RE: timePos = length * pct * 0.01).
-        // BlendAdditive: lerp(idle, slider_anim_at_t, 1.0) = full slider pose for those bones.
-        float spine1_before = ws_flat[13*16 + 0];  // DIAG: Spine1 matrix[0,0] before posture
-        if (s_pose_postures_clip >= 0 && s_anim_postures.loaded) {
-            float pt = s_anim_postures.length * body[4] / 99.0f;
-            s_pose_ozz.BlendAdditive(ws_flat, s_pose_postures_clip, pt, 1.0f);
-        }
-        float spine1_after = ws_flat[13*16 + 0];   // DIAG: Spine1 matrix[0,0] after posture
-        if (s_pose_neck_clip >= 0 && s_anim_neck_set.loaded && body[5] > 0.5f) {
-            float nt = s_anim_neck_set.length * body[5] / 99.0f;
-            s_pose_ozz.BlendAdditive(ws_flat, s_pose_neck_clip, nt, 1.0f);
-        }
-        if (s_pose_shoulder_clip >= 0 && s_anim_shoulder_set.loaded && body[6] > 0.5f) {
-            float st = s_anim_shoulder_set.length * body[6] / 99.0f;
-            s_pose_ozz.BlendAdditive(ws_flat, s_pose_shoulder_clip, st, 1.0f);
-        }
-        memcpy(s_ws_mat, ws_flat, 30 * 16 * sizeof(float));
-        // DIAG: periodic print every 180 frames — Spine1 matrix change with posture slider
-        static int s_diag_frame = 0;
-        if (++s_diag_frame >= 180) {
-            s_diag_frame = 0;
-            fprintf(stderr,"[POSTURE DIAG] OZZ path. body4=%.0f clip=%d loaded=%d "
-                "spine1_before=%.3f after=%.3f delta=%.3f\n",
-                body[4], s_pose_postures_clip, (int)s_anim_postures.loaded,
-                spine1_before, spine1_after, spine1_after - spine1_before);
-            fflush(stderr);
-        }
-    } else {
-        static bool s_diag_done2 = false;
-        if (!s_diag_done2) { s_diag_done2 = true;
-            fprintf(stdout,"[CharPreview DIAG] FALLBACK path (OzzAnimator not loaded or clip<0)\n"); }
-
-        // Fallback: legacy custom FK (s_pose_rot[] loaded via cgltf).
-        float new_world[30][16];
-        for (int i = 0; i < 30; i++) {
-            float sl[16];
-            float tp[3] = {
-                s_bind_local[i][12] * s_posScale[i][0],
-                s_bind_local[i][13] * s_posScale[i][1],
-                s_bind_local[i][14] * s_posScale[i][2]
-            };
-            m4_from_quat_t(sl, s_pose_rot[i], tp);
-            if (s_bone_parent[i] < 0)
-                memcpy(new_world[i], sl, 64);
-            else
-                m4mul(new_world[i], new_world[(int)s_bone_parent[i]], sl);
-        }
-        for (int i = 0; i < 30; i++) {
-            float sx=s_boneScales[i][0], sy=s_boneScales[i][1], sz=s_boneScales[i][2];
-            float S[16]={sx,0,0,0, 0,sy,0,0, 0,0,sz,0, 0,0,0,1};
-            float tmp[16];
-            m4mul(tmp, S, s_inv_bind[i]);
-            m4mul(s_ws_mat[i], new_world[i], tmp);
-        }
-    }
+    // GetFinalBonesScaled writes MAX_SKIN_BONES entries — use flat buffer to avoid overflow.
+    static float ws_flat[MAX_SKIN_BONES * 16];
+    s_pose_mesh.GetFinalBonesScaled(s_pose_idle_clip, 0.f, scales, ws_flat);
+    for (int i = 0; i < 30; ++i)
+        memcpy(s_ws_mat[i], ws_flat + i * 16, 64);
 }
 
 // ── Face morph target wiring ─────────────────────────────────────────────────
@@ -1810,8 +1613,9 @@ struct PortraitCfg {
     float portrait_dist     = 0.72f;
     float portrait_offset_y = 0.88f;
     float portrait_fov      = 0.78f;
-    float body_dist         = 2.6f;
+    float body_dist         = 3.5f;
     float body_pit          = -0.06f;
+    float body_lookat_y     = 0.9f;
 };
 static PortraitCfg s_pcfg;
 static bool        s_pcfg_loaded = false;
@@ -1829,6 +1633,7 @@ static void LoadPortraitCfg() {
             if (!strcmp(key,"portrait_fov"))      s_pcfg.portrait_fov      = val;
             if (!strcmp(key,"body_dist"))         s_pcfg.body_dist         = val;
             if (!strcmp(key,"body_pit"))          s_pcfg.body_pit          = val;
+            if (!strcmp(key,"body_lookat_y"))     s_pcfg.body_lookat_y     = val;
         }
     }
     fclose(f);
@@ -1843,7 +1648,7 @@ void SetCameraForTab(int tab) {
     if (tab == 0) {
         s_dist     = s_pcfg.body_dist;
         s_pit      = s_pcfg.body_pit;
-        s_lookat_y = 0.f;
+        s_lookat_y = s_pcfg.body_lookat_y;
     } else {
         s_dist     = s_pcfg.portrait_dist;
         s_pit      = 0.f;
@@ -1893,21 +1698,20 @@ void DrawInImGui(float W, float H,
         s_last_tab_for_portrait = (s_lookat_y > 0.5f ? 1 : 0);
         s_portrait_mode = (s_lookat_y > 0.5f);
     }
-    if (s_portrait_mode && !s_drag) {
+    bool dragging = hov && ImGui::IsMouseDragging(ImGuiMouseButton_Right, 0.f);
+    if (s_portrait_mode && !dragging) {
         uint64_t ms = SDL_GetTicks() - s_anim_epoch_ms;
         uint32_t fr = (uint32_t)(ms / 33);
         s_yaw = ((float)(fr % 500) / 1000.f - 0.25f) * 3.14159f * 0.6f;
         s_pit = ((float)(fr % 252) / 1000.f - 0.083f) * 3.14159f * 0.25f;
     }
 
-    // RMB drag = yaw rotation via ImGui mouse delta (reliable on both X11 and Wayland).
-    if (hov && io.MouseClicked[1])
-        s_drag = true;
-    if (s_drag) {
-        if (io.MouseDown[1])
-            s_yaw += io.MouseDelta.x * 0.007f;
-        else
-            s_drag = false;
+    // RMB drag = yaw rotation (mirrors CharPreviewGame — IsMouseDragging is simpler
+    // and more reliable than MouseClicked[1]+s_drag state across hot-reload).
+    if (dragging) {
+        s_yaw += io.MouseDelta.x * 0.007f;
+        s_pit += io.MouseDelta.y * 0.005f;
+        s_pit = fmaxf(-1.4f, fminf(1.4f, s_pit));
     }
     // Scroll = zoom
     if (hov && io.MouseWheel!=0.f) {
