@@ -27,9 +27,9 @@
 
 // ─── Data structures ─────────────────────────────────────────────────────────
 
-static constexpr int WP_MAX_ZONES    = 48;
-static constexpr int WP_MAX_FACTIONS = 24;
-static constexpr int WP_MAX_TOWNS    = 64;
+static constexpr int WP_MAX_ZONES    = 72;   // 59 kenshi zones + buffer
+static constexpr int WP_MAX_FACTIONS = 160;  // 137 kenshi factions + buffer
+static constexpr int WP_MAX_TOWNS    = 384;  // 348 kenshi towns + buffer
 
 struct WPZone {
     char  id[48], display_name[48], biome[24], factions_str[64];
@@ -42,8 +42,8 @@ struct WPFaction {
     bool  slaving, patrols;
 };
 struct WPTown {
-    char  id[32], name[64], faction[32], town_type[16];
-    float x, z;
+    char  id[32], name[64], faction[32], town_type[16], biome[24];
+    float x, z;   // 0-63 grid coords (loaded from grid_x/grid_z in md_world.json)
     int   pop;
 };
 
@@ -141,16 +141,27 @@ inline void LoadZones(const char* path = "game/data/terrain_config.txt") {
     fclose(f);
 }
 
+// Shared buffer for md_world.json (120KB+). Static: loaded once per session.
+static char  g_world_json[256*1024];
+static int   g_world_json_len = 0;
+
+inline bool EnsureWorldJson(const char* path = "game/data/md_world.json") {
+    if (g_world_json_len > 0) return true;
+    FILE* f = fopen(path, "rb"); if (!f) return false;
+    g_world_json_len = (int)fread(g_world_json, 1, sizeof(g_world_json)-1, f);
+    fclose(f); g_world_json[g_world_json_len] = '\0';
+    return g_world_json_len > 0;
+}
+
 inline void LoadFactions(const char* path = "game/data/md_world.json") {
-    FILE* f = fopen(path, "rb"); if (!f) return;
-    static char jbuf[32768];
-    int nb = (int)fread(jbuf, 1, sizeof(jbuf)-1, f); fclose(f); jbuf[nb]='\0';
+    if (!EnsureWorldJson(path)) return;
     g_fcount = 0; g_sel_fac = -1;
-    const char* arr = strstr(jbuf, "\"factions\""); if (!arr) return;
+    const char* arr = strstr(g_world_json, "\"factions\""); if (!arr) return;
     arr = strchr(arr, '['); if (!arr) return;
     const char* cur = arr + 1;
     while (g_fcount < WP_MAX_FACTIONS) {
         const char* obj = strchr(cur, '{'); if (!obj) break;
+        // find matching closing brace (skip nested arrays like color_rgb:[...])
         const char* end = strchr(obj+1, '}'); if (!end) break;
         WPFaction& fa = g_facs[g_fcount]; memset(&fa, 0, sizeof(fa));
         fa.color[0]=0.7f; fa.color[1]=0.7f; fa.color[2]=0.7f;
@@ -160,18 +171,17 @@ inline void LoadFactions(const char* path = "game/data/md_world.json") {
         const char* col = strstr(obj, "\"color_rgb\"");
         if (col && col < end) {
             const char* cb = strchr(col, '[');
-            if (cb) sscanf(cb+1, "%f , %f , %f", &fa.color[0], &fa.color[1], &fa.color[2]);
+            if (cb && cb < end)
+                sscanf(cb+1, "%f , %f , %f", &fa.color[0], &fa.color[1], &fa.color[2]);
         }
         g_fcount++; cur = end+1;
     }
 }
 
 inline void LoadTowns(const char* path = "game/data/md_world.json") {
-    FILE* f = fopen(path, "rb"); if (!f) return;
-    static char tbuf[32768];
-    int nb = (int)fread(tbuf, 1, sizeof(tbuf)-1, f); fclose(f); tbuf[nb]='\0';
+    if (!EnsureWorldJson(path)) return;
     g_tcount = 0; g_sel_town = -1;
-    const char* arr = strstr(tbuf, "\"towns\""); if (!arr) return;
+    const char* arr = strstr(g_world_json, "\"towns\""); if (!arr) return;
     arr = strchr(arr, '['); if (!arr) return;
     const char* cur = arr + 1;
     while (g_tcount < WP_MAX_TOWNS) {
@@ -180,13 +190,16 @@ inline void LoadTowns(const char* path = "game/data/md_world.json") {
         WPTown& t = g_towns[g_tcount]; memset(&t, 0, sizeof(t));
         wp_str(obj,"\"id\"",t.id,32); wp_str(obj,"\"name\"",t.name,64);
         wp_str(obj,"\"faction\"",t.faction,32); wp_str(obj,"\"type\"",t.town_type,16);
-        t.x=wp_float(obj,"\"x\"",0.f); t.z=wp_float(obj,"\"z\"",0.f);
+        wp_str(obj,"\"biome\"",t.biome,24);
+        // md_world.json uses grid_x/grid_z (0-63); map draw divides by 64
+        t.x = (float)wp_int(obj,"\"grid_x\"",0);
+        t.z = (float)wp_int(obj,"\"grid_z\"",0);
         t.pop=wp_int(obj,"\"pop\"",0);
         g_tcount++; cur = end+1;
     }
 }
 
-inline void Init() { LoadZones(); LoadFactions(); LoadTowns(); }
+inline void Init() { g_world_json_len = 0; LoadZones(); LoadFactions(); LoadTowns(); }
 
 inline bool SaveZones(const char* path = "game/data/terrain_config.txt") {
     FILE* f = fopen(path, "w"); if (!f) return false;
@@ -368,7 +381,8 @@ inline void Draw(float dt) {
         if (hov && fabsf(mpos.x-px)<hr+4 && fabsf(mpos.y-py)<hr+4) {
             ImGui::BeginTooltip();
             ImGui::Text("%s", t.name);
-            ImGui::TextDisabled("faction: %s  type: %s  pop: %d", t.faction, t.town_type, t.pop);
+            ImGui::TextDisabled("faction: %s", t.faction);
+            ImGui::TextDisabled("biome: %s  grid: %.0f,%.0f", t.biome, t.x, t.z);
             ImGui::EndTooltip();
             if (ImGui::IsMouseClicked(0)) { g_sel_town=i; g_sel_type=2; g_list_tab=2; g_search[0]='\0'; }
         }
@@ -566,6 +580,7 @@ inline void Draw(float dt) {
     ImGui::Separator();
     if (ImGui::Button("Reload All", {-1.f,0.f})) {
         g_map_tried = false;
+        g_world_json_len = 0;  // force re-read md_world.json
 #ifndef MD_SDL_GPU
         if (g_maptex) { glDeleteTextures(1, &g_maptex); g_maptex = 0; }
 #endif
