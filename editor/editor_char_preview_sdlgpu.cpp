@@ -1730,18 +1730,20 @@ void DrawInImGui(float W, float H,
         s_portrait_mode = (s_lookat_y > 0.5f);
     }
     bool dragging = hov && ImGui::IsMouseDragging(ImGuiMouseButton_Right, 0.f);
-    if (s_portrait_mode && !dragging) {
+    // Auto-rotation runs only while portrait mode is active AND user hasn't taken manual control.
+    // First RMB drag disables portrait mode so the user can hold a custom view for screenshots.
+    if (dragging) s_portrait_mode = false;
+    if (s_portrait_mode) {
         uint64_t ms = SDL_GetTicks() - s_anim_epoch_ms;
         uint32_t fr = (uint32_t)(ms / 33);
         s_yaw = ((float)(fr % 500) / 1000.f - 0.25f) * 3.14159f * 0.6f;
         s_pit = ((float)(fr % 252) / 1000.f - 0.083f) * 3.14159f * 0.25f;
     }
 
-    // RMB drag = yaw rotation (mirrors CharPreviewGame — IsMouseDragging is simpler
-    // and more reliable than MouseClicked[1]+s_drag state across hot-reload).
+    // RMB drag — negate both deltas to match standard orbit-camera convention.
     if (dragging) {
-        s_yaw += io.MouseDelta.x * 0.007f;
-        s_pit += io.MouseDelta.y * 0.005f;
+        s_yaw -= io.MouseDelta.x * 0.007f;
+        s_pit -= io.MouseDelta.y * 0.005f;
         s_pit = fmaxf(-1.4f, fminf(1.4f, s_pit));
     }
     // Scroll = zoom
