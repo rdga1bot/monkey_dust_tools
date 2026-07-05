@@ -686,11 +686,12 @@ static void Draw(bool kenshi_theme = true) {
     {
         bool& vis = CharPreviewSDLGPU::s_clothes_visible;
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {4.f, 2.f});
-        if (vis) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.19f,0.35f,0.65f,1.f});
+        bool vis_was = vis;
+        if (vis_was) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.19f,0.35f,0.65f,1.f});
         if (ImGui::Button(vis ? u8"● CLOTHES" : "  CLOTHES",
                           {ImGui::GetContentRegionAvail().x, 0.f}))
             vis = !vis;
-        if (vis) ImGui::PopStyleColor();
+        if (vis_was) ImGui::PopStyleColor();
         ImGui::PopStyleVar();
     }
 
@@ -837,18 +838,20 @@ static void Draw(bool kenshi_theme = true) {
             snprintf(btn_plus,  sizeof(btn_plus),  "+##ap%d", i);
 
             // [−] button: disabled when nothing spent on this stat
-            if (s_def.attr_spent[i] <= 0) ImGui::BeginDisabled();
+            bool minus_dis = (s_def.attr_spent[i] <= 0);
+            if (minus_dis) ImGui::BeginDisabled();
             if (ImGui::SmallButton(btn_minus)) s_def.attr_spent[i]--;
-            if (s_def.attr_spent[i] <= 0) ImGui::EndDisabled();
+            if (minus_dis) ImGui::EndDisabled();
 
             ImGui::SameLine(0.f, 2.f);
             ImGui::Text("%2d", (int)s_def.attr_spent[i]);
             ImGui::SameLine(0.f, 2.f);
 
             // [+] button: disabled when no free points remain
-            if (remaining <= 0) ImGui::BeginDisabled();
+            bool plus_dis = (remaining <= 0);
+            if (plus_dis) ImGui::BeginDisabled();
             if (ImGui::SmallButton(btn_plus)) { s_def.attr_spent[i]++; remaining--; }
-            if (remaining <= 0) ImGui::EndDisabled();
+            if (plus_dis) ImGui::EndDisabled();
         }
 
         ImGui::PopStyleVar();

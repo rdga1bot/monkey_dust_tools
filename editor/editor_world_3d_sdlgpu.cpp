@@ -655,7 +655,7 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
             sd.frag_samplers      = 1;  // binding 0: colour only
             s_synth_pipeline.Create(sd);
         }
-        s_props.Init("game/data/props/rocks/rock_01.glb"); // no-op if missing
+        s_props.Init("game/data/props/rock_01.glb"); // no-op if missing
         s_terrain.InitKenshiOverlay(op);
         s_terrain.InitGroundTextureArray();
         TerrainRenderer::PomParams pom; pom.height_scale=0.04f; pom.layers_min=4; pom.layers_max=8;
