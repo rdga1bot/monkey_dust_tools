@@ -21,11 +21,11 @@ ATLAS_ZONES = 64
 ATLAS_VERTS = 65          # TERRAIN_GRID+1
 TIF_ZONE_PX = 256         # pixels per zone in fullmap.tif
 STEP        = TIF_ZONE_PX // (ATLAS_VERTS - 1)   # = 4
-HEIGHT_MAX_M = 300.0      # Kenshi world max confirmed height
+HEIGHT_MAX_M = 9800.0 * 32000.0 / 294912.0  # ~1063.4m — from RE: vert_scale=9800, horiz_scale=294912, world=32km
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--tif", default="/run/media/rdga1/win/SteamLibrary/steamapps/common/Kenshi/data/newland/land/fullmap.tif")
+    ap.add_argument("--tif", default="tmp_/kenshi/data/newland/land/fullmap.tif")
     ap.add_argument("--out", default="game/data/terrain/world_hmap.r32")
     args = ap.parse_args()
 

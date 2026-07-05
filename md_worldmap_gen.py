@@ -25,8 +25,7 @@ ATLAS_ZONES = 64
 ATLAS_VERTS = 65
 OUT_SIZE    = 2048
 
-KENSHI_BIOME = "/run/media/rdga1/win/SteamLibrary/steamapps/common/Kenshi/" \
-               "data/newland/land/biomemap.png"
+KENSHI_BIOME = "tmp_/kenshi/data/newland/land/biomemap.png"
 
 # ── Per-biome colour palettes (vivid, clearly distinct) ──────────────────────
 BIOME_PALETTE = {
