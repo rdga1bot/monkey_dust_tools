@@ -1,7 +1,7 @@
 #pragma once
 // character_editor.h v2 — Kenshi-style 3-panel character creator.
 // LEFT (160px): race/gender/desc/stats  |  CENTER: 3D preview  |  RIGHT (270px): BODY/FACE/HAIR sliders
-// Redesigned to match Kenshi character editor layout from RE analysis.
+// Layout informed by a reference-game UX study of similar character creators.
 
 #include "imgui.h"
 #ifdef MD_SDL_GPU

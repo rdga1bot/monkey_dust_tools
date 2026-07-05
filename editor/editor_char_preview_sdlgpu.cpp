@@ -1454,7 +1454,6 @@ void ReloadPipelines() {
 //   Chest    → Bip01 Spine2 XZ
 //   Arm bulk → UpperArm+Forearm XZ
 //   Frame    → global body-width multiplier on torso XZ
-// Kenshi RE (kenshi_x64.exe.c FUN_140015b63 = lerp, verified 2026-05-29).
 // IMPORTANT: md_human.glb mesh was exported at Kenshi slider=100 proportions —
 // NOT raw T-pose. So slider=100 → ws_mat=I (no deformation) is CORRECT.
 // Race multipliers (0.70/1.27/etc.) apply to raw T-pose only; our mesh already
