@@ -839,6 +839,12 @@ static bool s_load_mesh(const char* glb_path) {
             float dot1=sa.rot1[i][0]*s_idle_rot[i][0]+sa.rot1[i][1]*s_idle_rot[i][1]+
                         sa.rot1[i][2]*s_idle_rot[i][2]+sa.rot1[i][3]*s_idle_rot[i][3];
             if (dot1<0.f){sa.rot1[i][0]*=-1;sa.rot1[i][1]*=-1;sa.rot1[i][2]*=-1;sa.rot1[i][3]*=-1;}
+            // Also align intermediate key_rot frames used by SampleAnimAtTime.
+            for (int k=0;k<sa.key_count;k++) {
+                float dk=sa.key_rot[k][i][0]*s_idle_rot[i][0]+sa.key_rot[k][i][1]*s_idle_rot[i][1]+
+                          sa.key_rot[k][i][2]*s_idle_rot[i][2]+sa.key_rot[k][i][3]*s_idle_rot[i][3];
+                if (dk<0.f){sa.key_rot[k][i][0]*=-1;sa.key_rot[k][i][1]*=-1;sa.key_rot[k][i][2]*=-1;sa.key_rot[k][i][3]*=-1;}
+            }
         }
     };
     align_to_idle(s_anim_postures);
@@ -1465,15 +1471,32 @@ void ReloadPipelines() {
 // setBoneSize → s_boneScales (vertex deformation only, doesn't move children).
 // setBonePositionalSize → s_posScale (scales bind translation from parent).
 void SetBoneScalesFromDef(const float body[18], const float face[24]) {
-    // Use CharCustomization_ComputeScales + GetFinalBonesScaled — same path as June 28
-    // CharPreviewGame. CharScales::rot[i] carries posture rotation for spine/neck/head.
-    // GetFinalBonesScaled samples idle_stand_normal TRS + applies scales + posture delta.
     if (s_pose_idle_clip < 0 || !s_pose_mesh.loaded) return;
 
     CharScales scales;
     CharCustomization_ComputeScales(body, face, s_pose_mesh.bone_count, scales);
 
-    // s_leg_y for foot grounding (mirrors char_customization's leg_Y * thigh wy factor 0.95)
+    // Posture: override scales.rot[] with animation-driven delta from idle.
+    // Kenshi RE: timePos = animLength * slider * 0.01
+    // The postures GLB clip stores ABSOLUTE local quats. We compute the delta
+    // from idle → postures-at-body[4], then extract the Y rotation angle to
+    // feed into GetFinalBonesScaled (which applies it as a local-Y delta).
+    if (s_anim_postures.loaded && s_anim_postures.key_count > 0 && s_idle_loaded) {
+        static const int kPBones[] = {12, 13, 14, 20, 21};
+        float pt = s_anim_postures.length * body[4] * 0.01f;
+        for (int bone : kPBones) {
+            float q_p[4];
+            SampleAnimAtTime(s_anim_postures, bone, pt, q_p);
+            // delta = q_idle^-1 * q_posture (unit quat inverse = conjugate)
+            const float* qi = s_idle_rot[bone];
+            float qi_inv[4] = {-qi[0], -qi[1], -qi[2], qi[3]};
+            float q_d[4]; quat_mul(q_d, qi_inv, q_p);
+            // postures anim is primarily Y-axis rotation → extract Y angle
+            scales.rot[bone] = 2.f * atan2f(q_d[1], q_d[3]);
+        }
+    }
+
+    // s_leg_y for foot grounding
     {
         auto cl4 = [](float x) { return x<0.1f?0.1f:(x>4.f?4.f:x); };
         s_leg_y = cl4(cl4(body[2]/100.f) + cl4(body[7]/100.f) - 1.f) * 0.95f;
