@@ -1476,28 +1476,33 @@ void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     CharScales scales;
     CharCustomization_ComputeScales(body, face, s_pose_mesh.bone_count, scales);
 
-    // Posture: full quaternion delta for ALL bones in the postures animation.
-    // Delta = postures_at_neutral^{-1} * postures_at_current.
-    // At body[4]=35 (neutral): delta = identity → no change from idle pose.
-    // All 3 rotation axes applied so arm droop, spine curve, head drop all work.
-    if (s_anim_postures.loaded && s_anim_postures.key_count > 0) {
-        static constexpr float kNeutral = 35.f;
-        float pn = s_anim_postures.length * kNeutral * 0.01f;
-        float pt = s_anim_postures.length * body[4]  * 0.01f;
+    // Apply slider animation as a full quaternion delta composed onto qrot_delta[bone].
+    // Delta = anim_at_neutral^{-1} * anim_at_current (identity at neutral → no change).
+    // Multiple animations compose: subsequent deltas are post-multiplied onto existing ones.
+    auto apply_slider = [&](const SliderAnim& sa, float slider_val, float neutral_val) {
+        if (!sa.loaded || sa.key_count == 0) return;
+        float pn = sa.length * neutral_val * 0.01f;
+        float pt = sa.length * slider_val  * 0.01f;
         for (int bone = 0; bone < 30; bone++) {
-            if (!s_anim_postures.has[bone]) continue;
+            if (!sa.has[bone]) continue;
             float q_n[4], q_p[4];
-            SampleAnimAtTime(s_anim_postures, bone, pn, q_n);
-            SampleAnimAtTime(s_anim_postures, bone, pt, q_p);
+            SampleAnimAtTime(sa, bone, pn, q_n);
+            SampleAnimAtTime(sa, bone, pt, q_p);
             float qn_inv[4] = {-q_n[0], -q_n[1], -q_n[2], q_n[3]};
             float q_d[4]; quat_mul(q_d, qn_inv, q_p);
-            scales.qrot_delta[bone][0] = q_d[0];
-            scales.qrot_delta[bone][1] = q_d[1];
-            scales.qrot_delta[bone][2] = q_d[2];
-            scales.qrot_delta[bone][3] = q_d[3];
-            scales.rot[bone] = 0.f;  // disable Y-only fallback for this bone
+            // Compose onto existing delta (identity * q_d = q_d on first write).
+            float* qc = scales.qrot_delta[bone];
+            float q0 = qc[3]*q_d[0] + qc[0]*q_d[3] + qc[1]*q_d[2] - qc[2]*q_d[1];
+            float q1 = qc[3]*q_d[1] - qc[0]*q_d[2] + qc[1]*q_d[3] + qc[2]*q_d[0];
+            float q2 = qc[3]*q_d[2] + qc[0]*q_d[1] - qc[1]*q_d[0] + qc[2]*q_d[3];
+            float q3 = qc[3]*q_d[3] - qc[0]*q_d[0] - qc[1]*q_d[1] - qc[2]*q_d[2];
+            qc[0]=q0; qc[1]=q1; qc[2]=q2; qc[3]=q3;
+            scales.rot[bone] = 0.f;
         }
-    }
+    };
+    apply_slider(s_anim_postures,     body[4], 35.f);  // kBodyDef[4]
+    apply_slider(s_anim_neck_set,     body[5], 68.f);  // kBodyDef[5]
+    apply_slider(s_anim_shoulder_set, body[6], 53.f);  // kBodyDef[6]
 
     // s_leg_y for foot grounding
     {
