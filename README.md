@@ -33,7 +33,11 @@ Zero dependencies on `game/` sources — compiles without the game repo present 
 | 9 | GPU Profiler | imgui-flame-graph; per-pass CPU timings and budget bars |
 | 10 | Sequencer | ImSequencer timeline |
 
-> **Game-coupled panels** (Inspector · Terrain · 3D World · Settings) are compiled into the game binary via `-DMONKEY_DUST_EDITOR=ON` and live in `game/src/editor/` — they require `game/` headers and are never part of the standalone `tools/` build.
+> **Game-coupled panels** (Inspector · Terrain) are compiled into the game binary via
+> `-DMONKEY_DUST_EDITOR=ON` and live in `game/src/editor/` — they require `game/` headers and are
+> never part of the standalone `tools/` build. **3D World and Settings panels are NOT game-coupled**
+> — they live in `tools/editor/` (`editor_world_3d_sdlgpu.h/.cpp`, `settings_editor.h`), depend only
+> on `engine/` + SDL3, and ARE part of the standalone `monkey_dust_editor` build.
 
 **Toolbar:**
 - New Entity popup (Transform / NPC Bandit / NPC Trader / NPC Holy / Building)
@@ -88,18 +92,6 @@ bash tools/qa/char_preview_qa.sh --list                 # list saved baselines
 Baselines stored in `tools/qa/baselines/char_preview/`. Threshold: RMSE < 0.02.
 
 > **Note:** `tools/qa/captures/` (PNG frames + JSONL logs from `qa_run.sh`) is gitignored — runtime artifacts only, not tracked in the repo.
-
----
-
-### `ozz_bake` — GLB → ozz Animation Converter
-
-Offline converter: reads a GLB file with embedded skeleton and animations, writes `.ozz` skeleton + per-clip animation files consumed by `OzzAnimPlayer`.
-
-```bash
-ninja -C build ozz_bake
-./build/tools/ozz_bake   # input: game/data/props/md_human.glb
-                          # output: game/data/anim/md_human.ozz
-```
 
 ---
 
@@ -191,7 +183,6 @@ tools/
     editor_world_panel.h ← World tab: Zone/Faction/Town + map preview
     editor_*_panel.*   ← Specialist panels (ViewCone, FlowGraph, Director, GPU Profiler …)
     scene_serializer.h ← Import/Export scene JSON
-  ozz_bake/            ← GLB → ozz animation converter
   md_terrain/          ← md2terrain.py terrain zone helpers
   md_mesh_conv/        ← md_chars.py · ogre2glb.py — OGRE XML → GLB
   md_extract_terrain.py ← fullmap.tif → 4096 zone r32 → world_hmap.r32 atlas
@@ -206,7 +197,9 @@ tools/
 ```
 
 **Dependency rule:** `tools/` depends only on `engine/` (via `<monkey_dust/...>` headers) plus its own `tools/third_party/` (imgui + extensions).
-Zero `#include` from `game/`. Game-coupled panels (Inspector, Terrain, 3D World, Settings) live in `game/src/editor/` and are compiled into the game binary only — they are never part of the `tools/` build.
+Zero `#include` from `game/`. Game-coupled panels (Inspector, Terrain) live in `game/src/editor/` and
+are compiled into the game binary only — they are never part of the `tools/` build. 3D World and
+Settings panels live in `tools/editor/` and are part of the standalone `tools/` build.
 
 ---
 
