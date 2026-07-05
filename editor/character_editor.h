@@ -216,48 +216,53 @@ static const float kHairDef[HAIR_N] = { 40, 40, 40, 100, 50 };
 // stat_bonus[7]: Athletics / Strength / Toughness / Melee / Ranged / Thievery / Perception
 struct KRace {
     const char* name;
-    const char* subrace;   // nullptr = no subrace display
-    uint8_t     race_idx;  // maps to RaceType enum
+    const char* subrace;       // nullptr = no subrace display
+    uint8_t     race_idx;      // maps to RaceType enum
     const char* desc;
     int8_t      stat_bonus[7];
+    bool        single_gender; // RE: single_gender_flag @0x7b — constructs/robots have no sex
+    bool        hide_hair;     // RE: "hide hair" string key — insectoids/robots have no hair
 };
 
 static const KRace kRaces[] = {
+    // name         subrace          idx  desc                                            stats                        sg     hide_hair
     { "Human", "Greenlander", 0,
       "Greenlanders tend to value money above all else. They make natural traders and adaptable "
       "mercenaries, comfortable in most professions. Despite lacking the raw power of other races, "
       "they compensate through versatility, resourcefulness and an eye for opportunity.",
-      { 0, 0, 0, 0, 0, 0, 0 } },
+      { 0, 0, 0, 0, 0, 0, 0 }, false, false },
 
     { "Human", "Scorchlander", 1,
       "Primarily from outcast cultures, Scorchlanders are fierce and hardened desert survivors. "
       "They have a flair for the dramatic and excel at stealth and perception, making excellent "
       "scouts, thieves and wanderers across the harshest regions of the land.",
-      { 0, 0, 0, 0, 0, 5, 10 } },
+      { 0, 0, 0, 0, 0, 5, 10 }, false, false },
 
     { "Grahl", nullptr, 2,
       "Hulking warriors shaped by generations of harsh living. Grahl are renowned for their "
       "physical dominance and a code of honour that prizes strength above all else. Blunt in "
       "speech and direct in action, they are poor infiltrators but devastating in open combat.",
-      { 0, 20, 15, 0, 0, -15, -5 } },
+      { 0, 20, 15, 0, 0, -15, -5 }, false, false },
 
     { "Keth", "Drone", 3,
       "Small colony-born drones of the Keth swarm. Physically slight but extraordinarily nimble, "
       "they move where larger beings cannot and perceive threats before others notice them. "
       "They thrive in support roles — scouts, thieves, and survivalists in any terrain.",
-      { 15, -20, 0, 0, 0, 20, 0 } },
+      // RE: "hide hair" key — Keth are insectoid, no hair geometry
+      { 15, -20, 0, 0, 0, 20, 0 }, false, true },
 
     { "Keth", "Guard", 4,
       "Keth Guards are the armoured fighting caste of the swarm, bred for front-line endurance. "
       "Tougher than their drone kin and trained from birth in coordinated combat, they form "
       "the backbone of Keth military strength without sacrificing their innate quickness.",
-      { 0, 0, 10, 10, 0, 0, 0 } },
+      { 0, 0, 10, 10, 0, 0, 0 }, false, true },
 
     { "Wrought", nullptr, 5,
       "Autonomous constructs of forgotten manufacture, built from alloys that no living smith "
       "can reproduce. They need no sustenance, no rest, and shrug off wounds that would kill "
       "flesh-and-blood beings — but only an engineer's tools can restore what battle damages.",
-      { 0, 10, 0, 0, 0, 0, 0 } },
+      // RE: single_gender_flag @0x7b (type 0x5b = robot/skeleton); "hide hair" = no hair geometry
+      { 0, 10, 0, 0, 0, 0, 0 }, true, true },
 };
 static constexpr int RACE_COUNT = (int)(sizeof(kRaces) / sizeof(kRaces[0]));
 
@@ -638,12 +643,20 @@ static void Draw(bool kenshi_theme = true) {
     }
     ImGui::PopStyleColor();
 
-    // ── Gender navigation ────────────────────────────────────────
+    // ── Gender navigation ─────────────────────────────────────────
+    // RE: single_gender_flag @0x7b — Wrought (type 0x5b) have no biological sex
     static const char* kGender[2] = { "Male", "Female" };
     ImGui::TextDisabled("GENDER");
-    bool gl = false, gr = false;
-    NavRow("gen", kGender[s_def.sex], true, true, &gl, &gr);
-    if (gl || gr) s_def.sex ^= 1;
+    if (kr.single_gender) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.45f,0.38f,0.28f,1.f});
+        ImGui::TextUnformatted("  N/A");
+        ImGui::PopStyleColor();
+        s_def.sex = 0;  // lock to Male skeleton for single-gender races
+    } else {
+        bool gl = false, gr = false;
+        NavRow("gen", kGender[s_def.sex], true, true, &gl, &gr);
+        if (gl || gr) s_def.sex ^= 1;
+    }
 
     ImGui::Spacing();
 
@@ -787,6 +800,17 @@ static void Draw(bool kenshi_theme = true) {
             StatBar(kStatNames[i], (int)kr.stat_bonus[i]);
         ImGui::PopStyleVar();
     }
+
+    // RE: hunger_rate=0.02/tick, hunger_threshold=0.5 penalty trigger
+    // Wrought: no hunger (constructs don't eat)
+    ImGui::Spacing();
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.45f,0.38f,0.28f,1.f});
+    if (kr.single_gender) {
+        ImGui::TextDisabled("Hunger: none (construct)");
+    } else {
+        ImGui::TextDisabled("Hunger rate: 0.02/tick  |  threshold: 50%%");
+    }
+    ImGui::PopStyleColor();
 
     ImGui::Separator();
 
@@ -937,50 +961,62 @@ static void Draw(bool kenshi_theme = true) {
         for (int i = 0; i < FACE_N; ++i)
             KenshiSlider(kFaceLbl[i], &s_def.face[i], kFaceLo[i], kFaceHi[i]);
     } else {
-        // ── HAIR tab ──────────────────────────────────────────────────────────
-        // Style selector
-        ImGui::TextUnformatted("Hair Style");
-        ImGui::SameLine();
-        float avail = ImGui::GetContentRegionAvail().x;
-        float btnW  = (avail - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
-        if (ImGui::Button("< Prev", {btnW, 0})) {
-            int ns = (CharPreviewSDLGPU::s_hair_style - 1 + CharPreviewSDLGPU::s_hair_style_count)
-                      % CharPreviewSDLGPU::s_hair_style_count;
-            CharPreviewSDLGPU::LoadHairStyle(ns);
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Next >", {btnW, 0})) {
-            int ns = (CharPreviewSDLGPU::s_hair_style + 1)
-                      % CharPreviewSDLGPU::s_hair_style_count;
-            CharPreviewSDLGPU::LoadHairStyle(ns);
-        }
-        // Current style name
-        ImGui::SetNextItemWidth(-1.f);
-        int cur = CharPreviewSDLGPU::s_hair_style;
-        if (ImGui::BeginCombo("##hstyle", CharPreviewSDLGPU::s_hair_styles[cur])) {
-            for (int i=0; i<CharPreviewSDLGPU::s_hair_style_count; ++i) {
-                bool sel = (i == cur);
-                if (ImGui::Selectable(CharPreviewSDLGPU::s_hair_styles[i], sel))
-                    CharPreviewSDLGPU::LoadHairStyle(i);
-                if (sel) ImGui::SetItemDefaultFocus();
+        // ── HAIR tab ─────────────────────────────────────────────────────────
+        // RE: "hide hair" string key — Keth + Wrought have no hair geometry
+        if (kr.hide_hair) {
+            ImGui::Spacing();
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.45f,0.38f,0.28f,1.f});
+            ImGui::TextWrapped("This race has no hair.\n(RE: \"hide hair\" key)");
+            ImGui::PopStyleColor();
+        } else {
+            // RE: "hair style" string key — hairstyle index
+            ImGui::TextUnformatted("Hair Style");
+            ImGui::SameLine();
+            float avail_w = ImGui::GetContentRegionAvail().x;
+            float btnW    = (avail_w - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+            if (ImGui::Button("< Prev", {btnW, 0})) {
+                int ns = (CharPreviewSDLGPU::s_hair_style - 1 + CharPreviewSDLGPU::s_hair_style_count)
+                          % CharPreviewSDLGPU::s_hair_style_count;
+                CharPreviewSDLGPU::LoadHairStyle(ns);
             }
-            ImGui::EndCombo();
+            ImGui::SameLine();
+            if (ImGui::Button("Next >", {btnW, 0})) {
+                int ns = (CharPreviewSDLGPU::s_hair_style + 1)
+                          % CharPreviewSDLGPU::s_hair_style_count;
+                CharPreviewSDLGPU::LoadHairStyle(ns);
+            }
+            ImGui::SetNextItemWidth(-1.f);
+            int cur = CharPreviewSDLGPU::s_hair_style;
+            if (ImGui::BeginCombo("##hstyle", CharPreviewSDLGPU::s_hair_styles[cur])) {
+                for (int i = 0; i < CharPreviewSDLGPU::s_hair_style_count; ++i) {
+                    bool sel = (i == cur);
+                    if (ImGui::Selectable(CharPreviewSDLGPU::s_hair_styles[i], sel))
+                        CharPreviewSDLGPU::LoadHairStyle(i);
+                    if (sel) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::Spacing();
+
+            // RE: "Hair Color Red/Green/Blue" — stored as hair_rgb[3]
+            ImGui::TextDisabled("Hair Colour  (R/G/B)");
+            ImGui::SetNextItemWidth(-1.f);
+            ImGui::ColorEdit3("##hcol", s_def.hair_rgb);
+            ImGui::Spacing();
+
+            // RE: "Hair Contrast" string key (was "2d lightness" in old label)
+            KenshiSlider("Contrast",   &s_def.color_strength, 0.f, 1.f);
+            // RE: "hair saturation" string key
+            KenshiSlider("Saturation", &s_def.hair_f[3], 0.f, 200.f);
+            // RE: "hair bright" string key
+            KenshiSlider("Brightness", &s_def.hair_f[4], 0.f, 100.f);
+            ImGui::Spacing();
+
+            // Skin colour (shared between BODY and HAIR tabs in Kenshi)
+            ImGui::TextDisabled("Skin Colour");
+            ImGui::SetNextItemWidth(-1.f);
+            ImGui::ColorEdit3("##scol", s_def.skin_rgb);
         }
-        ImGui::Spacing();
-
-        // Hair colour
-        ImGui::TextUnformatted("Hair Colour");
-        ImGui::SetNextItemWidth(-1.f);
-        ImGui::ColorEdit3("##hcol", s_def.hair_rgb);
-        ImGui::Spacing();
-
-        // Skin colour
-        ImGui::TextUnformatted("Skin Colour");
-        ImGui::SetNextItemWidth(-1.f);
-        ImGui::ColorEdit3("##scol", s_def.skin_rgb);
-        ImGui::Spacing();
-        KenshiSlider("Saturation", &s_def.hair_f[3], 0.f, 200.f);
-        KenshiSlider("Brightness", &s_def.hair_f[4], 0.f, 100.f);
     }
 
     ImGui::PopStyleVar();
