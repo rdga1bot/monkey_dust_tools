@@ -1476,24 +1476,26 @@ void SetBoneScalesFromDef(const float body[18], const float face[24]) {
     CharScales scales;
     CharCustomization_ComputeScales(body, face, s_pose_mesh.bone_count, scales);
 
-    // Posture: override scales.rot[] with animation-driven delta from NEUTRAL.
-    // Kenshi RE: timePos = animLength * slider * 0.01. Neutral = body[4] default = 35.
-    // Delta is computed postures_neutral → postures_current so that at body[4]=35
-    // the delta is zero (character stays at idle pose), and other values add lean.
+    // Posture: full quaternion delta for ALL bones in the postures animation.
+    // Delta = postures_at_neutral^{-1} * postures_at_current.
+    // At body[4]=35 (neutral): delta = identity → no change from idle pose.
+    // All 3 rotation axes applied so arm droop, spine curve, head drop all work.
     if (s_anim_postures.loaded && s_anim_postures.key_count > 0) {
-        static const int kPBones[] = {12, 13, 14, 20, 21};
-        static constexpr float kNeutral = 35.f;  // kBodyDef[4]
+        static constexpr float kNeutral = 35.f;
         float pn = s_anim_postures.length * kNeutral * 0.01f;
         float pt = s_anim_postures.length * body[4]  * 0.01f;
-        for (int bone : kPBones) {
+        for (int bone = 0; bone < 30; bone++) {
+            if (!s_anim_postures.has[bone]) continue;
             float q_n[4], q_p[4];
             SampleAnimAtTime(s_anim_postures, bone, pn, q_n);
             SampleAnimAtTime(s_anim_postures, bone, pt, q_p);
-            // delta = q_neutral^-1 * q_current (unit quat inverse = conjugate)
             float qn_inv[4] = {-q_n[0], -q_n[1], -q_n[2], q_n[3]};
             float q_d[4]; quat_mul(q_d, qn_inv, q_p);
-            // postures anim is primarily Y-axis rotation → extract Y angle
-            scales.rot[bone] = 2.f * atan2f(q_d[1], q_d[3]);
+            scales.qrot_delta[bone][0] = q_d[0];
+            scales.qrot_delta[bone][1] = q_d[1];
+            scales.qrot_delta[bone][2] = q_d[2];
+            scales.qrot_delta[bone][3] = q_d[3];
+            scales.rot[bone] = 0.f;  // disable Y-only fallback for this bone
         }
     }
 
