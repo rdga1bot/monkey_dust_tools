@@ -21,7 +21,9 @@ ATLAS_ZONES = 64
 ATLAS_VERTS = 65          # TERRAIN_GRID+1
 TIF_ZONE_PX = 256         # pixels per zone in fullmap.tif
 STEP        = TIF_ZONE_PX // (ATLAS_VERTS - 1)   # = 4
-HEIGHT_MAX_M = 9800.0 * 32000.0 / 294912.0  # ~1063.4m — from RE: vert_scale=9800, horiz_scale=294912, world=32km
+HEIGHT_MAX_M = 9800.0  # RE-confirmed Ogre Terrain::setTerrainScale() vertical_scale, used
+                       # directly — with CHUNK_SIZE=4608m/zone, 64*4608=294912 already
+                       # matches the real horizontal_scale, so no rescale is needed.
 
 def main():
     ap = argparse.ArgumentParser()
