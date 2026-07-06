@@ -21,9 +21,11 @@ ATLAS_ZONES = 64
 ATLAS_VERTS = 65          # TERRAIN_GRID+1
 TIF_ZONE_PX = 256         # pixels per zone in fullmap.tif
 STEP        = TIF_ZONE_PX // (ATLAS_VERTS - 1)   # = 4
-HEIGHT_MAX_M = 9800.0  # RE-confirmed Ogre Terrain::setTerrainScale() vertical_scale, used
-                       # directly — with CHUNK_SIZE=4608m/zone, 64*4608=294912 already
-                       # matches the real horizontal_scale, so no rescale is needed.
+HEIGHT_MAX_M = 980.0   # Ogre Terrain::setTerrainScale() vertical_scale=9800.0 world UNITS,
+                       # /10 for Kenshi's engine unit (1 unit=0.1m decimetre) — confirmed
+                       # against the real map size (29.491km, community save-file measurement;
+                       # 294912/10=29491.2m matches to 5 sig figs). A prior version of this
+                       # fix used 9800.0 directly (treating units as metres) — 10x too tall.
 
 def main():
     ap = argparse.ArgumentParser()
