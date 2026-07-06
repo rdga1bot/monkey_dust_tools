@@ -15,7 +15,7 @@ namespace SettingsEditor {
 struct Config {
     int   ui_size         = 14;
     int   mono_size       = 13;
-    float w3d_wasd_speed  = 1000.f;
+    float w3d_wasd_speed  = 3000.f;
     float w3d_scroll_step = 0.03f;
     float w3d_zoom_in     = 0.94f;
     float w3d_zoom_out    = 1.06f;
@@ -115,7 +115,7 @@ inline void DrawContent(const char* config_path,
     ImGui::Spacing();
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + MARGIN);
     ImGui::SetNextItemWidth(160.f);
-    ImGui::SliderFloat("WASD speed (m/s)##w3d",  &g_cfg.w3d_wasd_speed, 10.f, 5000.f, "%.0f", ImGuiSliderFlags_Logarithmic);
+    ImGui::SliderFloat("WASD speed (m/s)##w3d",  &g_cfg.w3d_wasd_speed, 10.f, 15000.f, "%.0f", ImGuiSliderFlags_Logarithmic);
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + MARGIN);
     ImGui::SetNextItemWidth(160.f);
     ImGui::SliderFloat("Scroll step##w3d",        &g_cfg.w3d_scroll_step, 0.005f, 0.15f, "%.3f");
