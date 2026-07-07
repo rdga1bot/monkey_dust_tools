@@ -12,13 +12,32 @@
 #include <monkey_dust/nav/nav_system.h>
 #include <monkey_dust/world/faction_system.h>
 #include <monkey_dust/platform/md_log.h>
+#include <monkey_dust/platform/cvar_registry.h>
+#include <monkey_dust/tools/graphics_settings.h>
 #include <cstdio>
 #include <cstring>
+
+// ARCHITECTURE_IDEAS.md #1 — CVar registry init. Binds console-settable names
+// to the LIVE GraphicsSettings fields already read every frame by the
+// renderer, so `set fog_far 5000` takes effect with no extra glue code.
+// Registration is idempotent (CVarRegistry::Register overwrites by name),
+// so calling this more than once (e.g. hot-reload) is harmless.
+static void s_register_cvars() {
+    auto& gs = GraphicsSettings::Get();
+    CVarRegistry::Get().RegisterFloat("fog_near", &gs.fog_near);
+    CVarRegistry::Get().RegisterFloat("fog_far",  &gs.fog_far);
+    CVarRegistry::Get().RegisterFloat("shadow_distance", &gs.shadow_distance);
+    CVarRegistry::Get().RegisterFloat("resolution_scale", &gs.resolution_scale);
+    CVarRegistry::Get().RegisterFloat("ibl_intensity", &gs.ibl_intensity);
+    CVarRegistry::Get().RegisterBool("ssao_enabled", &gs.ssao_enabled);
+    CVarRegistry::Get().RegisterBool("smaa_enabled", &gs.smaa_enabled);
+}
 
 void EditorConsole::Init() {
     MdLogSetHook([](int level, const char* msg) {
         EditorConsole::Get().Log(level, msg);
     });
+    s_register_cvars();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -60,6 +79,49 @@ void EditorConsole::ExecCommand(const char* raw) {
         Log(MD_LOG_INFO, "/reload-shaders — hot-reload SPIR-V without restart");
         Log(MD_LOG_INFO, "/spawn N x z  /kill N  /save  /load  /navmesh  /fps");
         Log(MD_LOG_INFO, "/ai N cmd  /faction a b v  /quest N  /help");
+        Log(MD_LOG_INFO, "/set <cvar> <value>  /get <cvar>  /list — live-tunable params (ARCHITECTURE_IDEAS.md #1)");
+        return;
+    }
+
+    // ARCHITECTURE_IDEAS.md #1 — CVar registry commands.
+    if (strncmp(cmd, "set", 3) == 0) {
+        char name[CVarRegistry::NAME_LEN] = {}, value[32] = {};
+        if (sscanf(cmd + 3, "%47s %31s", name, value) == 2) {
+            if (CVarRegistry::Get().Set(name, value)) {
+                char msg[96];
+                CVarRegistry::Get().Format(name, msg, sizeof(msg));
+                char out[128]; snprintf(out, sizeof(out), "[Console] %s", msg);
+                Log(MD_LOG_INFO, out);
+            } else {
+                Log(MD_LOG_WARNING, "[Console] Unknown cvar. /list to see all");
+            }
+        } else {
+            Log(MD_LOG_WARNING, "[Console] Usage: /set <cvar> <value>");
+        }
+        return;
+    }
+
+    if (strncmp(cmd, "get", 3) == 0) {
+        char name[CVarRegistry::NAME_LEN] = {};
+        if (sscanf(cmd + 3, "%47s", name) == 1) {
+            char msg[96];
+            if (CVarRegistry::Get().Format(name, msg, sizeof(msg))) {
+                char out[128]; snprintf(out, sizeof(out), "[Console] %s", msg);
+                Log(MD_LOG_INFO, out);
+            } else {
+                Log(MD_LOG_WARNING, "[Console] Unknown cvar. /list to see all");
+            }
+        } else {
+            Log(MD_LOG_WARNING, "[Console] Usage: /get <cvar>");
+        }
+        return;
+    }
+
+    if (strncmp(cmd, "list", 4) == 0) {
+        char msg[96];
+        for (int i = 0; i < CVarRegistry::Get().Count(); ++i) {
+            if (CVarRegistry::Get().FormatAt(i, msg, sizeof(msg))) Log(MD_LOG_INFO, msg);
+        }
         return;
     }
 
