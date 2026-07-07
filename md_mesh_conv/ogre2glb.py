@@ -45,7 +45,10 @@ def parse_geometry(data, off, end, verts_out, norms_out):
     while off + 6 <= end:
         cid = struct.unpack_from('<H', data, off)[0]
         csz = struct.unpack_from('<I', data, off + 2)[0]
-        if csz < 6 or off + csz > end:
+        # Some exporters (seen on newer newland/ Assets meshes) under-report a
+        # parent chunk's size such that it doesn't fully contain its own child —
+        # trust the file's true length here rather than the parent's declared end.
+        if csz < 6 or off + csz > len(data):
             break
         cd  = data[off + 6: off + csz]
         off += csz
@@ -138,7 +141,9 @@ def parse_submesh(data, off, end, all_verts, all_norms, all_indices, base_vertex
     while off + 6 <= end:
         cid = struct.unpack_from('<H', data, off)[0]
         csz = struct.unpack_from('<I', data, off + 2)[0]
-        if csz < 6 or off + csz > end:
+        # Trust the file's true length over the submesh's declared end — some
+        # exporters under-report the parent size relative to their own M_GEOMETRY.
+        if csz < 6 or off + csz > len(data):
             break
         cd_off = off + 6
         cd_end = off + csz
@@ -188,7 +193,9 @@ def parse_ogre_mesh(path):
             while sub_off + 6 <= cd_end:
                 scid = struct.unpack_from('<H', data, sub_off)[0]
                 scsz = struct.unpack_from('<I', data, sub_off + 2)[0]
-                if scsz < 6 or sub_off + scsz > cd_end:
+                # Trust file length over M_MESH's declared end — same parent
+                # under-report quirk as in parse_geometry/parse_submesh above.
+                if scsz < 6 or sub_off + scsz > len(data):
                     break
                 s_cd_off = sub_off + 6
                 s_cd_end = sub_off + scsz
@@ -320,7 +327,9 @@ def convert(src, dst):
 
 
 if __name__ == '__main__':
-    kenshi = "/run/media/rdga1/win/SteamLibrary/steamapps/common/Kenshi/data"
+    # Live Steam mount's data/ is a packed vault (no loose files) as of this session —
+    # tmp_/kenshi/data is the extracted mirror with the same directory structure.
+    kenshi = "tmp_/kenshi/data"
     out_dir = "game/data/props"
     os.makedirs(out_dir, exist_ok=True)
 
@@ -335,6 +344,14 @@ if __name__ == '__main__':
         (f"{kenshi}/foliage/Trees/YuccaBig.mesh",         f"{out_dir}/yucca.glb"),
         (f"{kenshi}/foliage/Trees/yucca.mesh",            f"{out_dir}/yucca_small.glb"),
         (f"{kenshi}/foliage/Trees/juniper.mesh",          f"{out_dir}/juniper.glb"),
+        # Tier 1 clutter variety (KEN-CLUTTER): bones, ruin junk, hazard plant —
+        # matches ChunkPropType kPropBones/kPropRuinJunk/kPropSpike (terrain_chunk.h)
+        (f"{kenshi}/foliage/rocks/ribcage.mesh",
+         f"{out_dir}/bones.glb"),
+        (f"{kenshi}/newland/Assets/Buildings/Outpost01_RUIN_CONCRETE_Junk03.mesh",
+         f"{out_dir}/ruin_junk.glb"),
+        (f"{kenshi}/newland/Assets/Things/AshlandSpikedBloom.mesh",
+         f"{out_dir}/spike_bloom.glb"),
     ]
 
     ok = 0
