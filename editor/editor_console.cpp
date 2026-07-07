@@ -14,6 +14,7 @@
 #include <monkey_dust/platform/md_log.h>
 #include <monkey_dust/platform/cvar_registry.h>
 #include <monkey_dust/tools/graphics_settings.h>
+#include <monkey_dust/core/subsystem_registry.h>
 #include <cstdio>
 #include <cstring>
 
@@ -80,6 +81,7 @@ void EditorConsole::ExecCommand(const char* raw) {
         Log(MD_LOG_INFO, "/spawn N x z  /kill N  /save  /load  /navmesh  /fps");
         Log(MD_LOG_INFO, "/ai N cmd  /faction a b v  /quest N  /help");
         Log(MD_LOG_INFO, "/set <cvar> <value>  /get <cvar>  /list — live-tunable params (ARCHITECTURE_IDEAS.md #1)");
+        Log(MD_LOG_INFO, "/subsystem <name> on|off  (no args = list) — toggle a logic_tick.cpp Tick* (ARCH #5)");
         return;
     }
 
@@ -121,6 +123,27 @@ void EditorConsole::ExecCommand(const char* raw) {
         char msg[96];
         for (int i = 0; i < CVarRegistry::Get().Count(); ++i) {
             if (CVarRegistry::Get().FormatAt(i, msg, sizeof(msg))) Log(MD_LOG_INFO, msg);
+        }
+        return;
+    }
+
+    // ARCHITECTURE_IDEAS.md #5 — toggle a logic_tick.cpp subsystem on/off.
+    if (strncmp(cmd, "subsystem", 9) == 0) {
+        char name[SubsystemRegistry::NAME_LEN] = {}, state[8] = {};
+        if (sscanf(cmd + 9, "%31s %7s", name, state) == 2) {
+            bool on = (strcmp(state, "on") == 0 || strcmp(state, "1") == 0);
+            SubsystemRegistry::Get().SetEnabled(name, on);
+            char out[80]; snprintf(out, sizeof(out), "[Console] %s = %s", name, on ? "on" : "off");
+            Log(MD_LOG_INFO, out);
+        } else {
+            char msg[64];
+            Log(MD_LOG_INFO, "[Console] Registered subsystems:");
+            for (int i = 0; i < SubsystemRegistry::Get().Count(); ++i) {
+                snprintf(msg, sizeof(msg), "  %s = %s", SubsystemRegistry::Get().NameAt(i),
+                         SubsystemRegistry::Get().EnabledAt(i) ? "on" : "off");
+                Log(MD_LOG_INFO, msg);
+            }
+            Log(MD_LOG_WARNING, "[Console] Usage: /subsystem <name> on|off");
         }
         return;
     }
