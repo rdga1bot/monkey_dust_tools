@@ -195,17 +195,18 @@ def build_rgb_from_seg(seg, zone_key_list, our_zones, out_size):
     seg_shifted = seg + 1
     rgb_src = pal_table[seg_shifted].astype(np.float32)
 
-    # ── Zone boundaries: detect edges, apply thick dark lines ────────────────
-    from scipy.ndimage import uniform_filter
-    seg_f   = seg_shifted.astype(np.float32)
-    blur2   = uniform_filter(seg_f, size=2)
-    blur4   = uniform_filter(seg_f, size=4)
-    edge2   = (np.abs(blur2 - seg_f) > 0.05).astype(np.float32)
-    edge4   = (np.abs(blur4 - seg_f) > 0.08).astype(np.float32)
-    # Combine: thick + thin edge for visible borders
-    edge_w  = gaussian_filter(np.maximum(edge2, edge4 * 0.6), sigma=1.2)
-    edge_w  = np.clip(edge_w * 1.8, 0, 0.75)[:, :, None]
-    rgb_src = rgb_src * (1.0 - edge_w)   # darken at edges
+    # ── Soften zone-colour transitions ────────────────────────────────────────
+    # Real Kenshi's in-game map is continuous relief-shaded terrain colour with
+    # no political borders (verified against actual gameplay footage). A hard
+    # per-pixel edge darken pass (previous approach) reads as a political/
+    # administrative map instead. Blur the colour field so zones blend into
+    # each other like natural terrain colour variation; hillshade (applied
+    # after this function) supplies the actual relief definition.
+    px_per_zone = W_src / ATLAS_ZONES
+    blend_sigma = px_per_zone * 0.12
+    rgb_src = np.stack(
+        [gaussian_filter(rgb_src[:, :, c], sigma=blend_sigma) for c in range(3)],
+        axis=2)
 
     # ── Subtle FBM texture variation within zones ────────────────────────────
     rng = np.random.default_rng(7)
@@ -237,8 +238,10 @@ def apply_hillshade(rgb_f, hmap, full, S):
     h_small = sci_zoom(hmap, scale, order=1).astype(np.float32)
     h_small = gaussian_filter(h_small, sigma=0.5)   # less blur = sharper hills
 
-    world_m_per_px = (ATLAS_ZONES * 500.0) / S
-    k  = 0.005 / world_m_per_px                      # stronger slope contrast
+    # 460.8m/zone — real Kenshi zone size (engine/include/monkey_dust/world/chunk_def.h
+    # CHUNK_SIZE); was stale 500.0 here, the same wrong assumption fixed engine-side.
+    world_m_per_px = (ATLAS_ZONES * 460.8) / S
+    k  = 0.006 / world_m_per_px                      # stronger slope contrast
     dz = np.gradient(h_small, axis=0) * k
     dx = np.gradient(h_small, axis=1) * k
     mag = np.sqrt(dx*dx + dz*dz + 1.0)
