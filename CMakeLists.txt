@@ -197,6 +197,26 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
     target_compile_options(md_flare_convert PRIVATE -O2 -march=native)
 endif()
 
+# ── kenshi_navmesh_extract ────────────────────────────────
+# Standalone Havok .hkt navmesh -> OBJ geometry extractor — no SDL3, no
+# engine. See tools/third_party/hkxparse/README_MONKEYDUST.md for the parser
+# reverse-engineering writeup (Kenshi's real per-zone navmesh geometry,
+# extracted from game data/newland/land/navtiles/tile*.hkt).
+add_executable(kenshi_navmesh_extract
+    kenshi_navmesh_extract/main.cpp
+    third_party/hkxparse/src/HKXMapping.cpp
+    third_party/hkxparse/src/HKXTagfileParser.cpp
+    third_party/hkxparse/src/HKXTypes.cpp
+    third_party/hkxparse/src/Deserializer.cpp
+)
+target_include_directories(kenshi_navmesh_extract PRIVATE
+    third_party/hkxparse/include
+)
+target_compile_options(kenshi_navmesh_extract PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/third_party/hkxparse/include/hkxparse/msvc_compat.h")
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    target_compile_options(kenshi_navmesh_extract PRIVATE -O2)
+endif()
+
 if(MONKEY_DUST_TOOLS_NEED_SDL3)
 # ── md_flare_demo ─────────────────────────────────────────
 # Pure SDL_GPU demo: plain SDL3 window, no OpenGL context, no Raylib.
