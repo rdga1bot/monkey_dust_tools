@@ -22,7 +22,7 @@ err()  { echo -e "${RED}[err]${NC} $*"; }
 compile() {
     local changed="${1:-all}"
     log "Changed: $changed — recompiling SPIR-V..."
-    if bash scripts/compile_shaders.sh 2>&1 | tail -3; then
+    if bash scripts/compile_shaders.sh 2>&1 | tail -3 && bash scripts/compile_shaders_slang.sh 2>&1 | tail -5; then
         ok "SPIR-V ready. Type /reload-shaders in editor console to hot-reload."
         touch shaders/spirv/.reload_needed
     else
@@ -40,8 +40,8 @@ if ! command -v inotifywait &>/dev/null; then
     err "Falling back to polling mode (5s interval)..."
     while true; do
         sleep 5
-        # Check if any .frag/.vert/.comp is newer than the newest .spv
-        newest_src=$(find shaders/ -name '*.vert' -o -name '*.frag' -o -name '*.comp' \
+        # Check if any .frag/.vert/.comp/.slang is newer than the newest .spv
+        newest_src=$(find shaders/ -name '*.vert' -o -name '*.frag' -o -name '*.comp' -o -name '*.slang' \
                      2>/dev/null | xargs ls -t 2>/dev/null | head -1)
         newest_spv=$(find shaders/spirv/ -name '*.spv' 2>/dev/null | xargs ls -t 2>/dev/null | head -1)
         if [[ -n "$newest_src" && ( -z "$newest_spv" || "$newest_src" -nt "$newest_spv" ) ]]; then
@@ -51,7 +51,7 @@ if ! command -v inotifywait &>/dev/null; then
 fi
 
 log "Watching shaders/ for changes... (Ctrl+C to stop)"
-inotifywait -m -r shaders/ -e close_write --include '.*\.(vert|frag|comp)$' \
+inotifywait -m -r shaders/ -e close_write --include '.*\.(vert|frag|comp|slang)$' \
     --format '%w%f' 2>/dev/null |
 while read -r changed_file; do
     compile "$changed_file"
