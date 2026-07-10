@@ -1,5 +1,6 @@
 #ifdef MONKEY_DUST_EDITOR
 #include "editor_core.h"
+#include <monkey_dust/ecs/md_registry.h>
 #include "editor_toolbar.h"
 #include "editor_hierarchy.h"
 #ifndef MONKEY_DUST_STANDALONE_EDITOR
@@ -575,21 +576,21 @@ void EditorCore::UpdateEditorCamera(float dt, bool viewport_hovered) {
 
 void EditorCore::FocusOnSelected() {
     if (selected_count == 0) return;
-    auto& reg = Registry::Get();
+    auto& reg = MdRegistry::Get();
     entt::entity e = GetPrimary();
-    if (!reg.valid(e)) return;
-    if (!reg.all_of<WorldTransform>(e)) return;
-    const auto& tr = reg.get<WorldTransform>(e);
+    if (!reg.Valid(e)) return;
+    if (!reg.AllOf<WorldTransform>(e)) return;
+    const auto& tr = reg.Get<WorldTransform>(e);
     cam_target = Vec3{ tr.x, 0.f, tr.z };
     cam_dist   = 15.f;
 }
 
 // ── History ───────────────────────────────────────────────────
 void EditorCore::Undo() {
-    history.Undo(Registry::Get());
+    history.Undo(MdRegistry::Get());
 }
 
 void EditorCore::Redo() {
-    history.Redo(Registry::Get());
+    history.Redo(MdRegistry::Get());
 }
 #endif

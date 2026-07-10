@@ -1,6 +1,7 @@
 #ifdef MONKEY_DUST_EDITOR
 #include "editor_hierarchy.h"
 #include <monkey_dust/ecs/registry.h>
+#include <monkey_dust/ecs/md_registry.h>
 #include <monkey_dust/world/world_transform.h>
 #include <monkey_dust/components/health.h>
 #include <monkey_dust/components/ai_agent.h>
@@ -22,9 +23,9 @@
 
 // ─────────────────────────────────────────────────────────────────────────────
 void EditorHierarchy::RefreshCache() {
-    auto& reg = Registry::Get();
+    auto& reg = MdRegistry::Get();
     entity_cache_count_ = 0;
-    for (auto e : reg.storage<entt::entity>()) {
+    for (auto e : reg.Raw().storage<entt::entity>()) {
         if (entity_cache_count_ >= MAX_CACHE) break;
         entity_cache_[entity_cache_count_++] = e;
     }
@@ -32,24 +33,24 @@ void EditorHierarchy::RefreshCache() {
 
 // ─────────────────────────────────────────────────────────────────────────────
 const char* EditorHierarchy::EntityIcon(entt::entity e) const {
-    auto& reg = Registry::Get();
-    if (reg.all_of<PlayerController>(e))   return "[PLY]";
-    if (reg.all_of<AIAgent>(e))            return "[NPC]";
-    if (reg.all_of<Building>(e))           return "[BLD]";
-    if (reg.all_of<Inventory>(e))          return "[INV]";
-    if (reg.all_of<AIScript>(e))           return "[LUA]";
+    auto& reg = MdRegistry::Get();
+    if (reg.AllOf<PlayerController>(e))   return "[PLY]";
+    if (reg.AllOf<AIAgent>(e))            return "[NPC]";
+    if (reg.AllOf<Building>(e))           return "[BLD]";
+    if (reg.AllOf<Inventory>(e))          return "[INV]";
+    if (reg.AllOf<AIScript>(e))           return "[LUA]";
     return "[---]";
 }
 
 void EditorHierarchy::EntityLabel(entt::entity e, char* buf, int len) const {
-    auto& reg = Registry::Get();
+    auto& reg = MdRegistry::Get();
     uint32_t id = (uint32_t)entt::to_integral(e);
-    if (reg.all_of<AIAgent>(e)) {
-        const auto& ai = reg.get<AIAgent>(e);
+    if (reg.AllOf<AIAgent>(e)) {
+        const auto& ai = reg.Get<AIAgent>(e);
         snprintf(buf, len, "%s Entity_%u [f%u LOD%u]",
                  EntityIcon(e), id, ai.faction_id, (uint32_t)ai.lod_level);
-    } else if (reg.all_of<Building>(e)) {
-        const auto& b = reg.get<Building>(e);
+    } else if (reg.AllOf<Building>(e)) {
+        const auto& b = reg.Get<Building>(e);
         const BuildingDef* d = BuildSystem::Get().GetDef(b.def_id);
         snprintf(buf, len, "%s Entity_%u [%s]",
                  EntityIcon(e), id, d ? d->name : "?");
@@ -59,16 +60,16 @@ void EditorHierarchy::EntityLabel(entt::entity e, char* buf, int len) const {
 }
 
 ImVec4 EditorHierarchy::EntityColor(entt::entity e) const {
-    auto& reg = Registry::Get();
-    if (reg.all_of<Combat>(e) && reg.get<Combat>(e).is_dead)
+    auto& reg = MdRegistry::Get();
+    if (reg.AllOf<Combat>(e) && reg.Get<Combat>(e).is_dead)
         return {1.0f, 0.3f, 0.3f, 1.0f}; // RED  = dead
-    if (reg.all_of<AIAgent>(e)) {
-        uint8_t lod = reg.get<AIAgent>(e).lod_level;
+    if (reg.AllOf<AIAgent>(e)) {
+        uint8_t lod = reg.Get<AIAgent>(e).lod_level;
         if (lod == 2) return {0.5f, 0.5f, 0.5f, 1.0f}; // GRAY   = FROZEN
         if (lod == 1) return {1.0f, 0.9f, 0.3f, 1.0f}; // YELLOW = LOW
         return {0.3f, 1.0f, 0.5f, 1.0f};                // GREEN  = HIGH
     }
-    if (reg.all_of<PlayerController>(e))
+    if (reg.AllOf<PlayerController>(e))
         return {0.4f, 0.8f, 1.0f, 1.0f}; // CYAN = player
     return {0.85f, 0.85f, 0.85f, 1.0f};  // WHITE = other
 }
@@ -76,63 +77,63 @@ ImVec4 EditorHierarchy::EntityColor(entt::entity e) const {
 // ─────────────────────────────────────────────────────────────────────────────
 void EditorHierarchy::DrawContextMenu(entt::entity e) {
     auto& ec  = EditorCore::Get();
-    auto& reg = Registry::Get();
+    auto& reg = MdRegistry::Get();
 
     if (ImGui::MenuItem("Select"))    ec.Select(e);
     if (ImGui::MenuItem("Duplicate")) {
-        if (reg.valid(e) && reg.all_of<WorldTransform>(e)) {
-            auto dst = reg.create();
-            auto& tr = reg.emplace<WorldTransform>(dst, reg.get<WorldTransform>(e));
+        if (reg.Valid(e) && reg.AllOf<WorldTransform>(e)) {
+            auto dst = reg.Create();
+            auto& tr = reg.Emplace<WorldTransform>(dst, reg.Get<WorldTransform>(e));
             tr.x += 1.f; tr.slot = 0xFFFFFFFFu;
-            uint32_t fid = reg.all_of<AIAgent>(e) ? reg.get<AIAgent>(e).faction_id : 0u;
+            uint32_t fid = reg.AllOf<AIAgent>(e) ? reg.Get<AIAgent>(e).faction_id : 0u;
             tr.slot = TransformSoA::Get().Alloc(dst, tr.x, tr.z, (uint8_t)fid);
             // Copy all components present on source.
-            if (reg.all_of<AIAgent>(e))       reg.emplace<AIAgent>(dst,      reg.get<AIAgent>(e));
-            if (reg.all_of<Health>(e))         reg.emplace<Health>(dst,       reg.get<Health>(e));
-            if (reg.all_of<Combat>(e))         reg.emplace<Combat>(dst,       reg.get<Combat>(e));
-            if (reg.all_of<Building>(e))       reg.emplace<Building>(dst,     reg.get<Building>(e));
-            if (reg.all_of<Inventory>(e))      reg.emplace<Inventory>(dst,    reg.get<Inventory>(e));
-            if (reg.all_of<BTComponent>(e))    reg.emplace<BTComponent>(dst,  reg.get<BTComponent>(e));
-            if (reg.all_of<AIScript>(e))       reg.emplace<AIScript>(dst,     reg.get<AIScript>(e));
-            if (reg.all_of<NavAgent>(e))       reg.emplace<NavAgent>(dst,     reg.get<NavAgent>(e));
-            if (reg.all_of<Renderable>(e))     reg.emplace<Renderable>(dst,   reg.get<Renderable>(e));
-            if (reg.all_of<StatSheet>(e))      reg.emplace<StatSheet>(dst,    reg.get<StatSheet>(e));
-            if (reg.all_of<Faction>(e))          reg.emplace<Faction>(dst,          reg.get<Faction>(e));
+            if (reg.AllOf<AIAgent>(e))       reg.Emplace<AIAgent>(dst,      reg.Get<AIAgent>(e));
+            if (reg.AllOf<Health>(e))         reg.Emplace<Health>(dst,       reg.Get<Health>(e));
+            if (reg.AllOf<Combat>(e))         reg.Emplace<Combat>(dst,       reg.Get<Combat>(e));
+            if (reg.AllOf<Building>(e))       reg.Emplace<Building>(dst,     reg.Get<Building>(e));
+            if (reg.AllOf<Inventory>(e))      reg.Emplace<Inventory>(dst,    reg.Get<Inventory>(e));
+            if (reg.AllOf<BTComponent>(e))    reg.Emplace<BTComponent>(dst,  reg.Get<BTComponent>(e));
+            if (reg.AllOf<AIScript>(e))       reg.Emplace<AIScript>(dst,     reg.Get<AIScript>(e));
+            if (reg.AllOf<NavAgent>(e))       reg.Emplace<NavAgent>(dst,     reg.Get<NavAgent>(e));
+            if (reg.AllOf<Renderable>(e))     reg.Emplace<Renderable>(dst,   reg.Get<Renderable>(e));
+            if (reg.AllOf<StatSheet>(e))      reg.Emplace<StatSheet>(dst,    reg.Get<StatSheet>(e));
+            if (reg.AllOf<Faction>(e))          reg.Emplace<Faction>(dst,          reg.Get<Faction>(e));
             ec.Select(dst);
             cache_refresh_counter_ = 0;
         }
     }
     if (ImGui::MenuItem("Delete")) {
         ec.Deselect(e);
-        if (reg.valid(e) && reg.all_of<WorldTransform>(e))
+        if (reg.Valid(e) && reg.AllOf<WorldTransform>(e))
             TransformSoA::Get().Free(e);
-        if (reg.valid(e)) reg.destroy(e);
+        if (reg.Valid(e)) reg.Destroy(e);
         cache_refresh_counter_ = 0;
     }
     ImGui::Separator();
     if (ImGui::MenuItem("BT Reset")) {
-        if (reg.valid(e) && reg.all_of<BTComponent>(e))
-            reg.get<BTComponent>(e).bt.reset();
+        if (reg.Valid(e) && reg.AllOf<BTComponent>(e))
+            reg.Get<BTComponent>(e).bt.reset();
     }
     if (ImGui::MenuItem("Kill NPC")) {
-        if (reg.valid(e)) {
-            if (reg.all_of<Combat>(e))  reg.get<Combat>(e).is_dead = true;
-            if (reg.all_of<Health>(e)) { auto& h = reg.get<Health>(e); for (int _i=0;_i<LIMB_COUNT;++_i) h.hp[_i]=0.f; }
+        if (reg.Valid(e)) {
+            if (reg.AllOf<Combat>(e))  reg.Get<Combat>(e).is_dead = true;
+            if (reg.AllOf<Health>(e)) { auto& h = reg.Get<Health>(e); for (int _i=0;_i<LIMB_COUNT;++_i) h.hp[_i]=0.f; }
         }
     }
     if (ImGui::MenuItem("Freeze LOD")) {
-        if (reg.valid(e) && reg.all_of<AIAgent>(e))
-            reg.get<AIAgent>(e).lod_level = 2;
+        if (reg.Valid(e) && reg.AllOf<AIAgent>(e))
+            reg.Get<AIAgent>(e).lod_level = 2;
     }
     if (ImGui::MenuItem("Unfreeze LOD")) {
-        if (reg.valid(e) && reg.all_of<AIAgent>(e))
-            reg.get<AIAgent>(e).lod_level = 0;
+        if (reg.Valid(e) && reg.AllOf<AIAgent>(e))
+            reg.Get<AIAgent>(e).lod_level = 0;
     }
     ImGui::Separator();
     if (ImGui::BeginMenu("Add Component")) {
-        if (ImGui::MenuItem("Health"))  { if (reg.valid(e) && !reg.all_of<Health>(e))  reg.emplace<Health>(e, Health{100.f, 100.f}); }
-        if (ImGui::MenuItem("Combat"))  { if (reg.valid(e) && !reg.all_of<Combat>(e))  reg.emplace<Combat>(e); }
-        if (ImGui::MenuItem("AIAgent")) { if (reg.valid(e) && !reg.all_of<AIAgent>(e)) reg.emplace<AIAgent>(e); }
+        if (ImGui::MenuItem("Health"))  { if (reg.Valid(e) && !reg.AllOf<Health>(e))  reg.Emplace<Health>(e, Health{100.f, 100.f}); }
+        if (ImGui::MenuItem("Combat"))  { if (reg.Valid(e) && !reg.AllOf<Combat>(e))  reg.Emplace<Combat>(e); }
+        if (ImGui::MenuItem("AIAgent")) { if (reg.Valid(e) && !reg.AllOf<AIAgent>(e)) reg.Emplace<AIAgent>(e); }
         ImGui::EndMenu();
     }
 }
@@ -154,14 +155,14 @@ void EditorHierarchy::Draw() {
 void EditorHierarchy::DrawContent() {
 
     auto& ec  = EditorCore::Get();
-    auto& reg = Registry::Get();
+    auto& reg = MdRegistry::Get();
 
     // Header
     ImGui::Text("Entities (%d)", entity_cache_count_);
     ImGui::SameLine();
     if (ImGui::SmallButton("[+]")) {
-        auto e = reg.create();
-        auto& tr = reg.emplace<WorldTransform>(e);
+        auto e = reg.Create();
+        auto& tr = reg.Emplace<WorldTransform>(e);
         tr.x = ec.cam_target.x; tr.y = 0.f; tr.z = ec.cam_target.z; tr.rot_y = 0.f;
         tr.slot = TransformSoA::Get().Alloc(e, tr.x, tr.z, 0);
         ec.Select(e);
@@ -171,9 +172,9 @@ void EditorHierarchy::DrawContent() {
     if (ImGui::SmallButton("[X]")) {
         for (int i = ec.selected_count - 1; i >= 0; --i) {
             entt::entity e = ec.selected[i];
-            if (!reg.valid(e)) continue;
-            if (reg.all_of<WorldTransform>(e)) TransformSoA::Get().Free(e);
-            reg.destroy(e);
+            if (!reg.Valid(e)) continue;
+            if (reg.AllOf<WorldTransform>(e)) TransformSoA::Get().Free(e);
+            reg.Destroy(e);
         }
         ec.DeselectAll();
         cache_refresh_counter_ = 0;
@@ -201,7 +202,7 @@ void EditorHierarchy::DrawContent() {
     int display_count = 0;
     for (int i = 0; i < entity_cache_count_; ++i) {
         entt::entity e = entity_cache_[i];
-        if (!reg.valid(e)) continue;
+        if (!reg.Valid(e)) continue;
         EntityLabel(e, display_labels[display_count], 128);
         if (entity_filter_[0] != '\0' &&
             strstr(display_labels[display_count], entity_filter_) == nullptr)

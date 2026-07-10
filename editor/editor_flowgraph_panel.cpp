@@ -4,6 +4,7 @@
 #include "imgui.h"
 #include "imnodes.h"
 #include <monkey_dust/ecs/registry.h>
+#include <monkey_dust/ecs/md_registry.h>
 #include <monkey_dust/scripting/flow_graph.h>
 #include <monkey_dust/ai/fnv.h>
 
@@ -47,14 +48,14 @@ void EditorFlowGraphPanel::DrawContent() {
     if (!imnodes_ctx_) imnodes_ctx_ = ImNodes::CreateContext();
     ImNodes::SetCurrentContext(imnodes_ctx_);
 
-    auto& reg = Registry::Get();
+    auto& reg = MdRegistry::Get();
 
     entt::entity target = entt::null;
     entt::entity sel = EditorCore::Get().GetPrimary();
-    if (sel != entt::null && reg.valid(sel) && reg.all_of<FlowGraph>(sel))
+    if (sel != entt::null && reg.Valid(sel) && reg.AllOf<FlowGraph>(sel))
         target = sel;
     if (target == entt::null) {
-        auto view = reg.view<FlowGraph>();
+        auto view = reg.View<FlowGraph>();
         if (!view.empty()) target = *view.begin();
     }
 
@@ -63,7 +64,7 @@ void EditorFlowGraphPanel::DrawContent() {
         return;
     }
 
-    auto& fg = reg.get<FlowGraph>(target);
+    auto& fg = reg.Get<FlowGraph>(target);
     ImGui::Text("Entity: %u  |  Nodes: %d  Conns: %d  Vars: %d",
                 (uint32_t)entt::to_integral(target),
                 fg.node_count, fg.conn_count, fg.var_count);

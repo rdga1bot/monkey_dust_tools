@@ -3,6 +3,7 @@
 #include "editor_core.h"
 #include <string>
 #include <monkey_dust/ecs/registry.h>
+#include <monkey_dust/ecs/md_registry.h>
 #include <monkey_dust/world/world_transform.h>
 #include <monkey_dust/components/ai_agent.h>
 #include <monkey_dust/components/health.h>
@@ -168,14 +169,14 @@ void EditorConsole::ExecCommand(const char* raw) {
     if (strncmp(cmd, "spawn", 5) == 0) {
         int faction = 1; float cx = 0.f, cz = 0.f;
         sscanf(cmd + 5, "%d %f %f", &faction, &cx, &cz);
-        auto& reg = Registry::Get();
-        auto e = reg.create();
-        auto& tr = reg.emplace<WorldTransform>(e);
+        auto& reg = MdRegistry::Get();
+        auto e = reg.Create();
+        auto& tr = reg.Emplace<WorldTransform>(e);
         tr.x = cx; tr.y = 0.f; tr.z = cz; tr.rot_y = 0.f;
-        auto& ai = reg.emplace<AIAgent>(e);
+        auto& ai = reg.Emplace<AIAgent>(e);
         ai.faction_id = (uint32_t)faction;
-        reg.emplace<Health>(e, Health{100.f, 100.f});
-        reg.emplace<Combat>(e, Combat::MakeBandit());
+        reg.Emplace<Health>(e, Health{100.f, 100.f});
+        reg.Emplace<Combat>(e, Combat::MakeBandit());
         char msg[64];
         snprintf(msg, sizeof(msg), "[Console] Spawned entity faction=%d at (%.1f,%.1f)", faction, cx, cz);
         Log(MD_LOG_INFO, msg);
@@ -185,12 +186,12 @@ void EditorConsole::ExecCommand(const char* raw) {
     if (strncmp(cmd, "kill", 4) == 0) {
         uint32_t eid = 0;
         sscanf(cmd + 4, "%u", &eid);
-        auto& reg = Registry::Get();
+        auto& reg = MdRegistry::Get();
         // find entity by integral id
-        for (auto e : reg.storage<entt::entity>()) {
+        for (auto e : reg.Raw().storage<entt::entity>()) {
             if ((uint32_t)entt::to_integral(e) == eid) {
-                if (reg.all_of<Combat>(e))  reg.get<Combat>(e).is_dead = true;
-                if (reg.all_of<Health>(e)) { auto& h = reg.get<Health>(e); for (int _i=0;_i<LIMB_COUNT;++_i) h.hp[_i]=0.f; }
+                if (reg.AllOf<Combat>(e))  reg.Get<Combat>(e).is_dead = true;
+                if (reg.AllOf<Health>(e)) { auto& h = reg.Get<Health>(e); for (int _i=0;_i<LIMB_COUNT;++_i) h.hp[_i]=0.f; }
                 char msg[48];
                 snprintf(msg, sizeof(msg), "[Console] Killed entity %u", eid);
                 Log(MD_LOG_INFO, msg);
