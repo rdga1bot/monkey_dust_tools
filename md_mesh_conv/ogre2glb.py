@@ -32,7 +32,7 @@ def read_null_string(data, off):
     return data[off:end].decode('utf-8', errors='replace'), end + 1
 
 
-def parse_geometry(data, off, end, verts_out, norms_out):
+def parse_geometry(data, off, end, verts_out, norms_out, uvs_out=None):
     """Parse M_GEOMETRY block content (off = byte immediately after chunk header)."""
     if off + 4 > end:
         return
@@ -87,6 +87,7 @@ def parse_geometry(data, off, end, verts_out, norms_out):
     # Extract positions and normals from vertex buffers
     pos_elem  = next((e for e in elements if e[2] == VES_POSITION), None)
     norm_elem = next((e for e in elements if e[2] == VES_NORMAL),   None)
+    uv_elem   = next((e for e in elements if e[2] == VES_TEXCOORD), None)
 
     if pos_elem and pos_elem[0] in buffers:
         buf, stride = buffers[pos_elem[0]]
@@ -106,8 +107,21 @@ def parse_geometry(data, off, end, verts_out, norms_out):
         for _ in range(nv):
             norms_out.append((0.0, 1.0, 0.0))
 
+    if uvs_out is not None:
+        if uv_elem and uv_elem[0] in buffers:
+            buf, stride = buffers[uv_elem[0]]
+            base = uv_elem[3]
+            for vi in range(nv):
+                u, v = struct.unpack_from('<2f', buf, vi * stride + base)
+                uvs_out.append((u, v))
+        else:
+            # No UV stream (e.g. a collision-only sub-geometry) — pad with 0,0
+            # so vertex/uv arrays stay aligned; caller decides if this matters.
+            for _ in range(nv):
+                uvs_out.append((0.0, 0.0))
 
-def parse_submesh(data, off, end, all_verts, all_norms, all_indices, base_vertex):
+
+def parse_submesh(data, off, end, all_verts, all_norms, all_indices, base_vertex, all_uvs=None):
     """Parse M_SUBMESH block — reads index list + embedded geometry."""
     # material name (null-terminated string, may contain \n before \0)
     _, off = read_null_string(data, off)
@@ -138,6 +152,7 @@ def parse_submesh(data, off, end, all_verts, all_norms, all_indices, base_vertex
     # Walk nested chunks for embedded geometry (use_shared == False)
     local_verts = []
     local_norms = []
+    local_uvs   = [] if all_uvs is not None else None
     while off + 6 <= end:
         cid = struct.unpack_from('<H', data, off)[0]
         csz = struct.unpack_from('<I', data, off + 2)[0]
@@ -150,7 +165,7 @@ def parse_submesh(data, off, end, all_verts, all_norms, all_indices, base_vertex
         off    = cd_end
 
         if cid == M_GEOMETRY:
-            parse_geometry(data, cd_off, cd_end, local_verts, local_norms)
+            parse_geometry(data, cd_off, cd_end, local_verts, local_norms, local_uvs)
         elif cid == M_SUBMESH_OPERATION:
             pass  # ignore
         elif cid in (0x4100, 0x4200, 0x4300):
@@ -158,6 +173,8 @@ def parse_submesh(data, off, end, all_verts, all_norms, all_indices, base_vertex
 
     all_verts  .extend(local_verts)
     all_norms  .extend(local_norms)
+    if all_uvs is not None:
+        all_uvs.extend(local_uvs)
     return base_vertex + len(local_verts)
 
 
@@ -174,9 +191,11 @@ def parse_ogre_mesh(path):
 
     all_verts   = []
     all_norms   = []
+    all_uvs     = []
     all_indices = []
     shared_verts = []
     shared_norms = []
+    shared_uvs   = []
 
     while off + 6 <= len(data):
         cid = struct.unpack_from('<H', data, off)[0]
@@ -203,24 +222,27 @@ def parse_ogre_mesh(path):
 
                 if scid == M_SUBMESH:
                     base_v = parse_submesh(data, s_cd_off, s_cd_end,
-                                           all_verts, all_norms, all_indices, base_v)
+                                           all_verts, all_norms, all_indices, base_v,
+                                           all_uvs)
                 elif scid == M_GEOMETRY:
-                    parse_geometry(data, s_cd_off, s_cd_end, shared_verts, shared_norms)
+                    parse_geometry(data, s_cd_off, s_cd_end, shared_verts, shared_norms, shared_uvs)
                     all_verts.extend(shared_verts)
                     all_norms.extend(shared_norms)
+                    all_uvs.extend(shared_uvs)
                     base_v += len(shared_verts)
 
         off = cd_end
 
-    return all_verts, all_norms, all_indices
+    return all_verts, all_norms, all_uvs, all_indices
 
 
-def write_glb(verts, norms, indices, out_path):
-    """Write a minimal GLB with POSITION + NORMAL + indices."""
+def write_glb(verts, norms, indices, out_path, uvs=None):
+    """Write a minimal GLB with POSITION + NORMAL (+ optional TEXCOORD_0) + indices."""
     nv = len(verts)
     ni = len(indices)
     assert nv == len(norms), f"vert/norm count mismatch {nv} vs {len(norms)}"
     assert ni % 3 == 0, f"index count {ni} not divisible by 3"
+    has_uv = bool(uvs) and len(uvs) == nv
 
     # Determine index format
     use_u32 = nv > 65535
@@ -228,16 +250,17 @@ def write_glb(verts, norms, indices, out_path):
     idx_size = ni * (4 if use_u32 else 2)
     idx_component = 5125 if use_u32 else 5123   # UNSIGNED_INT or UNSIGNED_SHORT
 
-    # Pack binary data: positions | normals | (align to 4) | indices
+    # Pack binary data: positions | normals | (uvs) | (align to 4) | indices
     pos_bytes  = struct.pack('<' + 'fff' * nv, *[c for v in verts for c in v])
     norm_bytes = struct.pack('<' + 'fff' * nv, *[c for n in norms for c in n])
+    uv_bytes   = struct.pack('<' + 'ff' * nv, *[c for uv in uvs for c in uv]) if has_uv else b''
     idx_bytes  = struct.pack(idx_fmt, *indices)
 
     # Pad idx_bytes to 4-byte boundary
     idx_pad = (4 - len(idx_bytes) % 4) % 4
     idx_bytes_padded = idx_bytes + b'\x00' * idx_pad
 
-    bin_data = pos_bytes + norm_bytes + idx_bytes_padded
+    bin_data = pos_bytes + norm_bytes + uv_bytes + idx_bytes_padded
     bin_len  = len(bin_data)
 
     # AABB for accessor min/max
@@ -246,38 +269,54 @@ def write_glb(verts, norms, indices, out_path):
     # JSON
     bv_pos_off  = 0
     bv_norm_off = nv * 12
-    bv_idx_off  = nv * 24
+    bv_uv_off   = nv * 24
+    bv_idx_off  = nv * 24 + (nv * 8 if has_uv else 0)
+
+    attributes = {"POSITION": 0, "NORMAL": 1}
+    accessors = [
+        {
+            "bufferView": 0, "byteOffset": 0,
+            "componentType": 5126, "count": nv, "type": "VEC3",
+            "min": [min(xs), min(ys), min(zs)],
+            "max": [max(xs), max(ys), max(zs)]
+        },
+        {
+            "bufferView": 1, "byteOffset": 0,
+            "componentType": 5126, "count": nv, "type": "VEC3"
+        },
+    ]
+    bufferViews = [
+        {"buffer": 0, "byteOffset": bv_pos_off,  "byteLength": nv * 12, "target": 34962},
+        {"buffer": 0, "byteOffset": bv_norm_off, "byteLength": nv * 12, "target": 34962},
+    ]
+    if has_uv:
+        attributes["TEXCOORD_0"] = 2
+        accessors.append({
+            "bufferView": 2, "byteOffset": 0,
+            "componentType": 5126, "count": nv, "type": "VEC2"
+        })
+        bufferViews.append(
+            {"buffer": 0, "byteOffset": bv_uv_off, "byteLength": nv * 8, "target": 34962})
+    idx_accessor_idx = len(accessors)
+    accessors.append({
+        "bufferView": len(bufferViews), "byteOffset": 0,
+        "componentType": idx_component, "count": ni, "type": "SCALAR"
+    })
+    bufferViews.append(
+        {"buffer": 0, "byteOffset": bv_idx_off, "byteLength": len(idx_bytes_padded), "target": 34963})
+
     gltf = {
         "asset": {"version": "2.0", "generator": "monkey_dust ogre2glb"},
         "scene": 0,
         "scenes": [{"nodes": [0]}],
         "nodes": [{"mesh": 0}],
         "meshes": [{"primitives": [{
-            "attributes": {"POSITION": 0, "NORMAL": 1},
-            "indices": 2,
+            "attributes": attributes,
+            "indices": idx_accessor_idx,
             "mode": 4
         }]}],
-        "accessors": [
-            {
-                "bufferView": 0, "byteOffset": 0,
-                "componentType": 5126, "count": nv, "type": "VEC3",
-                "min": [min(xs), min(ys), min(zs)],
-                "max": [max(xs), max(ys), max(zs)]
-            },
-            {
-                "bufferView": 1, "byteOffset": 0,
-                "componentType": 5126, "count": nv, "type": "VEC3"
-            },
-            {
-                "bufferView": 2, "byteOffset": 0,
-                "componentType": idx_component, "count": ni, "type": "SCALAR"
-            }
-        ],
-        "bufferViews": [
-            {"buffer": 0, "byteOffset": bv_pos_off,  "byteLength": nv * 12, "target": 34962},
-            {"buffer": 0, "byteOffset": bv_norm_off, "byteLength": nv * 12, "target": 34962},
-            {"buffer": 0, "byteOffset": bv_idx_off,  "byteLength": len(idx_bytes_padded), "target": 34963}
-        ],
+        "accessors": accessors,
+        "bufferViews": bufferViews,
         "buffers": [{"byteLength": bin_len}]
     }
 
@@ -313,13 +352,13 @@ def ground_verts(verts):
 def convert(src, dst):
     print(f"  {os.path.basename(src)} → {os.path.basename(dst)}", end='', flush=True)
     try:
-        verts, norms, indices = parse_ogre_mesh(src)
+        verts, norms, uvs, indices = parse_ogre_mesh(src)
         if not verts or not indices:
             print(f"  SKIP (empty mesh)")
             return False
         verts = ground_verts(verts)
-        nv, nt = write_glb(verts, norms, indices, dst)
-        print(f"  {nv}v {nt}t OK")
+        nv, nt = write_glb(verts, norms, indices, dst, uvs)
+        print(f"  {nv}v {nt}t {'+uv ' if uvs and len(uvs) == len(verts) else ''}OK")
         return True
     except Exception as e:
         print(f"  ERROR: {e}")

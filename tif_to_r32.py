@@ -2,8 +2,11 @@
 """Convert Kenshi fullmap.tif to monkey_dust atlas .r32 format.
 
 TIF:   16385×16385 uint16, 256 px/zone, ~300m height range.
-Atlas: 64×64 zones, 65×65 verts/zone (ATLAS_ZBLOCK=4225), float32 metres.
-Step:  256/64 = 4 px per vert — exact, no interpolation needed.
+Atlas: 64×64 zones, 129×129 verts/zone (ATLAS_ZBLOCK=16641), float32 metres.
+Step:  256/128 = 2 px per vert — exact, no interpolation needed. Matches
+       Kenshi's own real in-engine resolution (RE-confirmed: raw 258x258
+       tile fetch downsampled internally to 129x129/zone,
+       re_docs/kenshi/terrain.md) — was 65 verts/zone, coarser than Kenshi.
 
 Usage:
   python3 tools/tif_to_r32.py                            # defaults
@@ -18,9 +21,9 @@ Image.MAX_IMAGE_PIXELS = None
 
 ATLAS_MAGIC = 0x414D4800
 ATLAS_ZONES = 64
-ATLAS_VERTS = 65          # TERRAIN_GRID+1
+ATLAS_VERTS = 129         # TERRAIN_GRID+1
 TIF_ZONE_PX = 256         # pixels per zone in fullmap.tif
-STEP        = TIF_ZONE_PX // (ATLAS_VERTS - 1)   # = 4
+STEP        = TIF_ZONE_PX // (ATLAS_VERTS - 1)   # = 2
 HEIGHT_MAX_M = 980.0   # Ogre Terrain::setTerrainScale() vertical_scale=9800.0 world UNITS,
                        # /10 for Kenshi's engine unit (1 unit=0.1m decimetre) — confirmed
                        # against the real map size (29.491km, community save-file measurement;
@@ -74,11 +77,11 @@ def main():
         f.write(struct.pack("<IIII", ATLAS_MAGIC, ATLAS_ZONES, ATLAS_ZONES, ATLAS_VERTS))
         for zy in range(ATLAS_ZONES):
             for zx in range(ATLAS_ZONES):
-                h = all_h[zy, zx]          # shape (65, 65) float32
+                h = all_h[zy, zx]          # shape (129, 129) float32
                 hmin = float(h.min())
                 hmax = float(h.max())
                 f.write(struct.pack("<ff", hmin, hmax))
-                f.write(h.tobytes())       # 65*65*4 = 16900 bytes
+                f.write(h.tobytes())       # 129*129*4 = 66564 bytes
 
     elapsed = time.time() - t0
     size_mb = (16 + ATLAS_ZONES**2 * (8 + ATLAS_VERTS**2 * 4)) / 1048576

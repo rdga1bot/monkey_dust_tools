@@ -22,7 +22,6 @@
 #include <monkey_dust/world/terrain_chunk.h>
 #include <monkey_dust/world/chunk_def.h>
 #include <monkey_dust/world/biome_def.h>
-#include <monkey_dust/world/world_registry.h>
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_gpu.h>
 #include <atomic>
@@ -63,8 +62,17 @@ static bool             s_cvbo_dirty     = false;  // set after brush edits
 static float            s_cvbo_dirty_t   = 0.f;    // time since last dirty mark
 
 static const int CVBO_STEPS[2]  = { TERRAIN_LOD_STEPS[1], TERRAIN_LOD_STEPS[2] }; // {4, 8}
-static const int CVBO_ROWS[2]   = { TERRAIN_GRID/4+1, TERRAIN_GRID/8+1 };          // {17, 9}
-static const int CVBO_VPC[2]    = { 17*17, 9*9 };                                   // {289, 81}
+static const int CVBO_ROWS[2]   = { TERRAIN_GRID/4+1, TERRAIN_GRID/8+1 };          // {33, 17} at TERRAIN_GRID=128
+// MUST be derived from CVBO_ROWS, not a separate literal — this was hardcoded
+// to {17*17, 9*9}={289,81} (correct only when TERRAIN_GRID was 64, giving
+// CVBO_ROWS={17,9}); TERRAIN_GRID later became 128 (CVBO_ROWS={33,17}) but this
+// literal was never updated, so the compact-VBO write loop (whose bounds use
+// CVBO_ROWS, i.e. up to 33*33=1089 verts/chunk) wrote past the buffer sized by
+// the stale vpc=289 — a heap-buffer-overflow confirmed via AddressSanitizer,
+// exactly 0 bytes past the allocation, causing "malloc(): corrupted top size" /
+// "double free or corruption" once enough chunks (~3840-4096) had overflowed
+// into each other and past the buffer's true end.
+static const int CVBO_VPC[2]    = { CVBO_ROWS[0]*CVBO_ROWS[0], CVBO_ROWS[1]*CVBO_ROWS[1] };
 
 static void s_build_compact_vbo(int li)
 {
@@ -89,17 +97,27 @@ static void s_build_compact_vbo(int li)
                     int hi = row * step * S + col * step;
                     float x = ox + col * cell;
                     float z = oz + row * cell;
-                    float y = ch.loaded ? ch.heightmap.h[hi] : 0.f;
-                    float hL = (col > 0) ? ch.heightmap.h[hi - step]     : y;
-                    float hR = (col < G) ? ch.heightmap.h[hi + step]     : y;
-                    float hD = (row > 0) ? ch.heightmap.h[hi - step * S] : y;
-                    float hU = (row < G) ? ch.heightmap.h[hi + step * S] : y;
+                    // heightmap_ready (not loaded — that means "GPU buffers uploaded",
+                    // which most chunks never get now that per-chunk upload is windowed
+                    // by camera distance, see s_update_chunk_gpu_window).
+                    float y = ch.heightmap_ready ? ch.heightmap.h[hi] : 0.f;
+                    float hL = (ch.heightmap_ready && col > 0) ? ch.heightmap.h[hi - step]     : y;
+                    float hR = (ch.heightmap_ready && col < G) ? ch.heightmap.h[hi + step]     : y;
+                    float hD = (ch.heightmap_ready && row > 0) ? ch.heightmap.h[hi - step * S] : y;
+                    float hU = (ch.heightmap_ready && row < G) ? ch.heightmap.h[hi + step * S] : y;
                     float nx = (hL - hR) / (2.f * cell);
                     float ny = 1.f;
                     float nz = (hD - hU) / (2.f * cell);
                     float len = sqrtf(nx*nx + ny*ny + nz*nz);
                     if (len > 0.f) { nx/=len; ny/=len; nz/=len; }
-                    buf[vi] = { x, y, z,  nx, ny, nz,  x, z,
+                    // UV must match terrain_gen.cpp's real per-chunk convention (world*0.125,
+                    // wrapped at 2048) — this was raw world x,z, i.e. 8x too dense relative to
+                    // what terrain_forward.frag's `vUV * 4.0` tiling expects, aliasing the
+                    // ground-texture-array detail into a flat, over-blurred average from any
+                    // distance (the "почти нульова деталізація" complaint).
+                    float u = fmodf(x * 0.125f, 2048.0f);
+                    float v = fmodf(z * 0.125f, 2048.0f);
+                    buf[vi] = { x, y, z,  nx, ny, nz,  u, v,
                                 0.5f, 0.5f, 0.f, 0.f,  y };
                 }
             }
@@ -250,7 +268,7 @@ static void s_build_synth_hmap() {
             int cz = (int)(wz / CHUNK_SIZE); if (cz >= EDITOR_TNKN) cz = EDITOR_TNKN-1;
             int col = (int)((wx - cx*CHUNK_SIZE) / TERRAIN_STEP); if (col >= TERRAIN_GRID) col = TERRAIN_GRID-1;
             int row = (int)((wz - cz*CHUNK_SIZE) / TERRAIN_STEP); if (row >= TERRAIN_GRID) row = TERRAIN_GRID-1;
-            float y = (s_chunks[cz][cx].loaded
+            float y = (s_chunks[cz][cx].heightmap_ready
                     ? s_chunks[cz][cx].heightmap.h[row*(TERRAIN_GRID+1)+col] : 0.f);
             // Finite-difference normal
             auto h_at = [&](int ttx, int tty) -> float {
@@ -259,12 +277,16 @@ static void s_build_synth_hmap() {
                 int ccz=(int)(wwz/CHUNK_SIZE); if(ccz<0)ccz=0; if(ccz>=EDITOR_TNKN)ccz=EDITOR_TNKN-1;
                 int co=(int)((wwx-ccx*CHUNK_SIZE)/TERRAIN_STEP); if(co>=TERRAIN_GRID)co=TERRAIN_GRID-1;
                 int ro=(int)((wwz-ccz*CHUNK_SIZE)/TERRAIN_STEP); if(ro>=TERRAIN_GRID)ro=TERRAIN_GRID-1;
-                return s_chunks[ccz][ccx].loaded ? s_chunks[ccz][ccx].heightmap.h[ro*(TERRAIN_GRID+1)+co] : 0.f;
+                return s_chunks[ccz][ccx].heightmap_ready ? s_chunks[ccz][ccx].heightmap.h[ro*(TERRAIN_GRID+1)+co] : 0.f;
             };
             float hL=h_at(tx-1,ty), hR=h_at(tx+1,ty), hD=h_at(tx,ty-1), hU=h_at(tx,ty+1);
             float nx=(hL-hR)/(2.f*cell), ny=1.f, nz=(hD-hU)/(2.f*cell);
             float nl=sqrtf(nx*nx+ny*ny+nz*nz); if(nl>0.f){nx/=nl;ny/=nl;nz/=nl;}
-            verts[ty*N1+tx] = { wx, y, wz,  nx, ny, nz,  wx, wz,
+            // Same UV-scale fix as s_build_compact_vbo — must match terrain_gen.cpp's
+            // world*0.125 convention, not raw world position (8x too dense otherwise).
+            float su = fmodf(wx * 0.125f, 2048.0f);
+            float sv = fmodf(wz * 0.125f, 2048.0f);
+            verts[ty*N1+tx] = { wx, y, wz,  nx, ny, nz,  su, sv,
                                  0.5f, 0.5f, 0.f, 0.f,  y };
         }
     }
@@ -609,6 +631,11 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
 
     s_load_zone_amplitudes("game/data/terrain_config.txt");
 
+    // Real per-biome data lives in a private data file, not compiled into
+    // the public engine/tools repos — see docs/ENGINE_AUDIT.md /
+    // TERRAIN_FIX_PROMPT.md. Must load before any TerrainGen_Build call.
+    BiomeRegistry::Get().LoadFromFile("game/data/biome_table.txt");
+
     // Master hmap is 257 KiB — load synchronously before spinning the thread
     if (!TerrainMaster_Load(MASTER_PATH, 64.f * CHUNK_SIZE, 64.f * CHUNK_SIZE))
         fprintf(stderr, "[W3D-SDLGPU] master hmap load failed: %s\n", MASTER_PATH);
@@ -652,10 +679,18 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
             sd.has_depth_target   = true;
             sd.vert_uniform_bufs  = 1;
             sd.frag_uniform_bufs  = 1;
-            sd.frag_samplers      = 1;  // binding 0: colour only
+            // terrain_forward.frag samples 5 textures (tex_colour, tex_ground,
+            // tex_detail, tex_overlay_mask, tex_biome_blend). This pipeline's
+            // frag_samplers count must track that exactly (engine's own
+            // TerrainRenderer pipeline for the same shader already does, see
+            // terrain_renderer.cpp:38) — falling behind by even one binding
+            // shifts every descriptor slot, producing solid-colour garbage
+            // quads on the synthesis background mesh (which always renders,
+            // not just at high altitude).
+            sd.frag_samplers      = 5;
             s_synth_pipeline.Create(sd);
         }
-        s_props.Init("game/data/props/rock_01.glb"); // no-op if missing
+        s_props.Init("game/data/props/rock_01.glb", 0.f); // no-op if missing; 0=rock diffuse
         s_terrain.InitKenshiOverlay(op);
         s_terrain.InitGroundTextureArray();
         TerrainRenderer::PomParams pom; pom.height_scale=0.04f; pom.layers_min=4; pom.layers_max=8;
@@ -685,6 +720,18 @@ static void rebuild_inplace() {
     s_begin_rebuild();
 }
 
+// Same TerrainGenParams every chunk build needs (initial bulk build AND the
+// windowed re-build in s_update_chunk_gpu_window) — factored out so both
+// stay in sync.
+static TerrainGenParams s_make_gen_params(int cx, int cz) {
+    TerrainGenParams p;
+    p.zone_origin_x = 0;
+    p.zone_origin_z = 0;
+    p.amplitude = TerrainMaster_Loaded() ? 0.f :
+        ((cx >= 0 && cx < 64 && cz >= 0 && cz < 64) ? s_zone_amp[cz][cx] : 40.f);
+    return p;
+}
+
 // ── Tick: build chunks until all 64×64 are loaded ────────────────────────────
 static void tick_chunk_build() {
     if (s_loaded) return;
@@ -696,14 +743,14 @@ static void tick_chunk_build() {
 
     int cz = idx / EDITOR_TNKN, cx = idx % EDITOR_TNKN;
     ChunkCoord coord = { cx, cz };
-    TerrainGenParams p;
-    p.zone_origin_x = 0;
-    p.zone_origin_z = 0;
-    p.amplitude = TerrainMaster_Loaded() ? 0.f :
-        ((coord.x >= 0 && coord.x < 64 && coord.z >= 0 && coord.z < 64)
-            ? s_zone_amp[coord.z][coord.x] : 40.f);
+    TerrainGenParams p = s_make_gen_params(cx, cz);
     TerrainGen_Build(s_chunks[cz][cx], coord, p);
-    TerrainGen_Upload(s_chunks[cz][cx]);
+    // GPU buffers (vbo/ibo/ibo_lod/skirt) are NOT uploaded here anymore — see
+    // s_update_chunk_gpu_window's doc comment for why eager upload for all
+    // 4096 chunks crashes (28,672 individually-allocated GPU buffers exhausts
+    // Intel ANV driver-internal resource tracking, aborts mid-vkAllocateCommandBuffers).
+    // heightmap_ready (set inside TerrainGen_Build) is enough for the compact
+    // VBO / synth background mesh below, which only need CPU height data.
     s_chunks[cz][cx].center_x = (float)cx * CHUNK_SIZE + CHUNK_SIZE * 0.5f;
     s_chunks[cz][cx].center_z = (float)cz * CHUNK_SIZE + CHUNK_SIZE * 0.5f;
 
@@ -716,6 +763,59 @@ static void tick_chunk_build() {
         fprintf(stdout, "[W3D-SDLGPU] %dx%d chunks ready\n", EDITOR_TNKN, EDITOR_TNKN);
     }
     } // for b
+}
+
+// Lazily upload/release individual per-chunk GPU buffers (vbo/ibo/ibo_lod/skirt)
+// for a small camera-centred window, instead of eagerly uploading all 4096
+// chunks at load time. Root cause (confirmed via coredumpctl + gdb backtrace
+// on a real crash): eager upload created 4096 chunks × 7 GpuStaticBuffer
+// objects each = ~28,672 individually-allocated GPU buffers, all resident at
+// once — this exhausted Intel ANV driver-internal resource tracking and
+// aborted with "malloc(): corrupted top size" inside vkAllocateCommandBuffers
+// (called from GpuStaticBuffer::Init via s_build_compact_vbo, ~chunk 3840-4096
+// in load order — first big allocation after the driver state was already
+// corrupted). Batching the per-chunk upload into one transfer buffer + one
+// submit (GpuUploadBatch, gpu_hal.h) did NOT fix it — same exact crash,
+// proving the problem is buffer OBJECT count, not submit count.
+// This is safe because the render loop already only uses a chunk's individual
+// buffers within d1sq=3500m (DrawRawPOM, lod=0 or 1 by distance — real Kenshi/
+// Ogre never switches shader for near terrain, see RenderFrame's comment);
+// beyond that it draws via the compact VBO (s_cvbo), which only needs
+// heightmap_ready.
+static void s_update_chunk_gpu_window(float eye_x, float eye_z) {
+    static constexpr float UPLOAD_R2  = 4000.f * 4000.f;  // margin past d1sq=3500m
+    static constexpr float RELEASE_R2 = 5500.f * 5500.f;  // hysteresis — avoid thrash at the boundary
+    static constexpr int   MAX_UPLOADS_PER_CALL = 8;      // bound per-frame GPU work
+
+    int uploads = 0;
+    for (int cz = 0; cz < EDITOR_TNKN && uploads < MAX_UPLOADS_PER_CALL; ++cz) {
+        for (int cx = 0; cx < EDITOR_TNKN && uploads < MAX_UPLOADS_PER_CALL; ++cx) {
+            TerrainChunk& ch = s_chunks[cz][cx];
+            if (!ch.heightmap_ready) continue;
+            float ddx = ch.center_x - eye_x, ddz = ch.center_z - eye_z;
+            float d2  = ddx * ddx + ddz * ddz;
+            if (!ch.loaded && d2 < UPLOAD_R2) {
+                // TerrainGen_Upload() reads module-static staging buffers in
+                // terrain_gen.cpp that are only valid for whichever chunk
+                // TerrainGen_Build() last populated — rebuild (cheap: atlas
+                // path is a direct array copy, no procedural noise) right
+                // before uploading so we upload THIS chunk's data, not
+                // whatever the bulk-build sweep left behind.
+                ChunkCoord coord = { cx, cz };
+                TerrainGenParams p = s_make_gen_params(cx, cz);
+                TerrainGen_Build(ch, coord, p);
+                TerrainGen_Upload(ch);
+                ++uploads;
+            } else if (ch.loaded && d2 > RELEASE_R2) {
+                ch.vbo.Shutdown();
+                ch.ibo.Shutdown();
+                for (int li = 0; li < TERRAIN_LOD_LEVELS; ++li) ch.ibo_lod[li].Shutdown();
+                ch.skirt_vbo.Shutdown();
+                ch.skirt_ibo.Shutdown();
+                ch.loaded = false;
+            }
+        }
+    }
 }
 
 // ── Camera input (original free-fly) ─────────────────────────────────────────
@@ -806,6 +906,11 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
     float eye_x = s_cx, eye_y = s_cy, eye_z = s_cz;
     s_last_eye[0]=s_cx; s_last_eye[1]=s_cy; s_last_eye[2]=s_cz;
 
+    // Windowed per-chunk GPU buffer upload/release around the camera (see
+    // s_update_chunk_gpu_window's doc comment) — must run every frame so
+    // nearby chunks are ready for the LOD0/LOD1 draw loop below.
+    s_update_chunk_gpu_window(eye_x, eye_z);
+
     // Rebuild dirty chunks (marked by s_apply_brush)
     bool was_chunk_dirty = false;
     if (s_loaded) {
@@ -843,17 +948,23 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
         }
     }
 
-    // Sun direction + biome sky/fog from LightSystem + WorldRegistry
+    // Sun direction from LightSystem. Sky/fog/ambient colour used to use
+    // per-biome BiomeDef::fog_r/g/b + sky_horizon_r/g/b, but real Kenshi's
+    // fog/sky is a global screen-space post-process driven by sun angle and
+    // time of day (confirmed from the real uncompiled shader source,
+    // tmp_/kenshi/data/materials/post/{fog,atmospherefog}.hlsl — no per-biome
+    // colour field exists there at all) -- so this uses one fixed neutral
+    // sky-blue constant for every zone instead, matching
+    // GraphicsSettings::fog_color's default.
     const auto& ls  = LightSystem::Get();
-    const char* cur_zone = WorldRegistry::Get().CurrentZone();
-    const BiomeDef& biome = BiomeDef::ForZone(cur_zone ? cur_zone : "");
+    static constexpr float kSkyR = 0.38f, kSkyG = 0.58f, kSkyB = 0.82f;
 
     // ── Terrain render pass ──────────────────────────────────────────────────
     SDL_GPUColorTargetInfo ct = {};
     ct.texture     = s_color;
     ct.load_op     = SDL_GPU_LOADOP_CLEAR;
     ct.store_op    = SDL_GPU_STOREOP_STORE;
-    ct.clear_color = { biome.fog_r, biome.fog_g, biome.fog_b, 1.f };  // biome fog as clear
+    ct.clear_color = { kSkyR, kSkyG, kSkyB, 1.f };
 
     SDL_GPUDepthStencilTargetInfo di = {};
     di.texture          = s_depth;
@@ -876,9 +987,9 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
             sky.sun_dir[0]  = ls.sun_dir.x;
             sky.sun_dir[1]  = ls.sun_dir.y;
             sky.sun_dir[2]  = ls.sun_dir.z;
-            sky.horizon_col[0] = biome.sky_horizon_r;
-            sky.horizon_col[1] = biome.sky_horizon_g;
-            sky.horizon_col[2] = biome.sky_horizon_b;
+            sky.horizon_col[0] = kSkyR;
+            sky.horizon_col[1] = kSkyG;
+            sky.horizon_col[2] = kSkyB;
             sky.fov_tan = tanf(0.80f * 0.5f);
             sky.aspect  = asp;
             SDL_BindGPUGraphicsPipeline(rp, s_sky_pipeline.SDLPipeline());
@@ -896,9 +1007,9 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
             // terrain shaders expect surface→sun (positive Y up); LightSystem = sun→surface → negate.
             sun.dir[0] = -ls.sun_dir.x; sun.dir[1] = -ls.sun_dir.y; sun.dir[2] = -ls.sun_dir.z;
             sun.strength   = 1.1f;
-            sun.ambient[0] = biome.fog_r * 0.2f + 0.22f;
-            sun.ambient[1] = biome.fog_g * 0.2f + 0.23f;
-            sun.ambient[2] = biome.fog_b * 0.2f + 0.26f;
+            sun.ambient[0] = kSkyR * 0.2f + 0.22f;
+            sun.ambient[1] = kSkyG * 0.2f + 0.23f;
+            sun.ambient[2] = kSkyB * 0.2f + 0.26f;
 
             // Rebuild compact VBOs 0.5s after last brush edit (debounced).
             if (s_cvbo_dirty) {
@@ -918,7 +1029,27 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
             // more precise, synthesis is background filler beyond LOD2 range).
             if (s_synth_built && s_synth_vbo.SDLBuffer() && s_synth_ibo.SDLBuffer()
                     && s_synth_pipeline.SDLPipeline()) {
-                s_terrain.BeginRawBatch(rp, cmd, vp.m, sun, WCX, WCZ, W2UV, 1); // set uniforms
+                s_terrain.BeginRawBatch(rp, cmd, vp.m, sun, eye_x, eye_y, eye_z, WCX, WCZ, W2UV, 1); // set uniforms
+                // BeginRawBatch never sets ground_layers (only DrawRawChunk does, per real
+                // chunk) — this manual draw needs its own push or it samples whatever was
+                // left from the last DrawRawChunk call (often all-zero => solid wrong colour).
+                {
+                    // grass/dirt/road are genuinely per-biome (real FCS data via
+                    // BiomeRegistry, loaded at runtime from a private data file) --
+                    // this whole-world background mesh has no single "current biome"
+                    // to reference, so it uses ForZone(nullptr)'s registry default
+                    // as a reasonable flat default.
+                    const BiomeDef& synth_biome = BiomeRegistry::Get().ForZone(nullptr);
+                    const float kSynthGroundLayers[6] = {
+                        (float)synth_biome.tex_base, (float)synth_biome.tex_slope, (float)synth_biome.tex_cliff,
+                        (float)synth_biome.tex_grass, (float)synth_biome.tex_dirt, (float)synth_biome.tex_road
+                    };
+                    // fog_far tuned for normal ~km-scale gameplay view distance saturates
+                    // fog_t=1.0 across this whole-world mesh from an aerial camera (tens of
+                    // km away), washing everything to solid fog colour — override with a
+                    // value past the world's diagonal (~42km for the 29.5km×29.5km world).
+                    s_terrain.SetBatchGroundLayers(cmd, kSynthGroundLayers, 60000.f);
+                }
                 SDL_BindGPUGraphicsPipeline(rp, s_synth_pipeline.SDLPipeline()); // override: depth bias
                 SDL_GPUBufferBinding sib { s_synth_ibo.SDLBuffer(), 0u };
                 SDL_BindGPUIndexBuffer(rp, &sib, SDL_GPU_INDEXELEMENTSIZE_32BIT);
@@ -928,6 +1059,14 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
             }
             // Phase 1: Chunk LOD (LOD0/1/2 only — synthesis covers > 8km).
             {
+            // d0sq/d1sq: both now render via DrawRawPOM (real Kenshi/Ogre never
+            // switches shader for "near" terrain — see the identical fix +
+            // rationale in game/src/render/npc_render.cpp; d1sq=3500m already
+            // sat almost exactly at Kenshi's own real ~3000m composite-map
+            // distance, so this tier boundary needed no change, only which
+            // shader draws it). LOD only decimates the mesh (lod=0 within
+            // d0sq, lod=1 from d0sq to d1sq) via DrawRawPOM's existing lod
+            // param — no separate DrawRawChunk(forward) tier anymore.
             static constexpr float d0sq =  1200.f *  1200.f;
             static constexpr float d1sq =  3500.f *  3500.f;
             static constexpr float d2sq =  8000.f *  8000.f;
@@ -937,7 +1076,7 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
             // 64×64=4096 chunks → 64 uint64_t per LOD tier (one bit per chunk slot).
             // ctzll iteration is branch-free and cache-friendly for sparse visible sets.
             static constexpr int LOD_WORDS = (EDITOR_TNKN * EDITOR_TNKN + 63) / 64; // 64
-            uint64_t lod_mask[3][LOD_WORDS] = {};
+            uint64_t lod_mask[2][LOD_WORDS] = {};  // [0]=compact-VBO LOD2, [1]=compact-VBO LOD3 (beyond d1sq — real Kenshi DistantTerrain/composite-map tier)
 
             for (int cz = 0; cz < EDITOR_TNKN; ++cz) {
                 for (int cx = 0; cx < EDITOR_TNKN; ++cx) {
@@ -947,33 +1086,21 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
                     float ddz = ch.center_z - eye_z;
                     float d2  = ddx*ddx + ddz*ddz;
                     if (d2 > d3sq) continue;
-                    if (d2 < d0sq) {
+                    if (d2 < d1sq) {
                         // Use global kenshi colour map (WCX/WCZ/W2UV) for correct vivid colours.
                         // VT composite is built for future height-based detail but not applied
                         // for colour — the local 8km patch can land on muted/grey kenshi zones.
+                        // fog_far_override: see DrawRawPOM's doc comment — normal gameplay
+                        // fog_far is tuned for ground-level view distance; the editor's
+                        // aerial camera (kilometres up) needs a much larger value or every
+                        // POM chunk renders as solid fog colour (the "gear/waffle" artifact).
+                        int lod = (d2 < d0sq) ? 0 : 1;
                         s_terrain.DrawRawPOM(rp, cmd, ch, vp.m,
-                                            sun, eye_x, eye_y, eye_z, WCX, WCZ, W2UV, 0);
+                                            sun, eye_x, eye_y, eye_z, WCX, WCZ, W2UV, lod, 60000.f);
                     } else {
                         int flat = cz * EDITOR_TNKN + cx;
-                        int tier = (d2 < d1sq) ? 0 : (d2 < d2sq) ? 1 : 2;
+                        int tier = (d2 < d2sq) ? 0 : 1;
                         lod_mask[tier][flat >> 6] |= 1ULL << (flat & 63);
-                    }
-                }
-            }
-            // LOD1: iterate bitmask → DrawRawChunk per visible chunk.
-            {
-                bool batch_open = false;
-                for (int w = 0; w < LOD_WORDS; ++w) {
-                    uint64_t bits = lod_mask[0][w];
-                    while (bits) {
-                        if (!batch_open) {
-                            s_terrain.BeginRawBatch(rp, cmd, vp.m, sun, WCX, WCZ, W2UV, 1);
-                            batch_open = true;
-                        }
-                        int bit  = __builtin_ctzll(bits);
-                        int flat = w * 64 + bit;
-                        s_terrain.DrawRawChunk(rp, cmd, s_chunks[flat / EDITOR_TNKN][flat % EDITOR_TNKN]);
-                        bits &= bits - 1;
                     }
                 }
             }
@@ -986,10 +1113,27 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
                 SDL_GPUBufferBinding cib { s_cvbo_ibo[li].SDLBuffer(), 0u };
                 SDL_GPUBufferBinding vb  { s_cvbo[li].SDLBuffer(), 0u };
                 for (int w = 0; w < LOD_WORDS; ++w) {
-                    uint64_t bits = lod_mask[li + 1][w];
+                    uint64_t bits = lod_mask[li][w];
                     while (bits) {
                         if (!batch_open) {
-                            s_terrain.BeginRawBatch(rp, cmd, vp.m, sun, WCX, WCZ, W2UV, li + 2);
+                            s_terrain.BeginRawBatch(rp, cmd, vp.m, sun, eye_x, eye_y, eye_z, WCX, WCZ, W2UV, li + 2);
+                            // Same bug as synthesis (see SetBatchGroundLayers doc comment):
+                            // this manual draw bypasses DrawRawChunk, so BeginRawBatch alone
+                            // leaves ground_layers at whatever was last pushed (often zero) —
+                            // and since ALL chunks in this compact-VBO batch share ONE push
+                            // (no per-chunk re-push like DrawRawChunk), they can only ever
+                            // show ONE biome's texture here, not real per-chunk variety — a
+                            // reasonable simplification for the coarsest background LOD, and
+                            // fixes the "waffle" pattern of correct-vs-stale-colour chunks at
+                            // the LOD1/LOD2 boundary (real biome colour vs previous garbage).
+                            const BiomeDef& compact_biome = BiomeRegistry::Get().ForZone(nullptr);
+                            const float kCompactGroundLayers[6] = {
+                                (float)compact_biome.tex_base, (float)compact_biome.tex_slope, (float)compact_biome.tex_cliff,
+                                (float)compact_biome.tex_grass, (float)compact_biome.tex_dirt, (float)compact_biome.tex_road
+                            };
+                            // Same aerial-altitude fog_far problem as LOD1/synthesis (see their
+                            // comments) — override here too, not just ground_layers.
+                            s_terrain.SetBatchGroundLayers(cmd, kCompactGroundLayers, 60000.f);
                             SDL_BindGPUIndexBuffer(rp, &cib, SDL_GPU_INDEXELEMENTSIZE_16BIT);
                             SDL_BindGPUVertexBuffers(rp, 0, &vb, 1);
                             batch_open = true;

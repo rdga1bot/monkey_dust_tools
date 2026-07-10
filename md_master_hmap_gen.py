@@ -2,7 +2,7 @@
 """
 md_master_hmap_gen.py — Kenshi TerrainAtlas → simplified macro master heightmap.
 
-Reads world_hmap.r32 (TerrainAtlas binary: 64×64 zones, 65×65 verts each,
+Reads world_hmap.r32 (TerrainAtlas binary: 64×64 zones, 129×129 verts each,
 heights in metres), reconstructs the full world heightmap, downsamples to a
 small resolution with heavy Gaussian blur to keep only macro geography, then
 saves md_master_hmap.r32 in a format the engine can load.
@@ -29,7 +29,7 @@ from pathlib import Path
 
 ATLAS_MAGIC  = 0x414D4800
 ATLAS_ZONES  = 64
-ATLAS_VERTS  = 65          # 65×65 heights per zone (last row/col shared with neighbour)
+ATLAS_VERTS  = 129         # 129×129 heights per zone (last row/col shared with neighbour)
 
 
 def load_atlas(path: str) -> np.ndarray:
@@ -41,10 +41,10 @@ def load_atlas(path: str) -> np.ndarray:
         if zx != ATLAS_ZONES or zy != ATLAS_ZONES or verts != ATLAS_VERTS:
             sys.exit(f"ERROR: unexpected atlas dimensions {zx}×{zy}, verts={verts}")
 
-        # Reconstruct full heightmap: use first 64×64 from each zone (skip duplicate edge)
-        # Result: (ATLAS_ZONES*64) × (ATLAS_ZONES*64) = 4096×4096
-        G = ATLAS_VERTS - 1  # 64 unique vertices per zone in each axis
-        full_size = ATLAS_ZONES * G  # 4096
+        # Reconstruct full heightmap: use first 128×128 from each zone (skip duplicate edge)
+        # Result: (ATLAS_ZONES*128) × (ATLAS_ZONES*128) = 8192×8192
+        G = ATLAS_VERTS - 1  # 128 unique vertices per zone in each axis
+        full_size = ATLAS_ZONES * G  # 8192
         full = np.zeros((full_size, full_size), dtype=np.float32)
 
         for zi in range(ATLAS_ZONES * ATLAS_ZONES):
@@ -102,9 +102,9 @@ def main():
     if not Path(args.input).exists():
         sys.exit(f"ERROR: input not found: {args.input}")
 
-    print(f"[load] {args.input} (TerrainAtlas 64×64 zones × 65×65 verts)...")
+    print(f"[load] {args.input} (TerrainAtlas 64×64 zones × 129×129 verts)...")
     full = load_atlas(args.input)
-    stats("source (4096×4096)", full)
+    stats("source (8192×8192)", full)
 
     print(f"[downsample] → {args.dst_size}×{args.dst_size}...")
     small = downsample(full, args.dst_size)

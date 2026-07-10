@@ -95,20 +95,18 @@ Baselines stored in `tools/qa/baselines/char_preview/`. Threshold: RMSE < 0.02.
 
 ---
 
-### `md_extract_terrain.py` — Terrain Atlas Builder
+### `md_extract_terrain.py` — REMOVED (2026-07-10)
 
-Extracts all 4096 terrain zones from `fullmap.tif` (16385×16385 uint16) and packs them into a single `world_hmap.r32` atlas (67 MB).
-
-```bash
-# Extract individual zone files:
-python3 tools/md_extract_terrain.py extract
-
-# Pack into atlas:
-python3 tools/md_extract_terrain.py pack_atlas
-# → game/data/terrain/world_hmap.r32
-```
-
-Atlas format: `magic=0x414D4800` · 4096 zones (64×64 grid) · each zone = `float hmin + float hmax + float[65×65]` heights.
+Used to build `world_hmap.r32` from `fullmap.tif`, but with a stale
+`HEIGHT_MAX = 300.0` constant that conflicted with the real, current value
+(`980.0`, real Kenshi scale — see
+`re_docs/kenshi/impl_status/CLAUDE_KEN_TERRAIN_SCALE_FIX.md`). Two
+competing, simultaneously-documented ways to build the same artifact was
+a confirmed real risk (`docs/ENGINE_AUDIT.md` §1/§2) — deleted rather than
+left deprecated-in-place, per the resolved decision in
+`TERRAIN_FIX_PROMPT.md` Stage 1. **Use `tools/tif_to_r32.py`** (documented
+in the root `CLAUDE.md` under "Kenshi Terrain Pipeline" — the sole
+authoritative path).
 
 ---
 
@@ -185,7 +183,7 @@ tools/
     scene_serializer.h ← Import/Export scene JSON
   md_terrain/          ← md2terrain.py terrain zone helpers
   md_mesh_conv/        ← md_chars.py · ogre2glb.py — OGRE XML → GLB
-  md_extract_terrain.py ← fullmap.tif → 4096 zone r32 → world_hmap.r32 atlas
+  (md_extract_terrain.py removed 2026-07-10 — see tif_to_r32.py instead)
   md_convert.py        ← OGRE mesh → GLB pipeline
   md_mod_import.py     ← JSON mod data → md_world.json (key: md_id)
   md_biome_import.py   ← Biome map JSON import
