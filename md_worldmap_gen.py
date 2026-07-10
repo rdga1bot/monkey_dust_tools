@@ -22,10 +22,15 @@ from scipy.spatial import cKDTree
 from PIL import Image, ImageDraw
 
 ATLAS_ZONES = 64
-ATLAS_VERTS = 65
 OUT_SIZE    = 2048
 
 KENSHI_BIOME = "tmp_/kenshi/data/newland/land/biomemap.png"
+# Real, authored Kenshi world-map art (8192x8192, gui/gfx/GUI_Map.dds) — used
+# directly as the base image now instead of reconstructing colour from
+# biomemap.png + our own palette. Private, non-commercial engine-migration
+# project (game/ fully private repo) — no shape-only/no-Kenshi-art
+# restriction applies here, unlike the previous approach's legal caveat.
+KENSHI_GUI_MAP = "tmp_/kenshi/data/gui/gfx/GUI_Map.dds"
 
 # ── Per-biome colour palettes (vivid, clearly distinct) ──────────────────────
 BIOME_PALETTE = {
@@ -241,7 +246,13 @@ def apply_hillshade(rgb_f, hmap, full, S):
     # 460.8m/zone — real Kenshi zone size (engine/include/monkey_dust/world/chunk_def.h
     # CHUNK_SIZE); was stale 500.0 here, the same wrong assumption fixed engine-side.
     world_m_per_px = (ATLAS_ZONES * 460.8) / S
-    k  = 0.006 / world_m_per_px                      # stronger slope contrast
+    # Physically correct slope: height-change-per-pixel ÷ metres-per-pixel.
+    # Was 0.006/world_m_per_px — an arbitrary extra factor that made the
+    # normal's vertical component stay within 0.999-1.0 across the ENTIRE
+    # map regardless of real terrain (verified by simulating actual
+    # world_hmap.r32 data, real height range 0-977m) — i.e. no visible
+    # relief at all. Removing it lets real slope drive real contrast.
+    k  = 1.0 / world_m_per_px
     dz = np.gradient(h_small, axis=0) * k
     dx = np.gradient(h_small, axis=1) * k
     mag = np.sqrt(dx*dx + dz*dz + 1.0)
@@ -342,18 +353,25 @@ def main():
 
     S = OUT_SIZE
 
-    if os.path.exists(KENSHI_BIOME):
-        print("[mapgen] using Kenshi biomemap zone shapes")
+    if os.path.exists(KENSHI_GUI_MAP):
+        print("[mapgen] using real Kenshi GUI_Map.dds art (private/non-commercial project)")
+        img = Image.open(KENSHI_GUI_MAP).convert('RGB').resize((S, S), Image.LANCZOS)
+        # Already properly relief-shaded by Kenshi's own artists — no procedural
+        # hillshade/recolour pass needed (that was only ever a substitute for
+        # not having this real asset in the first place).
+    elif os.path.exists(KENSHI_BIOME):
+        print("[mapgen] GUI_Map.dds not found — using Kenshi biomemap zone shapes")
         seg, zone_key_list = segment_biomemap(KENSHI_BIOME, zones)
         rgb_f = build_rgb_from_seg(seg, zone_key_list, zones, S)
+        print("[mapgen] hillshading…")
+        rgb_f = apply_hillshade(rgb_f, hmap, full, S)
+        img = Image.fromarray(np.clip(rgb_f, 0, 255).astype(np.uint8), 'RGB')
     else:
         print("[mapgen] Kenshi biomemap not found — using domain-warped Voronoi")
         rgb_f = fallback_voronoi(zones, S)
+        rgb_f = apply_hillshade(rgb_f, hmap, full, S)
+        img = Image.fromarray(np.clip(rgb_f, 0, 255).astype(np.uint8), 'RGB')
 
-    print("[mapgen] hillshading…")
-    rgb_f = apply_hillshade(rgb_f, hmap, full, S)
-
-    img = Image.fromarray(np.clip(rgb_f, 0, 255).astype(np.uint8), 'RGB')
     draw_labels(img, zones, S)
 
     os.makedirs(os.path.dirname(out), exist_ok=True)

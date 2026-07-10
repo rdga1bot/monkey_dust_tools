@@ -528,7 +528,8 @@ static void World3DRender(int vp_w, int vp_h, float dt) {
     if (s_terrain_ready && s_show_terrain) {
         // Terrain view: heightmap mesh with splat colouring + Lambertian lighting.
         s_terrain_renderer.Draw(cb, s_terrain_chunk, mat4_ptr(mvp),
-                                TerrainRenderer::SunParams::Default());
+                                TerrainRenderer::SunParams::Default(),
+                                0.f, 0.f, 0.f);
     } else {
         // Old Flare world-geometry view (flat tile extrusion).
         cb.BindPipeline(&s_w3d_pipeline);
