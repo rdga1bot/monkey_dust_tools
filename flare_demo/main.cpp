@@ -684,7 +684,7 @@ static float MoveToward(WorldTransform& wt, float tx, float tz, float speed_mps)
 
 // ── BT action: CHASE + melee attack ──────────────────────────────────────────
 
-static BTStatus actGuardChase(md::EngineContext&, entt::entity e) {
+static BTStatus actGuardChase(md::EngineContext&, MdEntity e) {
     auto& reg = Registry::Get();
     auto* wt  = reg.try_get<WorldTransform>(e);
     auto* sc  = reg.try_get<SenseComponent>(e);
@@ -720,7 +720,7 @@ static BTStatus actGuardChase(md::EngineContext&, entt::entity e) {
 
 // ── BT action: INVESTIGATE ────────────────────────────────────────────────────
 
-static BTStatus actGuardInvestigate(md::EngineContext&, entt::entity e) {
+static BTStatus actGuardInvestigate(md::EngineContext&, MdEntity e) {
     auto& reg = Registry::Get();
     auto* wt  = reg.try_get<WorldTransform>(e);
     auto* sc  = reg.try_get<SenseComponent>(e);
@@ -731,7 +731,7 @@ static BTStatus actGuardInvestigate(md::EngineContext&, entt::entity e) {
 
 // ── BT action: PATROL ─────────────────────────────────────────────────────────
 
-static BTStatus actGuardPatrol(md::EngineContext& ctx, entt::entity e) {
+static BTStatus actGuardPatrol(md::EngineContext& ctx, MdEntity e) {
     auto& reg = Registry::Get();
     auto* wt  = reg.try_get<WorldTransform>(e);
     auto* ab  = reg.try_get<AgentBlackboard>(e);
