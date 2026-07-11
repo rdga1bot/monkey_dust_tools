@@ -188,18 +188,21 @@ void EditorConsole::ExecCommand(const char* raw) {
         sscanf(cmd + 4, "%u", &eid);
         auto& reg = MdRegistry::Get();
         // find entity by integral id
-        for (auto raw_e : reg.Raw().storage<entt::entity>()) {
-            MdEntity e(raw_e);
-            if (e.ToIntegral() == eid) {
-                if (reg.AllOf<Combat>(e))  reg.Get<Combat>(e).is_dead = true;
-                if (reg.AllOf<Health>(e)) { auto& h = reg.Get<Health>(e); for (int _i=0;_i<LIMB_COUNT;++_i) h.hp[_i]=0.f; }
-                char msg[48];
-                snprintf(msg, sizeof(msg), "[Console] Killed entity %u", eid);
-                Log(MD_LOG_INFO, msg);
-                return;
-            }
+        bool found = false;
+        reg.Each([&](MdEntity e) -> bool {
+            if (e.ToIntegral() != eid) return true;
+            found = true;
+            if (reg.AllOf<Combat>(e))  reg.Get<Combat>(e).is_dead = true;
+            if (reg.AllOf<Health>(e)) { auto& h = reg.Get<Health>(e); for (int _i=0;_i<LIMB_COUNT;++_i) h.hp[_i]=0.f; }
+            return false;  // found — stop
+        });
+        if (found) {
+            char msg[48];
+            snprintf(msg, sizeof(msg), "[Console] Killed entity %u", eid);
+            Log(MD_LOG_INFO, msg);
+        } else {
+            Log(MD_LOG_WARNING, "[Console] Entity not found");
         }
-        Log(MD_LOG_WARNING, "[Console] Entity not found");
         return;
     }
 

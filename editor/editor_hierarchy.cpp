@@ -25,10 +25,11 @@
 void EditorHierarchy::RefreshCache() {
     auto& reg = MdRegistry::Get();
     entity_cache_count_ = 0;
-    for (auto raw_e : reg.Raw().storage<entt::entity>()) {
-        if (entity_cache_count_ >= MAX_CACHE) break;
-        entity_cache_[entity_cache_count_++] = MdEntity(raw_e);
-    }
+    reg.Each([&](MdEntity e) -> bool {
+        if (entity_cache_count_ >= MAX_CACHE) return false;
+        entity_cache_[entity_cache_count_++] = e;
+        return true;
+    });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

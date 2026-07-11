@@ -161,9 +161,11 @@ void EditorToolbar::DrawMenuBar() {
             auto& ec  = EditorCore::Get();
             auto& reg = MdRegistry::Get();
             ec.DeselectAll();
-            for (auto raw_e : reg.Raw().storage<entt::entity>())
-                if (ec.selected_count < EditorCore::MAX_SELECTED)
-                    ec.selected[ec.selected_count++] = MdEntity(raw_e);
+            reg.Each([&](MdEntity e) -> bool {
+                if (ec.selected_count >= EditorCore::MAX_SELECTED) return false;
+                ec.selected[ec.selected_count++] = e;
+                return true;
+            });
         }
         ImGui::EndMenu();
     }

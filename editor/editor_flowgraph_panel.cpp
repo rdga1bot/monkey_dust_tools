@@ -56,7 +56,7 @@ void EditorFlowGraphPanel::DrawContent() {
         target = sel;
     if (target == entt::null) {
         auto view = reg.View<FlowGraph>();
-        if (!view.Raw().empty()) target = MdEntity(*view.Raw().begin());
+        if (!view.empty()) target = view.front();
     }
 
     if (target == entt::null) {
