@@ -430,18 +430,18 @@ void EditorCore::Shutdown() {
 }
 
 // ── Selection ─────────────────────────────────────────────────
-entt::entity EditorCore::GetPrimary() const {
+MdEntity EditorCore::GetPrimary() const {
     return (selected_count > 0) ? selected[0] : entt::null;
 }
 
-void EditorCore::Select(entt::entity e, bool add) {
+void EditorCore::Select(MdEntity e, bool add) {
     if (!add) DeselectAll();
     if (IsSelected(e)) return;
     if (selected_count >= MAX_SELECTED) return;
     selected[selected_count++] = e;
 }
 
-void EditorCore::Deselect(entt::entity e) {
+void EditorCore::Deselect(MdEntity e) {
     for (int i = 0; i < selected_count; ++i) {
         if (selected[i] == e) {
             selected[i] = selected[--selected_count];
@@ -456,7 +456,7 @@ void EditorCore::DeselectAll() {
     selected_count = 0;
 }
 
-bool EditorCore::IsSelected(entt::entity e) const {
+bool EditorCore::IsSelected(MdEntity e) const {
     for (int i = 0; i < selected_count; ++i)
         if (selected[i] == e) return true;
     return false;
@@ -577,7 +577,7 @@ void EditorCore::UpdateEditorCamera(float dt, bool viewport_hovered) {
 void EditorCore::FocusOnSelected() {
     if (selected_count == 0) return;
     auto& reg = MdRegistry::Get();
-    entt::entity e = GetPrimary();
+    MdEntity e = GetPrimary();
     if (!reg.Valid(e)) return;
     if (!reg.AllOf<WorldTransform>(e)) return;
     const auto& tr = reg.Get<WorldTransform>(e);

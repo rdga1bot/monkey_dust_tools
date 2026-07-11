@@ -90,8 +90,8 @@ static const char* SENSE_JSON    = "data/ai/view_cone_sets.json";
 
 // ── Demo state ────────────────────────────────────────────────────────────────
 
-static entt::entity  s_player         = entt::null;
-static entt::entity  s_npcs[DEMO_MAX_NPCS];
+static MdEntity  s_player         = entt::null;
+static MdEntity  s_npcs[DEMO_MAX_NPCS];
 static int           s_npc_count      = 0;
 static int           s_npc_hp[DEMO_MAX_NPCS]      = {};
 static float         s_npc_atk_cd[DEMO_MAX_NPCS]  = {};  // per-NPC cooldown timer (s)
@@ -746,7 +746,7 @@ static BTStatus actGuardPatrol(md::EngineContext& ctx, MdEntity e) {
     float dist = MoveToward(*wt, tx, tz, GUARD_PATROL_SPD);
 
     if (dist < 0.3f) {
-        uint32_t r = ctx.frame_index * 2654435761u ^ static_cast<uint32_t>(entt::to_integral(e));
+        uint32_t r = ctx.frame_index * 2654435761u ^ e.ToIntegral();
         float angle  = (float)((r & 0xFFu)) / 255.f * 6.28318f;
         float radius = (float)(((r >> 8) & 0xFFu)) / 255.f * WANDER_RADIUS;
         bb_set_float(*ab, kWX, sx + cosf(angle) * radius);
@@ -775,7 +775,7 @@ static void LoadNpcBT(BehaviorTree& bt) {
         fprintf(stderr, "[demo] BT load failed: %s\n", BT_JSON_PATH);
 }
 
-static void RespawnNpcBT(entt::entity e) {
+static void RespawnNpcBT(MdEntity e) {
     auto& reg = MdRegistry::Get();
     auto* old = reg.TryGet<BehaviorTreeComponent>(e);
     if (old && old->owning && old->tree) { delete old->tree; old->tree = nullptr; }
@@ -816,7 +816,7 @@ static void SpawnDemoEntities(const md::flare::FlareRuntime& rt) {
         const auto& sp = map.spawns[i];
         int n = (sp.number_min < 1 ? 1 : sp.number_min);
         for (int j = 0; j < n && s_npc_count < DEMO_MAX_NPCS; ++j) {
-            entt::entity e = reg.Create();
+            MdEntity e = reg.Create();
             int idx = s_npc_count++;
             s_npcs[idx]        = e;
             s_npc_hp[idx]      = NPC_HP_INIT;

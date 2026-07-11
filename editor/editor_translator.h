@@ -1,4 +1,5 @@
 #pragma once
+#include <monkey_dust/ecs/md_entity.h>
 #ifdef MONKEY_DUST_EDITOR
 #include <monkey_dust/render/md_camera.h>
 #include <entt/entt.hpp>
@@ -8,9 +9,9 @@ class EditorTranslator {
 public:
     static EditorTranslator& Get() { static EditorTranslator inst; return inst; }
 
-    void Update(const MdCamera& cam, entt::entity sel,
+    void Update(const MdCamera& cam, MdEntity sel,
                 EditorGizmoOp op, EditorGizmoSpace space);
-    void Draw(const MdCamera& cam, entt::entity sel, EditorGizmoOp op);
+    void Draw(const MdCamera& cam, MdEntity sel, EditorGizmoOp op);
 
 private:
     EditorTranslator() = default;

@@ -133,9 +133,9 @@ void EditorToolbar::DrawMenuBar() {
         if (ImGui::MenuItem("Duplicate", "Ctrl+D")) {
             auto& ec  = EditorCore::Get();
             auto& reg = MdRegistry::Get();
-            entt::entity src = ec.GetPrimary();
+            MdEntity src = ec.GetPrimary();
             if (reg.Valid(src) && reg.AllOf<WorldTransform>(src)) {
-                entt::entity dst = reg.Create();
+                MdEntity dst = reg.Create();
                 auto& tr = reg.Emplace<WorldTransform>(dst, reg.Get<WorldTransform>(src));
                 tr.x += 1.f; tr.slot = 0xFFFFFFFFu;
                 uint32_t fid = reg.AllOf<AIAgent>(src) ? reg.Get<AIAgent>(src).faction_id : 0u;
@@ -150,7 +150,7 @@ void EditorToolbar::DrawMenuBar() {
             auto& ec  = EditorCore::Get();
             auto& reg = MdRegistry::Get();
             for (int i = ec.selected_count - 1; i >= 0; --i) {
-                entt::entity e = ec.selected[i];
+                MdEntity e = ec.selected[i];
                 if (!reg.Valid(e)) continue;
                 if (reg.AllOf<WorldTransform>(e)) TransformSoA::Get().Free(e);
                 reg.Destroy(e);
@@ -161,9 +161,9 @@ void EditorToolbar::DrawMenuBar() {
             auto& ec  = EditorCore::Get();
             auto& reg = MdRegistry::Get();
             ec.DeselectAll();
-            for (auto e : reg.Raw().storage<entt::entity>())
+            for (auto raw_e : reg.Raw().storage<entt::entity>())
                 if (ec.selected_count < EditorCore::MAX_SELECTED)
-                    ec.selected[ec.selected_count++] = e;
+                    ec.selected[ec.selected_count++] = MdEntity(raw_e);
         }
         ImGui::EndMenu();
     }

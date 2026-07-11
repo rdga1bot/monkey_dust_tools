@@ -74,7 +74,7 @@ Vec3 EditorTranslator::ComputePlaneHit(MdRay ray, EditorGizmoOp op,
 }
 
 // ── Draw ──────────────────────────────────────────────────────────────────────
-void EditorTranslator::Draw(const MdCamera& cam, entt::entity sel, EditorGizmoOp op) {
+void EditorTranslator::Draw(const MdCamera& cam, MdEntity sel, EditorGizmoOp op) {
     (void)cam; (void)op;
     if (sel == entt::null) return;
 #ifndef USE_SDL3
@@ -114,7 +114,7 @@ void EditorTranslator::Draw(const MdCamera& cam, entt::entity sel, EditorGizmoOp
 }
 
 // ── Update (hit detection + drag) ────────────────────────────────────────────
-void EditorTranslator::Update(const MdCamera& cam, entt::entity sel,
+void EditorTranslator::Update(const MdCamera& cam, MdEntity sel,
                                EditorGizmoOp op, EditorGizmoSpace space) {
 #ifndef USE_SDL3
     // Gizmo interaction uses Raylib 3D draw + ImGui input — SDL3/SDL_GPU path deferred.
@@ -181,7 +181,7 @@ void EditorTranslator::Update(const MdCamera& cam, entt::entity sel,
             Vec3 delta = vec3_sub(raw, pos);
 
             for (int i = 0; i < ec.selected_count; ++i) {
-                entt::entity e = ec.selected[i];
+                MdEntity e = ec.selected[i];
                 if (!reg.Valid(e) || !reg.AllOf<WorldTransform>(e)) continue;
                 auto& etr = reg.Get<WorldTransform>(e);
                 etr.x += delta.x;
@@ -201,7 +201,7 @@ void EditorTranslator::Update(const MdCamera& cam, entt::entity sel,
 
             float new_rot = entity_start_rot_y_ + delta_deg;
             for (int i = 0; i < ec.selected_count; ++i) {
-                entt::entity e = ec.selected[i];
+                MdEntity e = ec.selected[i];
                 if (!reg.Valid(e) || !reg.AllOf<WorldTransform>(e)) continue;
                 reg.Get<WorldTransform>(e).rot_y = new_rot;
             }

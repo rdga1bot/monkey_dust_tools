@@ -50,13 +50,13 @@ void EditorFlowGraphPanel::DrawContent() {
 
     auto& reg = MdRegistry::Get();
 
-    entt::entity target = entt::null;
-    entt::entity sel = EditorCore::Get().GetPrimary();
+    MdEntity target = entt::null;
+    MdEntity sel = EditorCore::Get().GetPrimary();
     if (sel != entt::null && reg.Valid(sel) && reg.AllOf<FlowGraph>(sel))
         target = sel;
     if (target == entt::null) {
         auto view = reg.View<FlowGraph>();
-        if (!view.empty()) target = *view.begin();
+        if (!view.Raw().empty()) target = MdEntity(*view.Raw().begin());
     }
 
     if (target == entt::null) {
@@ -66,7 +66,7 @@ void EditorFlowGraphPanel::DrawContent() {
 
     auto& fg = reg.Get<FlowGraph>(target);
     ImGui::Text("Entity: %u  |  Nodes: %d  Conns: %d  Vars: %d",
-                (uint32_t)entt::to_integral(target),
+                target.ToIntegral(),
                 fg.node_count, fg.conn_count, fg.var_count);
 
     // ── imnodes visual graph ──────────────────────────────────────────

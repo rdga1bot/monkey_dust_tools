@@ -25,14 +25,14 @@
 void EditorHierarchy::RefreshCache() {
     auto& reg = MdRegistry::Get();
     entity_cache_count_ = 0;
-    for (auto e : reg.Raw().storage<entt::entity>()) {
+    for (auto raw_e : reg.Raw().storage<entt::entity>()) {
         if (entity_cache_count_ >= MAX_CACHE) break;
-        entity_cache_[entity_cache_count_++] = e;
+        entity_cache_[entity_cache_count_++] = MdEntity(raw_e);
     }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-const char* EditorHierarchy::EntityIcon(entt::entity e) const {
+const char* EditorHierarchy::EntityIcon(MdEntity e) const {
     auto& reg = MdRegistry::Get();
     if (reg.AllOf<PlayerController>(e))   return "[PLY]";
     if (reg.AllOf<AIAgent>(e))            return "[NPC]";
@@ -42,9 +42,9 @@ const char* EditorHierarchy::EntityIcon(entt::entity e) const {
     return "[---]";
 }
 
-void EditorHierarchy::EntityLabel(entt::entity e, char* buf, int len) const {
+void EditorHierarchy::EntityLabel(MdEntity e, char* buf, int len) const {
     auto& reg = MdRegistry::Get();
-    uint32_t id = (uint32_t)entt::to_integral(e);
+    uint32_t id = e.ToIntegral();
     if (reg.AllOf<AIAgent>(e)) {
         const auto& ai = reg.Get<AIAgent>(e);
         snprintf(buf, len, "%s Entity_%u [f%u LOD%u]",
@@ -59,7 +59,7 @@ void EditorHierarchy::EntityLabel(entt::entity e, char* buf, int len) const {
     }
 }
 
-ImVec4 EditorHierarchy::EntityColor(entt::entity e) const {
+ImVec4 EditorHierarchy::EntityColor(MdEntity e) const {
     auto& reg = MdRegistry::Get();
     if (reg.AllOf<Combat>(e) && reg.Get<Combat>(e).is_dead)
         return {1.0f, 0.3f, 0.3f, 1.0f}; // RED  = dead
@@ -75,7 +75,7 @@ ImVec4 EditorHierarchy::EntityColor(entt::entity e) const {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-void EditorHierarchy::DrawContextMenu(entt::entity e) {
+void EditorHierarchy::DrawContextMenu(MdEntity e) {
     auto& ec  = EditorCore::Get();
     auto& reg = MdRegistry::Get();
 
@@ -171,7 +171,7 @@ void EditorHierarchy::DrawContent() {
     ImGui::SameLine();
     if (ImGui::SmallButton("[X]")) {
         for (int i = ec.selected_count - 1; i >= 0; --i) {
-            entt::entity e = ec.selected[i];
+            MdEntity e = ec.selected[i];
             if (!reg.Valid(e)) continue;
             if (reg.AllOf<WorldTransform>(e)) TransformSoA::Get().Free(e);
             reg.Destroy(e);
@@ -197,11 +197,11 @@ void EditorHierarchy::DrawContent() {
     // Pre-filter into a display list so ListClipper never skips items mid-loop.
     // (ListClipper requires every index in [DisplayStart, DisplayEnd) to render
     // something that advances the cursor — a 'continue' inside would crash it.)
-    static entt::entity display[MAX_CACHE];
+    static MdEntity display[MAX_CACHE];
     static char         display_labels[MAX_CACHE][128];
     int display_count = 0;
     for (int i = 0; i < entity_cache_count_; ++i) {
-        entt::entity e = entity_cache_[i];
+        MdEntity e = entity_cache_[i];
         if (!reg.Valid(e)) continue;
         EntityLabel(e, display_labels[display_count], 128);
         if (entity_filter_[0] != '\0' &&
@@ -217,7 +217,7 @@ void EditorHierarchy::DrawContent() {
     clipper.Begin(display_count);
     while (clipper.Step()) {
         for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
-            entt::entity e = display[i];
+            MdEntity e = display[i];
             bool selected = ec.IsSelected(e);
             ImVec4 col = EntityColor(e);
             ImGui::PushStyleColor(ImGuiCol_Text, col);

@@ -15,7 +15,7 @@
 #include <monkey_dust/components/stat_sheet.h>
 #include <monkey_dust/components/nav_agent.h>
 
-inline entt::entity SpawnFromArchetype(int idx) {
+inline MdEntity SpawnFromArchetype(int idx) {
     if (idx < 0 || idx >= NpcArchetypeEditor::g_count) return entt::null;
     const auto& d  = NpcArchetypeEditor::g_archs[idx];
     auto& reg = MdRegistry::Get();

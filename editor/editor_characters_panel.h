@@ -49,8 +49,8 @@ private:
         if (!CharDef::LoadFromFile(CharacterEditor::s_path, cd)) return;
 
         auto& reg = MdRegistry::Get();
-        entt::entity pe = entt::null;
-        reg.View<PlayerController>().each([&](entt::entity e, const PlayerController&){ pe=e; });
+        MdEntity pe = entt::null;
+        reg.View<PlayerController>().each([&](MdEntity e, const PlayerController&){ pe=e; });
         if (pe == entt::null) { fprintf(stderr,"[CharPanel] no player entity\n"); return; }
 
         auto& bs = reg.EmplaceOrReplace<CharBodyState>(pe);

@@ -40,7 +40,8 @@ inline bool Export(const char* path) {
     int count = 0;
     bool first = true;
 
-    for (auto e : reg.Raw().storage<entt::entity>()) {
+    for (auto raw_e : reg.Raw().storage<entt::entity>()) {
+        MdEntity e(raw_e);
         if (!reg.Valid(e)) continue;
         if (!reg.AllOf<WorldTransform>(e)) continue;
         if (count >= MAX_EXPORT_ENTITIES) {
@@ -49,7 +50,7 @@ inline bool Export(const char* path) {
         }
 
         const auto& tr = reg.Get<WorldTransform>(e);
-        uint32_t id = (uint32_t)entt::to_integral(e);
+        uint32_t id = e.ToIntegral();
 
         if (!first) fprintf(f, ",\n");
         first = false;

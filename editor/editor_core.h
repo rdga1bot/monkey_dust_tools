@@ -1,4 +1,5 @@
 #pragma once
+#include <monkey_dust/ecs/md_entity.h>
 #ifdef MONKEY_DUST_EDITOR
 #ifdef USE_SDL3
 #  include "backends/imgui_impl_sdl3.h"
@@ -49,14 +50,14 @@ public:
 
     // ── Selection ─────────────────────────────────────────
     static constexpr int MAX_SELECTED = 64;
-    entt::entity selected[MAX_SELECTED];
+    MdEntity selected[MAX_SELECTED];
     int          selected_count = 0;
 
-    entt::entity GetPrimary() const;
-    void         Select(entt::entity e, bool add = false);
-    void         Deselect(entt::entity e);
+    MdEntity GetPrimary() const;
+    void         Select(MdEntity e, bool add = false);
+    void         Deselect(MdEntity e);
     void         DeselectAll();
-    bool         IsSelected(entt::entity e) const;
+    bool         IsSelected(MdEntity e) const;
 
     // ── Editor Camera ─────────────────────────────────────
     MdCamera editor_cam;          // was Camera3D — now platform-neutral
