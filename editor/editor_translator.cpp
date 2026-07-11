@@ -2,6 +2,7 @@
 #include "editor_translator.h"
 #include "editor_core.h"
 #include <monkey_dust/ecs/registry.h>
+#include <monkey_dust/ecs/md_registry.h>
 #include <monkey_dust/world/world_transform.h>
 #include <monkey_dust/platform/window.h>
 #include <monkey_dust/platform/input.h>
@@ -73,14 +74,14 @@ Vec3 EditorTranslator::ComputePlaneHit(MdRay ray, EditorGizmoOp op,
 }
 
 // ── Draw ──────────────────────────────────────────────────────────────────────
-void EditorTranslator::Draw(const MdCamera& cam, entt::entity sel, EditorGizmoOp op) {
+void EditorTranslator::Draw(const MdCamera& cam, MdEntity sel, EditorGizmoOp op) {
     (void)cam; (void)op;
     if (sel == entt::null) return;
 #ifndef USE_SDL3
     // Gizmo rendering uses Raylib 3D draw calls — SDL3 path skips for now.
-    auto& reg = Registry::Get();
-    if (!reg.valid(sel) || !reg.all_of<WorldTransform>(sel)) return;
-    const auto& tr = reg.get<WorldTransform>(sel);
+    auto& reg = MdRegistry::Get();
+    if (!reg.Valid(sel) || !reg.AllOf<WorldTransform>(sel)) return;
+    const auto& tr = reg.Get<WorldTransform>(sel);
     Vec3 pos = {tr.x, tr.y, tr.z};
 
     Color cx = (active_axis_ == 0) ? YELLOW : RED;
@@ -113,21 +114,21 @@ void EditorTranslator::Draw(const MdCamera& cam, entt::entity sel, EditorGizmoOp
 }
 
 // ── Update (hit detection + drag) ────────────────────────────────────────────
-void EditorTranslator::Update(const MdCamera& cam, entt::entity sel,
+void EditorTranslator::Update(const MdCamera& cam, MdEntity sel,
                                EditorGizmoOp op, EditorGizmoSpace space) {
 #ifndef USE_SDL3
     // Gizmo interaction uses Raylib 3D draw + ImGui input — SDL3/SDL_GPU path deferred.
     (void)space;
     if (sel == entt::null) return;
-    auto& reg = Registry::Get();
-    if (!reg.valid(sel) || !reg.all_of<WorldTransform>(sel)) return;
+    auto& reg = MdRegistry::Get();
+    if (!reg.Valid(sel) || !reg.AllOf<WorldTransform>(sel)) return;
 
     auto&   ec   = EditorCore::Get();
     ImGuiIO& io  = ImGui::GetIO();
     bool snap = ImGui::IsKeyDown(ImGuiKey_LeftCtrl) || ImGui::IsKeyDown(ImGuiKey_RightCtrl);
     MdRay ray = CameraRay(io.MousePos.x, io.MousePos.y, cam);
 
-    auto& tr  = reg.get<WorldTransform>(sel);
+    auto& tr  = reg.Get<WorldTransform>(sel);
     Vec3 pos = {tr.x, tr.y, tr.z};
 
     // ── Press: detect which axis was clicked ──────────────────────────────
@@ -180,9 +181,9 @@ void EditorTranslator::Update(const MdCamera& cam, entt::entity sel,
             Vec3 delta = vec3_sub(raw, pos);
 
             for (int i = 0; i < ec.selected_count; ++i) {
-                entt::entity e = ec.selected[i];
-                if (!reg.valid(e) || !reg.all_of<WorldTransform>(e)) continue;
-                auto& etr = reg.get<WorldTransform>(e);
+                MdEntity e = ec.selected[i];
+                if (!reg.Valid(e) || !reg.AllOf<WorldTransform>(e)) continue;
+                auto& etr = reg.Get<WorldTransform>(e);
                 etr.x += delta.x;
                 etr.y += delta.y;
                 etr.z += delta.z;
@@ -200,9 +201,9 @@ void EditorTranslator::Update(const MdCamera& cam, entt::entity sel,
 
             float new_rot = entity_start_rot_y_ + delta_deg;
             for (int i = 0; i < ec.selected_count; ++i) {
-                entt::entity e = ec.selected[i];
-                if (!reg.valid(e) || !reg.all_of<WorldTransform>(e)) continue;
-                reg.get<WorldTransform>(e).rot_y = new_rot;
+                MdEntity e = ec.selected[i];
+                if (!reg.Valid(e) || !reg.AllOf<WorldTransform>(e)) continue;
+                reg.Get<WorldTransform>(e).rot_y = new_rot;
             }
         }
         // SCALE: WorldTransform has no scale field — no-op

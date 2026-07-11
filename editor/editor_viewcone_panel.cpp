@@ -3,6 +3,7 @@
 #include "editor_core.h"
 #include "imgui.h"
 #include <monkey_dust/ecs/registry.h>
+#include <monkey_dust/ecs/md_registry.h>
 #include <monkey_dust/components/sense_component.h>
 #include <monkey_dust/ai/sense_registry.h>
 
@@ -22,15 +23,15 @@ void EditorViewConePanel::Draw() {
 
 void EditorViewConePanel::DrawContent() {
 
-    auto& reg = Registry::Get();
-    entt::entity e = EditorCore::Get().GetPrimary();
+    auto& reg = MdRegistry::Get();
+    MdEntity e = EditorCore::Get().GetPrimary();
 
-    if (e == entt::null || !reg.valid(e) || !reg.all_of<SenseComponent>(e)) {
+    if (e == entt::null || !reg.Valid(e) || !reg.AllOf<SenseComponent>(e)) {
         ImGui::TextDisabled("Select an entity with SenseComponent.");
         return;
     }
 
-    auto& sc = reg.get<SenseComponent>(e);
+    auto& sc = reg.Get<SenseComponent>(e);
 
     // ── Activation bars ────────────────────────────────────────────────
     if (ImGui::CollapsingHeader("Activation", ImGuiTreeNodeFlags_DefaultOpen)) {

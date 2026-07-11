@@ -310,6 +310,36 @@ static void s_build_synth_hmap() {
     s_synth_built = true;
 }
 
+// Per-zone (64x64=4096) ground-layer lookup — fixes the synthesis/compact-LOD2
+// "one biome for the whole world" bug: those two draw paths cover many zones
+// in a single draw call and previously fell back to
+// BiomeRegistry::Get().ForZone(nullptr) (always biomes_[0]) for the entire
+// mesh. Built once, uploaded to TerrainRenderer's per-zone SSBO; consumed by
+// terrain_forward.slang's fsMain only when use_zone_lookup=1 (see
+// TerrainRenderer::SetBatchZoneLookup). Real per-chunk LOD0/1 draws are
+// unaffected — they already resolve their own biome correctly via
+// s_resolve_biome/TerrainGen_ResolveBiome at chunk-generation time.
+static void s_build_zone_ground_layers() {
+    static uint32_t s_layers[64 * 64 * 6];
+    for (int zy = 0; zy < 64; ++zy) {
+        for (int zx = 0; zx < 64; ++zx) {
+            const BiomeDef& b = TerrainGen_ResolveBiome(zx, zy);
+            int idx = (zy * 64 + zx) * 6;
+            s_layers[idx + 0] = (uint32_t)b.tex_base;
+            s_layers[idx + 1] = (uint32_t)b.tex_slope;
+            s_layers[idx + 2] = (uint32_t)b.tex_cliff;
+            s_layers[idx + 3] = (uint32_t)b.tex_grass;
+            s_layers[idx + 4] = (uint32_t)b.tex_dirt;
+            s_layers[idx + 5] = (uint32_t)b.tex_road;
+        }
+    }
+    s_terrain.UploadZoneGroundLayers(s_layers, 64 * 64 * 6);
+    // Sanity log — cross-check a few zones by hand against terrain_config.txt.
+    fprintf(stdout, "[W3D-SDLGPU] zone ground-layer LUT built (4096 zones); "
+                     "zone(0,0)=base%u zone(32,32)=base%u zone(63,63)=base%u\n",
+            s_layers[(0*64+0)*6], s_layers[(32*64+32)*6], s_layers[(63*64+63)*6]);
+}
+
 static GpuPipeline        s_sky_pipeline;
 
 // Prop scatter state — rebuilt once on init
@@ -688,6 +718,11 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
             // quads on the synthesis background mesh (which always renders,
             // not just at high altitude).
             sd.frag_samplers      = 5;
+            // Must also track TerrainRenderer::Init()'s frag_storage_bufs=1
+            // (per-zone ground-layer lookup SSBO, see
+            // TerrainRenderer::UploadZoneGroundLayers/SetBatchZoneLookup) —
+            // same binding-count-sync rule as frag_samplers above.
+            sd.frag_storage_bufs  = 1;
             s_synth_pipeline.Create(sd);
         }
         s_props.Init("game/data/props/rock_01.glb", 0.f); // no-op if missing; 0=rock diffuse
@@ -760,6 +795,7 @@ static void tick_chunk_build() {
         s_build_compact_vbo(0);   // LOD2 compact VBO — all 4096 chunks, ~61MB, one-time
         s_build_compact_vbo(1);   // LOD3 compact VBO — all 4096 chunks, ~17MB, one-time
         s_build_synth_hmap();
+        s_build_zone_ground_layers();
         fprintf(stdout, "[W3D-SDLGPU] %dx%d chunks ready\n", EDITOR_TNKN, EDITOR_TNKN);
     }
     } // for b
@@ -1034,21 +1070,21 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
                 // chunk) — this manual draw needs its own push or it samples whatever was
                 // left from the last DrawRawChunk call (often all-zero => solid wrong colour).
                 {
-                    // grass/dirt/road are genuinely per-biome (real FCS data via
-                    // BiomeRegistry, loaded at runtime from a private data file) --
-                    // this whole-world background mesh has no single "current biome"
-                    // to reference, so it uses ForZone(nullptr)'s registry default
-                    // as a reasonable flat default.
-                    const BiomeDef& synth_biome = BiomeRegistry::Get().ForZone(nullptr);
-                    const float kSynthGroundLayers[6] = {
-                        (float)synth_biome.tex_base, (float)synth_biome.tex_slope, (float)synth_biome.tex_cliff,
-                        (float)synth_biome.tex_grass, (float)synth_biome.tex_dirt, (float)synth_biome.tex_road
-                    };
-                    // fog_far tuned for normal ~km-scale gameplay view distance saturates
-                    // fog_t=1.0 across this whole-world mesh from an aerial camera (tens of
-                    // km away), washing everything to solid fog colour — override with a
-                    // value past the world's diagonal (~42km for the 29.5km×29.5km world).
-                    s_terrain.SetBatchGroundLayers(cmd, kSynthGroundLayers, 60000.f);
+                    // Per-zone ground-layer lookup (see s_build_zone_ground_layers) —
+                    // this whole-world background mesh spans many zones/biomes in one
+                    // draw call, so a single fixed ground_layers push (the old
+                    // ForZone(nullptr) default-biome-everywhere bug) can't show real
+                    // per-zone variety. use_zone_lookup=1 makes terrain_forward.slang's
+                    // fsMain resolve ground_layers per-fragment from world position
+                    // instead (no biome crossfade on this path — hard zone boundary,
+                    // acceptable simplification at this distance, see terrain_forward.slang).
+                    // fog_density tuned for normal ~km-scale gameplay view distance
+                    // saturates fog_t=1.0 across this whole-world mesh from an aerial
+                    // camera (tens of km away), washing everything to solid fog colour —
+                    // override with a much smaller density (EXP2 visibility scales
+                    // roughly as 1/density; 0.00002 gives ~50% fog at the world's
+                    // diagonal, ~42km for the 29.5km×29.5km world, vs default 0.001).
+                    s_terrain.SetBatchZoneLookup(cmd, true, 0.00002f);
                 }
                 SDL_BindGPUGraphicsPipeline(rp, s_synth_pipeline.SDLPipeline()); // override: depth bias
                 SDL_GPUBufferBinding sib { s_synth_ibo.SDLBuffer(), 0u };
@@ -1090,13 +1126,14 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
                         // Use global kenshi colour map (WCX/WCZ/W2UV) for correct vivid colours.
                         // VT composite is built for future height-based detail but not applied
                         // for colour — the local 8km patch can land on muted/grey kenshi zones.
-                        // fog_far_override: see DrawRawPOM's doc comment — normal gameplay
-                        // fog_far is tuned for ground-level view distance; the editor's
-                        // aerial camera (kilometres up) needs a much larger value or every
-                        // POM chunk renders as solid fog colour (the "gear/waffle" artifact).
+                        // fog_density_override: see DrawRawPOM's doc comment — normal
+                        // gameplay fog_density is tuned for ground-level view distance;
+                        // the editor's aerial camera (kilometres up) needs a much
+                        // smaller density or every POM chunk renders as solid fog
+                        // colour (the "gear/waffle" artifact).
                         int lod = (d2 < d0sq) ? 0 : 1;
                         s_terrain.DrawRawPOM(rp, cmd, ch, vp.m,
-                                            sun, eye_x, eye_y, eye_z, WCX, WCZ, W2UV, lod, 60000.f);
+                                            sun, eye_x, eye_y, eye_z, WCX, WCZ, W2UV, lod, 0.00002f);
                     } else {
                         int flat = cz * EDITOR_TNKN + cx;
                         int tier = (d2 < d2sq) ? 0 : 1;
@@ -1117,23 +1154,14 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
                     while (bits) {
                         if (!batch_open) {
                             s_terrain.BeginRawBatch(rp, cmd, vp.m, sun, eye_x, eye_y, eye_z, WCX, WCZ, W2UV, li + 2);
-                            // Same bug as synthesis (see SetBatchGroundLayers doc comment):
-                            // this manual draw bypasses DrawRawChunk, so BeginRawBatch alone
-                            // leaves ground_layers at whatever was last pushed (often zero) —
-                            // and since ALL chunks in this compact-VBO batch share ONE push
-                            // (no per-chunk re-push like DrawRawChunk), they can only ever
-                            // show ONE biome's texture here, not real per-chunk variety — a
-                            // reasonable simplification for the coarsest background LOD, and
-                            // fixes the "waffle" pattern of correct-vs-stale-colour chunks at
-                            // the LOD1/LOD2 boundary (real biome colour vs previous garbage).
-                            const BiomeDef& compact_biome = BiomeRegistry::Get().ForZone(nullptr);
-                            const float kCompactGroundLayers[6] = {
-                                (float)compact_biome.tex_base, (float)compact_biome.tex_slope, (float)compact_biome.tex_cliff,
-                                (float)compact_biome.tex_grass, (float)compact_biome.tex_dirt, (float)compact_biome.tex_road
-                            };
-                            // Same aerial-altitude fog_far problem as LOD1/synthesis (see their
-                            // comments) — override here too, not just ground_layers.
-                            s_terrain.SetBatchGroundLayers(cmd, kCompactGroundLayers, 60000.f);
+                            // Same fix as synthesis (see that call site's comment): this
+                            // manual draw bypasses DrawRawChunk, and ALL chunks in this
+                            // compact-VBO batch share ONE fragment UBO push, so per-zone
+                            // ground textures must come from the per-fragment SSBO lookup
+                            // (use_zone_lookup=1), not a single fixed ground_layers value.
+                            // Same aerial-altitude fog_density problem as LOD1/synthesis
+                            // (see their comments) — override here too, not just ground_layers.
+                            s_terrain.SetBatchZoneLookup(cmd, true, 0.00002f);
                             SDL_BindGPUIndexBuffer(rp, &cib, SDL_GPU_INDEXELEMENTSIZE_16BIT);
                             SDL_BindGPUVertexBuffers(rp, 0, &vb, 1);
                             batch_open = true;

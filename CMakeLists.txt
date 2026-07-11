@@ -131,6 +131,7 @@ if(MONKEY_DUST_EDITOR_HOT_RELOAD)
         ${CMAKE_SOURCE_DIR}/engine/src/render
         ${CMAKE_SOURCE_DIR}/engine/src/audio
         ${CMAKE_SOURCE_DIR}/engine/third_party/entt/single_include
+        ${CMAKE_SOURCE_DIR}/engine/third_party/flecs
         ${CMAKE_SOURCE_DIR}/engine/third_party/glm
         ${CMAKE_SOURCE_DIR}/engine/third_party/JoltPhysics
         ${CMAKE_SOURCE_DIR}/engine/third_party/ozz-animation/include

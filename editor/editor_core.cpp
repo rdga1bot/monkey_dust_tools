@@ -1,5 +1,6 @@
 #ifdef MONKEY_DUST_EDITOR
 #include "editor_core.h"
+#include <monkey_dust/ecs/md_registry.h>
 #include "editor_toolbar.h"
 #include "editor_hierarchy.h"
 #ifndef MONKEY_DUST_STANDALONE_EDITOR
@@ -429,18 +430,18 @@ void EditorCore::Shutdown() {
 }
 
 // ── Selection ─────────────────────────────────────────────────
-entt::entity EditorCore::GetPrimary() const {
+MdEntity EditorCore::GetPrimary() const {
     return (selected_count > 0) ? selected[0] : entt::null;
 }
 
-void EditorCore::Select(entt::entity e, bool add) {
+void EditorCore::Select(MdEntity e, bool add) {
     if (!add) DeselectAll();
     if (IsSelected(e)) return;
     if (selected_count >= MAX_SELECTED) return;
     selected[selected_count++] = e;
 }
 
-void EditorCore::Deselect(entt::entity e) {
+void EditorCore::Deselect(MdEntity e) {
     for (int i = 0; i < selected_count; ++i) {
         if (selected[i] == e) {
             selected[i] = selected[--selected_count];
@@ -455,7 +456,7 @@ void EditorCore::DeselectAll() {
     selected_count = 0;
 }
 
-bool EditorCore::IsSelected(entt::entity e) const {
+bool EditorCore::IsSelected(MdEntity e) const {
     for (int i = 0; i < selected_count; ++i)
         if (selected[i] == e) return true;
     return false;
@@ -575,21 +576,21 @@ void EditorCore::UpdateEditorCamera(float dt, bool viewport_hovered) {
 
 void EditorCore::FocusOnSelected() {
     if (selected_count == 0) return;
-    auto& reg = Registry::Get();
-    entt::entity e = GetPrimary();
-    if (!reg.valid(e)) return;
-    if (!reg.all_of<WorldTransform>(e)) return;
-    const auto& tr = reg.get<WorldTransform>(e);
+    auto& reg = MdRegistry::Get();
+    MdEntity e = GetPrimary();
+    if (!reg.Valid(e)) return;
+    if (!reg.AllOf<WorldTransform>(e)) return;
+    const auto& tr = reg.Get<WorldTransform>(e);
     cam_target = Vec3{ tr.x, 0.f, tr.z };
     cam_dist   = 15.f;
 }
 
 // ── History ───────────────────────────────────────────────────
 void EditorCore::Undo() {
-    history.Undo(Registry::Get());
+    history.Undo(MdRegistry::Get());
 }
 
 void EditorCore::Redo() {
-    history.Redo(Registry::Get());
+    history.Redo(MdRegistry::Get());
 }
 #endif

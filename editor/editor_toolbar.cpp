@@ -4,6 +4,7 @@
 #include "editor_command_palette.h"
 #include "editor_map_view.h"
 #include <monkey_dust/ecs/registry.h>
+#include <monkey_dust/ecs/md_registry.h>
 #include <monkey_dust/world/world_transform.h>
 #include <monkey_dust/components/health.h>
 #include <monkey_dust/components/ai_agent.h>
@@ -95,7 +96,7 @@ void EditorToolbar::DrawMenuBar() {
         ImGui::Separator();
         if (ImGui::MenuItem("New Scene")) {
             EditorCore::Get().DeselectAll();
-            Registry::Get().clear();
+            MdRegistry::Get().Clear();
             TransformSoA::Get().Init();
             MD_LOG(MD_LOG_INFO, "[Editor] New scene");
         }
@@ -131,38 +132,40 @@ void EditorToolbar::DrawMenuBar() {
         ImGui::Separator();
         if (ImGui::MenuItem("Duplicate", "Ctrl+D")) {
             auto& ec  = EditorCore::Get();
-            auto& reg = Registry::Get();
-            entt::entity src = ec.GetPrimary();
-            if (reg.valid(src) && reg.all_of<WorldTransform>(src)) {
-                entt::entity dst = reg.create();
-                auto& tr = reg.emplace<WorldTransform>(dst, reg.get<WorldTransform>(src));
+            auto& reg = MdRegistry::Get();
+            MdEntity src = ec.GetPrimary();
+            if (reg.Valid(src) && reg.AllOf<WorldTransform>(src)) {
+                MdEntity dst = reg.Create();
+                auto& tr = reg.Emplace<WorldTransform>(dst, reg.Get<WorldTransform>(src));
                 tr.x += 1.f; tr.slot = 0xFFFFFFFFu;
-                uint32_t fid = reg.all_of<AIAgent>(src) ? reg.get<AIAgent>(src).faction_id : 0u;
+                uint32_t fid = reg.AllOf<AIAgent>(src) ? reg.Get<AIAgent>(src).faction_id : 0u;
                 tr.slot = TransformSoA::Get().Alloc(dst, tr.x, tr.z, (uint8_t)fid);
-                if (reg.all_of<Health>(src))    reg.emplace<Health>(dst,    reg.get<Health>(src));
-                if (reg.all_of<AIAgent>(src))   reg.emplace<AIAgent>(dst,   reg.get<AIAgent>(src));
-                if (reg.all_of<Renderable>(src))reg.emplace<Renderable>(dst,reg.get<Renderable>(src));
+                if (reg.AllOf<Health>(src))    reg.Emplace<Health>(dst,    reg.Get<Health>(src));
+                if (reg.AllOf<AIAgent>(src))   reg.Emplace<AIAgent>(dst,   reg.Get<AIAgent>(src));
+                if (reg.AllOf<Renderable>(src))reg.Emplace<Renderable>(dst,reg.Get<Renderable>(src));
                 ec.Select(dst);
             }
         }
         if (ImGui::MenuItem("Delete", "Del")) {
             auto& ec  = EditorCore::Get();
-            auto& reg = Registry::Get();
+            auto& reg = MdRegistry::Get();
             for (int i = ec.selected_count - 1; i >= 0; --i) {
-                entt::entity e = ec.selected[i];
-                if (!reg.valid(e)) continue;
-                if (reg.all_of<WorldTransform>(e)) TransformSoA::Get().Free(e);
-                reg.destroy(e);
+                MdEntity e = ec.selected[i];
+                if (!reg.Valid(e)) continue;
+                if (reg.AllOf<WorldTransform>(e)) TransformSoA::Get().Free(e);
+                reg.Destroy(e);
             }
             ec.DeselectAll();
         }
         if (ImGui::MenuItem("Select All", "Ctrl+A")) {
             auto& ec  = EditorCore::Get();
-            auto& reg = Registry::Get();
+            auto& reg = MdRegistry::Get();
             ec.DeselectAll();
-            for (auto e : reg.storage<entt::entity>())
-                if (ec.selected_count < EditorCore::MAX_SELECTED)
-                    ec.selected[ec.selected_count++] = e;
+            reg.Each([&](MdEntity e) -> bool {
+                if (ec.selected_count >= EditorCore::MAX_SELECTED) return false;
+                ec.selected[ec.selected_count++] = e;
+                return true;
+            });
         }
         ImGui::EndMenu();
     }
@@ -327,13 +330,13 @@ void EditorToolbar::DrawButtonBar() {
 
 // ─────────────────────────────────────────────────────────────────────────────
 void EditorToolbar::SpawnEntity(const char* type) {
-    auto& reg = Registry::Get();
+    auto& reg = MdRegistry::Get();
     auto& ec  = EditorCore::Get();
     Vec3 pos = ec.cam_target;
 
     if (strcmp(type, "Transform") == 0) {
-        auto e = reg.create();
-        auto& tr = reg.emplace<WorldTransform>(e);
+        auto e = reg.Create();
+        auto& tr = reg.Emplace<WorldTransform>(e);
         tr.x = pos.x; tr.y = 0.f; tr.z = pos.z; tr.rot_y = 0.f;
         tr.slot = TransformSoA::Get().Alloc(e, pos.x, pos.z, 0);
         ec.Select(e);
@@ -350,16 +353,16 @@ void EditorToolbar::SpawnEntity(const char* type) {
         return;
     }
 
-    auto e = reg.create();
-    auto& tr = reg.emplace<WorldTransform>(e);
+    auto e = reg.Create();
+    auto& tr = reg.Emplace<WorldTransform>(e);
     tr.x = pos.x; tr.y = 0.f; tr.z = pos.z; tr.rot_y = 0.f;
     tr.slot = TransformSoA::Get().Alloc(e, pos.x, pos.z, faction);
-    auto& ai = reg.emplace<AIAgent>(e);
+    auto& ai = reg.Emplace<AIAgent>(e);
     ai.faction_id = faction;
     ai.lod_level  = 0;
-    reg.emplace<Health>(e) = LimbHealth::Make(100.f);
-    reg.emplace<Combat>(e);
-    reg.emplace<Renderable>(e);
+    reg.Emplace<Health>(e) = LimbHealth::Make(100.f);
+    reg.Emplace<Combat>(e);
+    reg.Emplace<Renderable>(e);
 
     ec.Select(e);
     MD_LOG(MD_LOG_INFO, "[Editor] Spawned %s at (%.1f,%.1f)", type, pos.x, pos.z);

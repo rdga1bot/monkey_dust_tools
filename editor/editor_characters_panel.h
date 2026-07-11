@@ -7,6 +7,7 @@
 #include "imgui.h"
 #include "character_editor.h"          // full 3-panel creator (static state)
 #include <monkey_dust/ecs/registry.h>
+#include <monkey_dust/ecs/md_registry.h>
 #include <monkey_dust/components/char_body_state.h>
 #include <monkey_dust/components/player_controller.h>
 #include <monkey_dust/components/stat_sheet.h>
@@ -47,12 +48,12 @@ private:
         CharDef cd;
         if (!CharDef::LoadFromFile(CharacterEditor::s_path, cd)) return;
 
-        auto& reg = Registry::Get();
-        entt::entity pe = entt::null;
-        reg.view<PlayerController>().each([&](entt::entity e, const PlayerController&){ pe=e; });
+        auto& reg = MdRegistry::Get();
+        MdEntity pe = entt::null;
+        reg.View<PlayerController>().each([&](MdEntity e, const PlayerController&){ pe=e; });
         if (pe == entt::null) { fprintf(stderr,"[CharPanel] no player entity\n"); return; }
 
-        auto& bs = reg.emplace_or_replace<CharBodyState>(pe);
+        auto& bs = reg.EmplaceOrReplace<CharBodyState>(pe);
         CharBodyState_InitFromDef(bs, cd);
 
         // KEN-ATTR-1: apply free attribute points to player StatSheet.
@@ -61,7 +62,7 @@ private:
             Skill::Athletics, Skill::Strength, Skill::Toughness,
             Skill::MeleeAttack, Skill::Crossbows, Skill::Thievery, Skill::Perception
         };
-        if (auto* ss = reg.try_get<StatSheet>(pe)) {
+        if (auto* ss = reg.TryGet<StatSheet>(pe)) {
             const CharacterEditor::Def& def = CharacterEditor::s_def;
             for (int i = 0; i < 7; ++i) {
                 int v = (int)(*ss)[kAttrSkill[i]] + def.attr_spent[i];

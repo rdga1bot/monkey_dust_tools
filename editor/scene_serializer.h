@@ -1,6 +1,7 @@
 #pragma once
 #ifdef MONKEY_DUST_EDITOR
 #include <monkey_dust/ecs/registry.h>
+#include <monkey_dust/ecs/md_registry.h>
 #include <monkey_dust/world/world_transform.h>
 #include <monkey_dust/components/health.h>
 #include <monkey_dust/components/ai_agent.h>
@@ -21,7 +22,7 @@ static constexpr int MAX_EXPORT_ENTITIES = 2048;
 
 // ── Export ────────────────────────────────────────────────────────────────────
 inline bool Export(const char* path) {
-    auto& reg = Registry::Get();
+    auto& reg = MdRegistry::Get();
 
     // Atomic write: write to .tmp then rename
     char tmp_path[256];
@@ -39,16 +40,16 @@ inline bool Export(const char* path) {
     int count = 0;
     bool first = true;
 
-    for (auto e : reg.storage<entt::entity>()) {
-        if (!reg.valid(e)) continue;
-        if (!reg.all_of<WorldTransform>(e)) continue;
+    reg.Each([&](MdEntity e) -> bool {
+        if (!reg.Valid(e)) return true;
+        if (!reg.AllOf<WorldTransform>(e)) return true;
         if (count >= MAX_EXPORT_ENTITIES) {
             MD_LOG(MD_LOG_WARNING, "[SceneSerializer] Truncated at %d entities", MAX_EXPORT_ENTITIES);
-            break;
+            return false;
         }
 
-        const auto& tr = reg.get<WorldTransform>(e);
-        uint32_t id = (uint32_t)entt::to_integral(e);
+        const auto& tr = reg.Get<WorldTransform>(e);
+        uint32_t id = e.ToIntegral();
 
         if (!first) fprintf(f, ",\n");
         first = false;
@@ -59,36 +60,36 @@ inline bool Export(const char* path) {
         fprintf(f, "\n        \"transform\": {\"x\":%.4f,\"y\":%.4f,\"z\":%.4f,\"rot_y\":%.4f}",
                 tr.x, tr.y, tr.z, tr.rot_y);
 
-        if (reg.all_of<Health>(e)) {
-            const auto& hp = reg.get<Health>(e);
+        if (reg.AllOf<Health>(e)) {
+            const auto& hp = reg.Get<Health>(e);
             fprintf(f, ",\n        \"health\": {\"current\":%.2f,\"max\":%.2f}",
                     hp.TotalHp(), hp.TotalMax());
         }
 
-        if (reg.all_of<AIAgent>(e)) {
-            const auto& ai = reg.get<AIAgent>(e);
+        if (reg.AllOf<AIAgent>(e)) {
+            const auto& ai = reg.Get<AIAgent>(e);
             fprintf(f, ",\n        \"ai\": {\"faction_id\":%u,\"lod_level\":%u,"
                        "\"bt_template_id\":%u,\"personal_relation\":%d}",
                     ai.faction_id, (uint32_t)ai.lod_level,
                     (uint32_t)ai.bt_template_id, (int)ai.personal_relation);
         }
 
-        if (reg.all_of<Combat>(e)) {
-            const auto& c = reg.get<Combat>(e);
+        if (reg.AllOf<Combat>(e)) {
+            const auto& c = reg.Get<Combat>(e);
             fprintf(f, ",\n        \"combat\": {\"weapon_type\":%d,\"weapon_dmg\":%.2f,"
                        "\"is_dead\":%d}",
                     (int)c.weapon.type, c.weapon.damage, c.is_dead ? 1 : 0);
         }
 
-        if (reg.all_of<Building>(e)) {
-            const auto& b = reg.get<Building>(e);
+        if (reg.AllOf<Building>(e)) {
+            const auto& b = reg.Get<Building>(e);
             fprintf(f, ",\n        \"building\": {\"def_id\":%u,\"grid_x\":%d,\"grid_z\":%d,"
                        "\"active\":%d,\"progress\":%.2f}",
                     b.def_id, b.grid_x, b.grid_z, b.active ? 1 : 0, b.progress_s);
         }
 
-        if (reg.all_of<Inventory>(e)) {
-            const auto& inv = reg.get<Inventory>(e);
+        if (reg.AllOf<Inventory>(e)) {
+            const auto& inv = reg.Get<Inventory>(e);
             fprintf(f, ",\n        \"inventory\": {\"slots\":[");
             for (int i = 0; i < inv.slot_count; ++i) {
                 if (i > 0) fprintf(f, ",");
@@ -97,21 +98,22 @@ inline bool Export(const char* path) {
             fprintf(f, "]}");
         }
 
-        if (reg.all_of<PlayerController>(e)) {
-            const auto& pc = reg.get<PlayerController>(e);
+        if (reg.AllOf<PlayerController>(e)) {
+            const auto& pc = reg.Get<PlayerController>(e);
             fprintf(f, ",\n        \"player\": {\"move_speed\":%.2f,"
                        "\"attack_cooldown_ms\":%u}",
                     pc.move_speed, pc.attack_cooldown_ms);
         }
 
-        if (reg.all_of<AIScript>(e)) {
-            const auto& sc = reg.get<AIScript>(e);
+        if (reg.AllOf<AIScript>(e)) {
+            const auto& sc = reg.Get<AIScript>(e);
             fprintf(f, ",\n        \"aiscript\": {\"func\":\"%s\"}", sc.script_func);
         }
 
         fprintf(f, "\n      }\n    }");
         count++;
-    }
+        return true;
+    });
 
     fprintf(f, "\n  ]\n}\n");
     fclose(f);
@@ -179,8 +181,8 @@ inline bool Import(const char* path) {
         MD_LOG(MD_LOG_WARNING, "[SceneSerializer] Unknown version %d", version);
     }
 
-    auto& reg = Registry::Get();
-    reg.clear();
+    auto& reg = MdRegistry::Get();
+    reg.Clear();
 
     int count = 0;
     const char* cursor = buf;
@@ -201,8 +203,8 @@ inline bool Import(const char* path) {
         // Don't read past the next entity block
         if (next_id && next_id < comp_pos) { cursor = next_id; continue; }
 
-        auto e = reg.create();
-        auto& tr = reg.emplace<WorldTransform>(e);
+        auto e = reg.Create();
+        auto& tr = reg.Emplace<WorldTransform>(e);
 
         // Transform
         const char* tr_pos = strstr(comp_pos, "\"transform\"");
@@ -217,7 +219,7 @@ inline bool Import(const char* path) {
         // Health
         const char* hp_pos = strstr(comp_pos, "\"health\"");
         if (hp_pos) {
-            auto& hp = reg.emplace<Health>(e);
+            auto& hp = reg.Emplace<Health>(e);
             float hp_cur = 0.f, hp_max = 0.f;
             SsParsFloat(hp_pos, "\"current\"", hp_cur);
             SsParsFloat(hp_pos, "\"max\"",     hp_max);
@@ -227,7 +229,7 @@ inline bool Import(const char* path) {
         // AIAgent
         const char* ai_pos = strstr(comp_pos, "\"ai\"");
         if (ai_pos) {
-            auto& ai = reg.emplace<AIAgent>(e);
+            auto& ai = reg.Emplace<AIAgent>(e);
             int fi = 0, li = 0, ti = 0, pr = 0;
             SsParsInt(ai_pos, "\"faction_id\"",    fi); ai.faction_id    = (uint32_t)fi;
             SsParsInt(ai_pos, "\"lod_level\"",     li); ai.lod_level     = (uint8_t)li;
@@ -239,7 +241,7 @@ inline bool Import(const char* path) {
         // Combat
         const char* cb_pos = strstr(comp_pos, "\"combat\"");
         if (cb_pos) {
-            auto& c = reg.emplace<Combat>(e, Combat::MakeBandit());
+            auto& c = reg.Emplace<Combat>(e, Combat::MakeBandit());
             int wt = 0, dead = 0; float wd = 28.f;
             SsParsInt  (cb_pos, "\"weapon_type\"", wt);
             SsParsFloat(cb_pos, "\"weapon_dmg\"",  wd);
@@ -252,7 +254,7 @@ inline bool Import(const char* path) {
         // Building
         const char* bld_pos = strstr(comp_pos, "\"building\"");
         if (bld_pos) {
-            auto& b = reg.emplace<Building>(e);
+            auto& b = reg.Emplace<Building>(e);
             int gx = 0, gz = 0, act = 0, di = 0;
             float prog = 0.f;
             SsParsInt  (bld_pos, "\"def_id\"",   di);   b.def_id     = (uint32_t)di;
@@ -265,7 +267,7 @@ inline bool Import(const char* path) {
         // Inventory
         const char* inv_pos = strstr(comp_pos, "\"inventory\"");
         if (inv_pos) {
-            auto& inv = reg.emplace<Inventory>(e);
+            auto& inv = reg.Emplace<Inventory>(e);
             inv.Clear();
             const char* slots = strstr(inv_pos, "\"slots\"");
             if (slots) {
@@ -289,7 +291,7 @@ inline bool Import(const char* path) {
         // PlayerController
         const char* pc_pos = strstr(comp_pos, "\"player\"");
         if (pc_pos) {
-            auto& pc = reg.emplace<PlayerController>(e);
+            auto& pc = reg.Emplace<PlayerController>(e);
             float ms = 5.f; int acd = 800;
             SsParsFloat(pc_pos, "\"move_speed\"",        ms);
             SsParsInt  (pc_pos, "\"attack_cooldown_ms\"",acd);
@@ -302,7 +304,7 @@ inline bool Import(const char* path) {
         // AIScript
         const char* sc_pos = strstr(comp_pos, "\"aiscript\"");
         if (sc_pos) {
-            auto& sc = reg.emplace<AIScript>(e);
+            auto& sc = reg.Emplace<AIScript>(e);
             SsParsStr(sc_pos, "\"func\"", sc.script_func, sizeof(sc.script_func));
         }
 

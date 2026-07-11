@@ -2,6 +2,7 @@
 #include "editor_command_palette.h"
 #include "editor_toolbar.h"
 #include <monkey_dust/ecs/registry.h>
+#include <monkey_dust/ecs/md_registry.h>
 #include <monkey_dust/world/world_transform.h>
 #include <monkey_dust/world/transform_soa.h>
 #include <monkey_dust/components/ai_agent.h>
@@ -37,20 +38,22 @@ static const PaletteCmd kCommands[] = {
     { "Camera: Focus on Selection","F",       []{ EditorCore::Get().FocusOnSelected(); } },
     // Selection
     { "Select All",              "Ctrl+A",    []{
-        auto& ec = EditorCore::Get(); auto& reg = Registry::Get();
+        auto& ec = EditorCore::Get(); auto& reg = MdRegistry::Get();
         ec.DeselectAll();
-        for (auto e : reg.storage<entt::entity>())
-            if (ec.selected_count < EditorCore::MAX_SELECTED)
-                ec.selected[ec.selected_count++] = e;
+        reg.Each([&](MdEntity e) -> bool {
+            if (ec.selected_count >= EditorCore::MAX_SELECTED) return false;
+            ec.selected[ec.selected_count++] = e;
+            return true;
+        });
     }},
     { "Deselect All",            "",          []{ EditorCore::Get().DeselectAll(); } },
     { "Delete Selected",         "Del",       []{
-        auto& ec = EditorCore::Get(); auto& reg = Registry::Get();
+        auto& ec = EditorCore::Get(); auto& reg = MdRegistry::Get();
         for (int i = ec.selected_count - 1; i >= 0; --i) {
-            entt::entity e = ec.selected[i];
-            if (!reg.valid(e)) continue;
-            if (reg.all_of<WorldTransform>(e)) TransformSoA::Get().Free(e);
-            reg.destroy(e);
+            MdEntity e = ec.selected[i];
+            if (!reg.Valid(e)) continue;
+            if (reg.AllOf<WorldTransform>(e)) TransformSoA::Get().Free(e);
+            reg.Destroy(e);
         }
         ec.DeselectAll();
     }},

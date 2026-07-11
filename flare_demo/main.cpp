@@ -35,6 +35,7 @@
 #include <monkey_dust/components/bt_components.h>
 #include <monkey_dust/components/sense_component.h>
 #include <monkey_dust/ecs/registry.h>
+#include <monkey_dust/ecs/md_registry.h>
 #include <monkey_dust/ecs/engine_context.h>
 #include <monkey_dust/world/world_transform.h>
 #include <monkey_dust/world/terrain_gen.h>
@@ -89,8 +90,8 @@ static const char* SENSE_JSON    = "data/ai/view_cone_sets.json";
 
 // ── Demo state ────────────────────────────────────────────────────────────────
 
-static entt::entity  s_player         = entt::null;
-static entt::entity  s_npcs[DEMO_MAX_NPCS];
+static MdEntity  s_player         = entt::null;
+static MdEntity  s_npcs[DEMO_MAX_NPCS];
 static int           s_npc_count      = 0;
 static int           s_npc_hp[DEMO_MAX_NPCS]      = {};
 static float         s_npc_atk_cd[DEMO_MAX_NPCS]  = {};  // per-NPC cooldown timer (s)
@@ -684,17 +685,17 @@ static float MoveToward(WorldTransform& wt, float tx, float tz, float speed_mps)
 
 // ── BT action: CHASE + melee attack ──────────────────────────────────────────
 
-static BTStatus actGuardChase(md::EngineContext&, entt::entity e) {
-    auto& reg = Registry::Get();
-    auto* wt  = reg.try_get<WorldTransform>(e);
-    auto* sc  = reg.try_get<SenseComponent>(e);
+static BTStatus actGuardChase(md::EngineContext&, MdEntity e) {
+    auto& reg = MdRegistry::Get();
+    auto* wt  = reg.TryGet<WorldTransform>(e);
+    auto* sc  = reg.TryGet<SenseComponent>(e);
     if (!wt || !sc) return BTStatus::Failure;
 
     MoveToward(*wt, sc->last_known_x, sc->last_known_z, GUARD_CHASE_SPD);
 
     // Melee attack: deal damage to player if within range and cooldown expired.
     if (!s_player_dead && s_player != entt::null) {
-        auto* pwt = reg.try_get<WorldTransform>(s_player);
+        auto* pwt = reg.TryGet<WorldTransform>(s_player);
         if (pwt) {
             float ddx = pwt->x - wt->x, ddz = pwt->z - wt->z;
             float dist = sqrtf(ddx*ddx + ddz*ddz);
@@ -720,10 +721,10 @@ static BTStatus actGuardChase(md::EngineContext&, entt::entity e) {
 
 // ── BT action: INVESTIGATE ────────────────────────────────────────────────────
 
-static BTStatus actGuardInvestigate(md::EngineContext&, entt::entity e) {
-    auto& reg = Registry::Get();
-    auto* wt  = reg.try_get<WorldTransform>(e);
-    auto* sc  = reg.try_get<SenseComponent>(e);
+static BTStatus actGuardInvestigate(md::EngineContext&, MdEntity e) {
+    auto& reg = MdRegistry::Get();
+    auto* wt  = reg.TryGet<WorldTransform>(e);
+    auto* sc  = reg.TryGet<SenseComponent>(e);
     if (!wt || !sc) return BTStatus::Failure;
     MoveToward(*wt, sc->last_known_x, sc->last_known_z, GUARD_INVEST_SPD);
     return BTStatus::Running;
@@ -731,10 +732,10 @@ static BTStatus actGuardInvestigate(md::EngineContext&, entt::entity e) {
 
 // ── BT action: PATROL ─────────────────────────────────────────────────────────
 
-static BTStatus actGuardPatrol(md::EngineContext& ctx, entt::entity e) {
-    auto& reg = Registry::Get();
-    auto* wt  = reg.try_get<WorldTransform>(e);
-    auto* ab  = reg.try_get<AgentBlackboard>(e);
+static BTStatus actGuardPatrol(md::EngineContext& ctx, MdEntity e) {
+    auto& reg = MdRegistry::Get();
+    auto* wt  = reg.TryGet<WorldTransform>(e);
+    auto* ab  = reg.TryGet<AgentBlackboard>(e);
     if (!wt || !ab) return BTStatus::Failure;
 
     float sx = bb_get_float(*ab, kSX, wt->x);
@@ -745,7 +746,7 @@ static BTStatus actGuardPatrol(md::EngineContext& ctx, entt::entity e) {
     float dist = MoveToward(*wt, tx, tz, GUARD_PATROL_SPD);
 
     if (dist < 0.3f) {
-        uint32_t r = ctx.frame_index * 2654435761u ^ static_cast<uint32_t>(entt::to_integral(e));
+        uint32_t r = ctx.frame_index * 2654435761u ^ e.ToIntegral();
         float angle  = (float)((r & 0xFFu)) / 255.f * 6.28318f;
         float radius = (float)(((r >> 8) & 0xFFu)) / 255.f * WANDER_RADIUS;
         bb_set_float(*ab, kWX, sx + cosf(angle) * radius);
@@ -774,30 +775,30 @@ static void LoadNpcBT(BehaviorTree& bt) {
         fprintf(stderr, "[demo] BT load failed: %s\n", BT_JSON_PATH);
 }
 
-static void RespawnNpcBT(entt::entity e) {
-    auto& reg = Registry::Get();
-    auto* old = reg.try_get<BehaviorTreeComponent>(e);
+static void RespawnNpcBT(MdEntity e) {
+    auto& reg = MdRegistry::Get();
+    auto* old = reg.TryGet<BehaviorTreeComponent>(e);
     if (old && old->owning && old->tree) { delete old->tree; old->tree = nullptr; }
     auto* tree = new BehaviorTree();
     LoadNpcBT(*tree);
-    auto& btc = reg.emplace_or_replace<BehaviorTreeComponent>(e);
+    auto& btc = reg.EmplaceOrReplace<BehaviorTreeComponent>(e);
     btc.tree = tree; btc.owning = true; btc.enabled = true;
 }
 
 // ── Spawn ─────────────────────────────────────────────────────────────────────
 
 static void SpawnDemoEntities(const md::flare::FlareRuntime& rt) {
-    auto& reg       = Registry::Get();
+    auto& reg       = MdRegistry::Get();
     const auto& map = rt.GetMap();
 
     // Player — spawn at map's hero_pos, but for this demo use a position
     // that's in the middle of the goblin camp (near NPC spawn groups).
     // goblin_camp: hero_pos=5,2 is a dead-end corner; spawn at (18,26)
     // which is passable and surrounded by the first two goblin groups.
-    s_player = reg.create();
-    auto& pas = reg.emplace<AgentState>(s_player);
+    s_player = reg.Create();
+    auto& pas = reg.Emplace<AgentState>(s_player);
     pas.lcflags.set(lcf::IS_PLAYER);
-    auto& pwt = reg.emplace<WorldTransform>(s_player);
+    auto& pwt = reg.Emplace<WorldTransform>(s_player);
     pwt.x = 18.f;
     pwt.z = 26.f;
     pwt.y = 0.f; pwt.rot_y = 0.f;
@@ -815,26 +816,26 @@ static void SpawnDemoEntities(const md::flare::FlareRuntime& rt) {
         const auto& sp = map.spawns[i];
         int n = (sp.number_min < 1 ? 1 : sp.number_min);
         for (int j = 0; j < n && s_npc_count < DEMO_MAX_NPCS; ++j) {
-            entt::entity e = reg.create();
+            MdEntity e = reg.Create();
             int idx = s_npc_count++;
             s_npcs[idx]        = e;
             s_npc_hp[idx]      = NPC_HP_INIT;
             s_npc_atk_cd[idx]  = 0.f;
 
-            reg.emplace<AgentState>(e);
-            auto& ab = reg.emplace<AgentBlackboard>(e);
-            reg.emplace<SquadMemberComponent>(e).squad_id = 0;
+            reg.Emplace<AgentState>(e);
+            auto& ab = reg.Emplace<AgentBlackboard>(e);
+            reg.Emplace<SquadMemberComponent>(e).squad_id = 0;
 
             float spx = sp.center_x + (float)j * 0.8f;
             float spz = sp.center_y + (float)j * 0.8f;
 
-            auto& wt = reg.emplace<WorldTransform>(e);
+            auto& wt = reg.Emplace<WorldTransform>(e);
             wt.x = spx; wt.z = spz; wt.y = 0.f; wt.rot_y = 0.f;
 
             bb_set_float(ab, kSX, spx);
             bb_set_float(ab, kSZ, spz);
 
-            auto& sc = reg.emplace<SenseComponent>(e);
+            auto& sc = reg.Emplace<SenseComponent>(e);
             sc.cone_set_idx = 0;
             sc.threshold_lo = 0.3f;
             sc.threshold_hi = 0.7f;
@@ -853,10 +854,10 @@ static void SpawnDemoEntities(const md::flare::FlareRuntime& rt) {
 }
 
 static void DestroyDemoEntities() {
-    auto& reg = Registry::Get();
+    auto& reg = MdRegistry::Get();
     for (int i = 0; i < s_npc_count; ++i)
-        if (reg.valid(s_npcs[i])) reg.destroy(s_npcs[i]);
-    if (s_player != entt::null && reg.valid(s_player)) reg.destroy(s_player);
+        if (reg.Valid(s_npcs[i])) reg.Destroy(s_npcs[i]);
+    if (s_player != entt::null && reg.Valid(s_player)) reg.Destroy(s_player);
     s_npc_count = 0;
     s_player    = entt::null;
 }
@@ -871,7 +872,7 @@ static void LogicTick(float now_ms) {
 
     SquadSignalBus::Get().ClearAll();
     SenseSystemUpdate(now_ms);
-    s_bt_sys.Tick(s_ctx, Registry::Get(), static_cast<uint32_t>(now_ms));
+    s_bt_sys.Tick(s_ctx, MdRegistry::Get().Raw(), static_cast<uint32_t>(now_ms));
     md::ProjectileSystem::Get().Tick(LOGIC_TICK_S);
 }
 
@@ -931,7 +932,7 @@ int main(int argc, char** argv) {
         "third_party/flare-game/mods/fantasycore/images/enemies/goblin.png");
 
     // ECS + BT.
-    BTSystem::ConnectRegistry(Registry::Get());
+    BTSystem::ConnectRegistry(MdRegistry::Get().Raw());
     SpawnDemoEntities(rt);
 
     // ── Component reflection ──────────────────────────────────────────────────
@@ -990,7 +991,7 @@ int main(int argc, char** argv) {
     // then clamp so the map diamond fills at least half the viewport.
     auto ComputeOrigin = [&]() {
         if (s_player == entt::null) return;
-        auto* pwt = Registry::Get().try_get<WorldTransform>(s_player);
+        auto* pwt = MdRegistry::Get().TryGet<WorldTransform>(s_player);
         if (!pwt) return;
         origin_x = (float)vp_w * 0.5f - (pwt->x - pwt->z) * 96.f * scale;
         origin_y = (float)vp_h * 0.5f - (pwt->x + pwt->z) * 48.f * scale;
@@ -1053,7 +1054,7 @@ int main(int argc, char** argv) {
                     case SDL_SCANCODE_I: {
                         // Dump reflected fields of the player entity.
                         if (s_player != entt::null) {
-                            auto* pwt = Registry::Get().try_get<WorldTransform>(s_player);
+                            auto* pwt = MdRegistry::Get().TryGet<WorldTransform>(s_player);
                             if (pwt) {
                                 const auto* d = md::ComponentReflect::Get()
                                                     .Find("world_transform");
@@ -1185,11 +1186,11 @@ int main(int argc, char** argv) {
                     // ── Rising edge: check NPC targeting first ────────────────
                     float best = 1.5f;
                     int   hit  = -1;
-                    auto& reg  = Registry::Get();
+                    auto& reg  = MdRegistry::Get();
                     for (int i = 0; i < s_npc_count; ++i) {
                         if (s_npc_hp[i] <= 0) continue;
-                        if (!reg.valid(s_npcs[i])) continue;
-                        auto* nwt = reg.try_get<WorldTransform>(s_npcs[i]);
+                        if (!reg.Valid(s_npcs[i])) continue;
+                        auto* nwt = reg.TryGet<WorldTransform>(s_npcs[i]);
                         if (!nwt) continue;
                         float cx = nwt->x - mtx, cz = nwt->z - mtz;
                         float d  = sqrtf(cx*cx + cz*cz);
@@ -1222,19 +1223,19 @@ int main(int argc, char** argv) {
 
         // ── Player movement toward target ─────────────────────────────────────
         if (!s_player_dead && s_player != entt::null) {
-            auto* pwt = Registry::Get().try_get<WorldTransform>(s_player);
+            auto* pwt = MdRegistry::Get().TryGet<WorldTransform>(s_player);
             if (pwt) {
                 float tx = pwt->x, tz = pwt->z;  // default: stay
                 bool  should_move = false;
-                auto& reg = Registry::Get();
+                auto& reg = MdRegistry::Get();
 
                 if (s_player_atk_tgt >= 0) {
                     // Validate attack target.
                     if (s_npc_hp[s_player_atk_tgt] <= 0 ||
-                        !reg.valid(s_npcs[s_player_atk_tgt])) {
+                        !reg.Valid(s_npcs[s_player_atk_tgt])) {
                         s_player_atk_tgt = -1;  // target died
                     } else {
-                        auto* nwt = reg.try_get<WorldTransform>(s_npcs[s_player_atk_tgt]);
+                        auto* nwt = reg.TryGet<WorldTransform>(s_npcs[s_player_atk_tgt]);
                         if (nwt) {
                             float dx = nwt->x - pwt->x, dz = nwt->z - pwt->z;
                             float dist = sqrtf(dx*dx + dz*dz);
@@ -1252,7 +1253,7 @@ int main(int argc, char** argv) {
                                             s_player_atk_tgt, dmg,
                                             s_npc_hp[s_player_atk_tgt]);
                                     if (s_npc_hp[s_player_atk_tgt] <= 0) {
-                                        auto* nas = reg.try_get<AgentState>(
+                                        auto* nas = reg.TryGet<AgentState>(
                                             s_npcs[s_player_atk_tgt]);
                                         if (nas) nas->lcflags.set(lcf::IS_DEAD);
                                         ++s_kills;
@@ -1374,10 +1375,10 @@ int main(int argc, char** argv) {
             // Collect raw NPC positions for the GPU cull pass.
             static float cull_x[64], cull_z[64];
             int cull_n = 0;
-            auto& creg = Registry::Get();
+            auto& creg = MdRegistry::Get();
             for (int i = 0; i < s_npc_count && cull_n < 64; ++i) {
-                if (s_npc_hp[i] <= 0 || !creg.valid(s_npcs[i])) continue;
-                auto* wt = creg.try_get<WorldTransform>(s_npcs[i]);
+                if (s_npc_hp[i] <= 0 || !creg.Valid(s_npcs[i])) continue;
+                auto* wt = creg.TryGet<WorldTransform>(s_npcs[i]);
                 if (!wt) continue;
                 cull_x[cull_n] = wt->x;
                 cull_z[cull_n] = wt->z;
@@ -1403,11 +1404,11 @@ int main(int argc, char** argv) {
             static float   sp_x[kMax], sp_z[kMax], sp_rot[kMax];
             static uint8_t sp_mov[kMax];
             int sp_n = 0;
-            auto& reg = Registry::Get();
+            auto& reg = MdRegistry::Get();
 
             // Player sprite.
             if (!s_player_dead && s_player != entt::null) {
-                auto* pwt = reg.try_get<WorldTransform>(s_player);
+                auto* pwt = reg.TryGet<WorldTransform>(s_player);
                 if (pwt && sp_n < kMax) {
                     sp_x[sp_n]   = pwt->x;
                     sp_z[sp_n]   = pwt->z;
@@ -1427,8 +1428,8 @@ int main(int argc, char** argv) {
             int culled = 0;
             for (int i = 0; i < s_npc_count && sp_n < kMax; ++i) {
                 if (s_npc_hp[i] <= 0) continue;
-                if (!reg.valid(s_npcs[i])) continue;
-                auto* wt = reg.try_get<WorldTransform>(s_npcs[i]);
+                if (!reg.Valid(s_npcs[i])) continue;
+                auto* wt = reg.TryGet<WorldTransform>(s_npcs[i]);
                 if (!wt) continue;
 
                 // GPU frustum cull result (if available).
