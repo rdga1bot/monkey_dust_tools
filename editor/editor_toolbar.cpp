@@ -136,13 +136,14 @@ void EditorToolbar::DrawMenuBar() {
             MdEntity src = ec.GetPrimary();
             if (reg.Valid(src) && reg.AllOf<WorldTransform>(src)) {
                 MdEntity dst = reg.Create();
-                auto& tr = reg.Emplace<WorldTransform>(dst, reg.Get<WorldTransform>(src));
+                reg.Handle(dst).emplace<WorldTransform>(reg.Get<WorldTransform>(src));
+                auto& tr = reg.Get<WorldTransform>(dst);
                 tr.x += 1.f; tr.slot = 0xFFFFFFFFu;
                 uint32_t fid = reg.AllOf<AIAgent>(src) ? reg.Get<AIAgent>(src).faction_id : 0u;
                 tr.slot = TransformSoA::Get().Alloc(dst, tr.x, tr.z, (uint8_t)fid);
-                if (reg.AllOf<Health>(src))    reg.Emplace<Health>(dst,    reg.Get<Health>(src));
-                if (reg.AllOf<AIAgent>(src))   reg.Emplace<AIAgent>(dst,   reg.Get<AIAgent>(src));
-                if (reg.AllOf<Renderable>(src))reg.Emplace<Renderable>(dst,reg.Get<Renderable>(src));
+                if (reg.AllOf<Health>(src))    reg.Handle(dst).emplace<Health>(reg.Get<Health>(src));
+                if (reg.AllOf<AIAgent>(src))   reg.Handle(dst).emplace<AIAgent>(reg.Get<AIAgent>(src));
+                if (reg.AllOf<Renderable>(src))reg.Handle(dst).emplace<Renderable>(reg.Get<Renderable>(src));
                 ec.Select(dst);
             }
         }
@@ -336,7 +337,8 @@ void EditorToolbar::SpawnEntity(const char* type) {
 
     if (strcmp(type, "Transform") == 0) {
         auto e = reg.Create();
-        auto& tr = reg.Emplace<WorldTransform>(e);
+        reg.Handle(e).emplace<WorldTransform>();
+        auto& tr = reg.Get<WorldTransform>(e);
         tr.x = pos.x; tr.y = 0.f; tr.z = pos.z; tr.rot_y = 0.f;
         tr.slot = TransformSoA::Get().Alloc(e, pos.x, pos.z, 0);
         ec.Select(e);
@@ -354,15 +356,17 @@ void EditorToolbar::SpawnEntity(const char* type) {
     }
 
     auto e = reg.Create();
-    auto& tr = reg.Emplace<WorldTransform>(e);
+    reg.Handle(e).emplace<WorldTransform>();
+    auto& tr = reg.Get<WorldTransform>(e);
     tr.x = pos.x; tr.y = 0.f; tr.z = pos.z; tr.rot_y = 0.f;
     tr.slot = TransformSoA::Get().Alloc(e, pos.x, pos.z, faction);
-    auto& ai = reg.Emplace<AIAgent>(e);
+    reg.Handle(e).emplace<AIAgent>();
+    auto& ai = reg.Get<AIAgent>(e);
     ai.faction_id = faction;
     ai.lod_level  = 0;
-    reg.Emplace<Health>(e) = LimbHealth::Make(100.f);
-    reg.Emplace<Combat>(e);
-    reg.Emplace<Renderable>(e);
+    reg.Handle(e).set<Health>(LimbHealth::Make(100.f));
+    reg.Handle(e).emplace<Combat>();
+    reg.Handle(e).emplace<Renderable>();
 
     ec.Select(e);
     MD_LOG(MD_LOG_INFO, "[Editor] Spawned %s at (%.1f,%.1f)", type, pos.x, pos.z);

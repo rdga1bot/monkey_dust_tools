@@ -204,7 +204,8 @@ inline bool Import(const char* path) {
         if (next_id && next_id < comp_pos) { cursor = next_id; continue; }
 
         auto e = reg.Create();
-        auto& tr = reg.Emplace<WorldTransform>(e);
+        reg.Handle(e).emplace<WorldTransform>();
+        auto& tr = reg.Get<WorldTransform>(e);
 
         // Transform
         const char* tr_pos = strstr(comp_pos, "\"transform\"");
@@ -219,17 +220,17 @@ inline bool Import(const char* path) {
         // Health
         const char* hp_pos = strstr(comp_pos, "\"health\"");
         if (hp_pos) {
-            auto& hp = reg.Emplace<Health>(e);
             float hp_cur = 0.f, hp_max = 0.f;
             SsParsFloat(hp_pos, "\"current\"", hp_cur);
             SsParsFloat(hp_pos, "\"max\"",     hp_max);
-            hp = LimbHealth::Make(hp_cur, hp_max);
+            reg.Handle(e).set<Health>(LimbHealth::Make(hp_cur, hp_max));
         }
 
         // AIAgent
         const char* ai_pos = strstr(comp_pos, "\"ai\"");
         if (ai_pos) {
-            auto& ai = reg.Emplace<AIAgent>(e);
+            reg.Handle(e).emplace<AIAgent>();
+            auto& ai = reg.Get<AIAgent>(e);
             int fi = 0, li = 0, ti = 0, pr = 0;
             SsParsInt(ai_pos, "\"faction_id\"",    fi); ai.faction_id    = (uint32_t)fi;
             SsParsInt(ai_pos, "\"lod_level\"",     li); ai.lod_level     = (uint8_t)li;
@@ -241,7 +242,8 @@ inline bool Import(const char* path) {
         // Combat
         const char* cb_pos = strstr(comp_pos, "\"combat\"");
         if (cb_pos) {
-            auto& c = reg.Emplace<Combat>(e, Combat::MakeBandit());
+            reg.Handle(e).emplace<Combat>(Combat::MakeBandit());
+            auto& c = reg.Get<Combat>(e);
             int wt = 0, dead = 0; float wd = 28.f;
             SsParsInt  (cb_pos, "\"weapon_type\"", wt);
             SsParsFloat(cb_pos, "\"weapon_dmg\"",  wd);
@@ -254,7 +256,8 @@ inline bool Import(const char* path) {
         // Building
         const char* bld_pos = strstr(comp_pos, "\"building\"");
         if (bld_pos) {
-            auto& b = reg.Emplace<Building>(e);
+            reg.Handle(e).emplace<Building>();
+            auto& b = reg.Get<Building>(e);
             int gx = 0, gz = 0, act = 0, di = 0;
             float prog = 0.f;
             SsParsInt  (bld_pos, "\"def_id\"",   di);   b.def_id     = (uint32_t)di;
@@ -267,7 +270,8 @@ inline bool Import(const char* path) {
         // Inventory
         const char* inv_pos = strstr(comp_pos, "\"inventory\"");
         if (inv_pos) {
-            auto& inv = reg.Emplace<Inventory>(e);
+            reg.Handle(e).emplace<Inventory>();
+            auto& inv = reg.Get<Inventory>(e);
             inv.Clear();
             const char* slots = strstr(inv_pos, "\"slots\"");
             if (slots) {
@@ -291,7 +295,8 @@ inline bool Import(const char* path) {
         // PlayerController
         const char* pc_pos = strstr(comp_pos, "\"player\"");
         if (pc_pos) {
-            auto& pc = reg.Emplace<PlayerController>(e);
+            reg.Handle(e).emplace<PlayerController>();
+            auto& pc = reg.Get<PlayerController>(e);
             float ms = 5.f; int acd = 800;
             SsParsFloat(pc_pos, "\"move_speed\"",        ms);
             SsParsInt  (pc_pos, "\"attack_cooldown_ms\"",acd);
@@ -304,7 +309,8 @@ inline bool Import(const char* path) {
         // AIScript
         const char* sc_pos = strstr(comp_pos, "\"aiscript\"");
         if (sc_pos) {
-            auto& sc = reg.Emplace<AIScript>(e);
+            reg.Handle(e).emplace<AIScript>();
+            auto& sc = reg.Get<AIScript>(e);
             SsParsStr(sc_pos, "\"func\"", sc.script_func, sizeof(sc.script_func));
         }
 

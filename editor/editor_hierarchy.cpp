@@ -83,22 +83,23 @@ void EditorHierarchy::DrawContextMenu(MdEntity e) {
     if (ImGui::MenuItem("Duplicate")) {
         if (reg.Valid(e) && reg.AllOf<WorldTransform>(e)) {
             auto dst = reg.Create();
-            auto& tr = reg.Emplace<WorldTransform>(dst, reg.Get<WorldTransform>(e));
+            reg.Handle(dst).emplace<WorldTransform>(reg.Get<WorldTransform>(e));
+            auto& tr = reg.Get<WorldTransform>(dst);
             tr.x += 1.f; tr.slot = 0xFFFFFFFFu;
             uint32_t fid = reg.AllOf<AIAgent>(e) ? reg.Get<AIAgent>(e).faction_id : 0u;
             tr.slot = TransformSoA::Get().Alloc(dst, tr.x, tr.z, (uint8_t)fid);
             // Copy all components present on source.
-            if (reg.AllOf<AIAgent>(e))       reg.Emplace<AIAgent>(dst,      reg.Get<AIAgent>(e));
-            if (reg.AllOf<Health>(e))         reg.Emplace<Health>(dst,       reg.Get<Health>(e));
-            if (reg.AllOf<Combat>(e))         reg.Emplace<Combat>(dst,       reg.Get<Combat>(e));
-            if (reg.AllOf<Building>(e))       reg.Emplace<Building>(dst,     reg.Get<Building>(e));
-            if (reg.AllOf<Inventory>(e))      reg.Emplace<Inventory>(dst,    reg.Get<Inventory>(e));
-            if (reg.AllOf<BTComponent>(e))    reg.Emplace<BTComponent>(dst,  reg.Get<BTComponent>(e));
-            if (reg.AllOf<AIScript>(e))       reg.Emplace<AIScript>(dst,     reg.Get<AIScript>(e));
-            if (reg.AllOf<NavAgent>(e))       reg.Emplace<NavAgent>(dst,     reg.Get<NavAgent>(e));
-            if (reg.AllOf<Renderable>(e))     reg.Emplace<Renderable>(dst,   reg.Get<Renderable>(e));
-            if (reg.AllOf<StatSheet>(e))      reg.Emplace<StatSheet>(dst,    reg.Get<StatSheet>(e));
-            if (reg.AllOf<Faction>(e))          reg.Emplace<Faction>(dst,          reg.Get<Faction>(e));
+            if (reg.AllOf<AIAgent>(e))       reg.Handle(dst).emplace<AIAgent>(reg.Get<AIAgent>(e));
+            if (reg.AllOf<Health>(e))         reg.Handle(dst).emplace<Health>(reg.Get<Health>(e));
+            if (reg.AllOf<Combat>(e))         reg.Handle(dst).emplace<Combat>(reg.Get<Combat>(e));
+            if (reg.AllOf<Building>(e))       reg.Handle(dst).emplace<Building>(reg.Get<Building>(e));
+            if (reg.AllOf<Inventory>(e))      reg.Handle(dst).emplace<Inventory>(reg.Get<Inventory>(e));
+            if (reg.AllOf<BTComponent>(e))    reg.Handle(dst).emplace<BTComponent>(reg.Get<BTComponent>(e));
+            if (reg.AllOf<AIScript>(e))       reg.Handle(dst).emplace<AIScript>(reg.Get<AIScript>(e));
+            if (reg.AllOf<NavAgent>(e))       reg.Handle(dst).emplace<NavAgent>(reg.Get<NavAgent>(e));
+            if (reg.AllOf<Renderable>(e))     reg.Handle(dst).emplace<Renderable>(reg.Get<Renderable>(e));
+            if (reg.AllOf<StatSheet>(e))      reg.Handle(dst).emplace<StatSheet>(reg.Get<StatSheet>(e));
+            if (reg.AllOf<Faction>(e))          reg.Handle(dst).emplace<Faction>(reg.Get<Faction>(e));
             ec.Select(dst);
             cache_refresh_counter_ = 0;
         }
@@ -131,9 +132,9 @@ void EditorHierarchy::DrawContextMenu(MdEntity e) {
     }
     ImGui::Separator();
     if (ImGui::BeginMenu("Add Component")) {
-        if (ImGui::MenuItem("Health"))  { if (reg.Valid(e) && !reg.AllOf<Health>(e))  reg.Emplace<Health>(e, Health{100.f, 100.f}); }
-        if (ImGui::MenuItem("Combat"))  { if (reg.Valid(e) && !reg.AllOf<Combat>(e))  reg.Emplace<Combat>(e); }
-        if (ImGui::MenuItem("AIAgent")) { if (reg.Valid(e) && !reg.AllOf<AIAgent>(e)) reg.Emplace<AIAgent>(e); }
+        if (ImGui::MenuItem("Health"))  { if (reg.Valid(e) && !reg.AllOf<Health>(e))  reg.Handle(e).emplace<Health>(Health{100.f, 100.f}); }
+        if (ImGui::MenuItem("Combat"))  { if (reg.Valid(e) && !reg.AllOf<Combat>(e))  reg.Handle(e).emplace<Combat>(); }
+        if (ImGui::MenuItem("AIAgent")) { if (reg.Valid(e) && !reg.AllOf<AIAgent>(e)) reg.Handle(e).emplace<AIAgent>(); }
         ImGui::EndMenu();
     }
 }
@@ -162,7 +163,8 @@ void EditorHierarchy::DrawContent() {
     ImGui::SameLine();
     if (ImGui::SmallButton("[+]")) {
         auto e = reg.Create();
-        auto& tr = reg.Emplace<WorldTransform>(e);
+        reg.Handle(e).emplace<WorldTransform>();
+        auto& tr = reg.Get<WorldTransform>(e);
         tr.x = ec.cam_target.x; tr.y = 0.f; tr.z = ec.cam_target.z; tr.rot_y = 0.f;
         tr.slot = TransformSoA::Get().Alloc(e, tr.x, tr.z, 0);
         ec.Select(e);

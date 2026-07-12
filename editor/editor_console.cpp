@@ -171,12 +171,14 @@ void EditorConsole::ExecCommand(const char* raw) {
         sscanf(cmd + 5, "%d %f %f", &faction, &cx, &cz);
         auto& reg = MdRegistry::Get();
         auto e = reg.Create();
-        auto& tr = reg.Emplace<WorldTransform>(e);
+        reg.Handle(e).emplace<WorldTransform>();
+        auto& tr = reg.Get<WorldTransform>(e);
         tr.x = cx; tr.y = 0.f; tr.z = cz; tr.rot_y = 0.f;
-        auto& ai = reg.Emplace<AIAgent>(e);
+        reg.Handle(e).emplace<AIAgent>();
+        auto& ai = reg.Get<AIAgent>(e);
         ai.faction_id = (uint32_t)faction;
-        reg.Emplace<Health>(e, Health{100.f, 100.f});
-        reg.Emplace<Combat>(e, Combat::MakeBandit());
+        reg.Handle(e).emplace<Health>(Health{100.f, 100.f});
+        reg.Handle(e).emplace<Combat>(Combat::MakeBandit());
         char msg[64];
         snprintf(msg, sizeof(msg), "[Console] Spawned entity faction=%d at (%.1f,%.1f)", faction, cx, cz);
         Log(MD_LOG_INFO, msg);

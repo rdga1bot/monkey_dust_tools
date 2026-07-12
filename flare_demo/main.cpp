@@ -781,7 +781,8 @@ static void RespawnNpcBT(MdEntity e) {
     if (old && old->owning && old->tree) { delete old->tree; old->tree = nullptr; }
     auto* tree = new BehaviorTree();
     LoadNpcBT(*tree);
-    auto& btc = reg.EmplaceOrReplace<BehaviorTreeComponent>(e);
+    reg.Handle(e).set<BehaviorTreeComponent>(BehaviorTreeComponent{});
+    auto& btc = reg.Get<BehaviorTreeComponent>(e);
     btc.tree = tree; btc.owning = true; btc.enabled = true;
 }
 
@@ -796,12 +797,15 @@ static void SpawnDemoEntities(const md::flare::FlareRuntime& rt) {
     // goblin_camp: hero_pos=5,2 is a dead-end corner; spawn at (18,26)
     // which is passable and surrounded by the first two goblin groups.
     s_player = reg.Create();
-    auto& pas = reg.Emplace<AgentState>(s_player);
-    pas.lcflags.set(lcf::IS_PLAYER);
-    auto& pwt = reg.Emplace<WorldTransform>(s_player);
-    pwt.x = 18.f;
-    pwt.z = 26.f;
-    pwt.y = 0.f; pwt.rot_y = 0.f;
+    reg.Handle(s_player).emplace<AgentState>();
+    reg.Get<AgentState>(s_player).lcflags.set(lcf::IS_PLAYER);
+    reg.Handle(s_player).emplace<WorldTransform>();
+    {
+        auto& pwt = reg.Get<WorldTransform>(s_player);
+        pwt.x = 18.f;
+        pwt.z = 26.f;
+        pwt.y = 0.f; pwt.rot_y = 0.f;
+    }
     s_player_hp      = PLAYER_HP_MAX;
     s_player_dead    = false;
     s_player_moving  = false;
@@ -822,14 +826,16 @@ static void SpawnDemoEntities(const md::flare::FlareRuntime& rt) {
             s_npc_hp[idx]      = NPC_HP_INIT;
             s_npc_atk_cd[idx]  = 0.f;
 
-            reg.Emplace<AgentState>(e);
-            reg.Emplace<AgentBlackboard>(e);
-            reg.Emplace<SquadMemberComponent>(e).squad_id = 0;
+            reg.Handle(e).emplace<AgentState>();
+            reg.Handle(e).emplace<AgentBlackboard>();
+            reg.Handle(e).emplace<SquadMemberComponent>();
+            reg.Get<SquadMemberComponent>(e).squad_id = 0;
 
             float spx = sp.center_x + (float)j * 0.8f;
             float spz = sp.center_y + (float)j * 0.8f;
 
-            auto& wt = reg.Emplace<WorldTransform>(e);
+            reg.Handle(e).emplace<WorldTransform>();
+            auto& wt = reg.Get<WorldTransform>(e);
             wt.x = spx; wt.z = spz; wt.y = 0.f; wt.rot_y = 0.f;
 
             // B3.4: re-fetch AgentBlackboard here — the reference from its
@@ -840,7 +846,8 @@ static void SpawnDemoEntities(const md::flare::FlareRuntime& rt) {
             bb_set_float(ab, kSX, spx);
             bb_set_float(ab, kSZ, spz);
 
-            auto& sc = reg.Emplace<SenseComponent>(e);
+            reg.Handle(e).emplace<SenseComponent>();
+            auto& sc = reg.Get<SenseComponent>(e);
             sc.cone_set_idx = 0;
             sc.threshold_lo = 0.3f;
             sc.threshold_hi = 0.7f;
@@ -854,8 +861,9 @@ static void SpawnDemoEntities(const md::flare::FlareRuntime& rt) {
             RespawnNpcBT(e);
         }
     }
+    const auto& pwt_final = reg.Get<WorldTransform>(s_player);
     fprintf(stderr, "[demo] Player at (%.0f,%.0f) | %d NPCs from %d spawn entries\n",
-            pwt.x, pwt.z, s_npc_count, map.spawn_count);
+            pwt_final.x, pwt_final.z, s_npc_count, map.spawn_count);
 }
 
 static void DestroyDemoEntities() {

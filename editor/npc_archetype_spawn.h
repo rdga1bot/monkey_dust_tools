@@ -22,32 +22,37 @@ inline MdEntity SpawnFromArchetype(int idx) {
     auto& ec  = EditorCore::Get();
     auto  e   = reg.Create();
 
-    auto& tr  = reg.Emplace<WorldTransform>(e);
+    reg.Handle(e).emplace<WorldTransform>();
+    auto& tr  = reg.Get<WorldTransform>(e);
     tr.x = ec.cam_target.x; tr.y = 0.f; tr.z = ec.cam_target.z; tr.rot_y = 0.f;
     tr.slot = TransformSoA::Get().Alloc(e, tr.x, tr.z, (uint8_t)d.faction_id);
 
-    auto& ai = reg.Emplace<AIAgent>(e);
+    reg.Handle(e).emplace<AIAgent>();
+    auto& ai = reg.Get<AIAgent>(e);
     ai.faction_id = d.faction_id;
     ai.lod_level  = d.lod_level;
 
-    reg.Emplace<Health>(e) = LimbHealth::Make(d.health);
+    reg.Handle(e).set<Health>(LimbHealth::Make(d.health));
 
-    auto& nav = reg.Emplace<NavAgent>(e);
+    reg.Handle(e).emplace<NavAgent>();
+    auto& nav = reg.Get<NavAgent>(e);
     nav.walk_speed = d.walk_speed;
     nav.run_speed  = d.run_speed;
 
-    auto& ss = reg.Emplace<StatSheet>(e);
+    reg.Handle(e).emplace<StatSheet>();
+    auto& ss = reg.Get<StatSheet>(e);
     ss[Skill::Toughness]  = d.toughness;
     ss[Skill::Strength]   = d.strength;
     ss[Skill::Dexterity]  = d.dexterity;
 
-    auto& cmb = reg.Emplace<Combat>(e);
+    reg.Handle(e).emplace<Combat>();
+    auto& cmb = reg.Get<Combat>(e);
     cmb.weapon.type         = (DamageType)d.weapon_type;
     cmb.weapon.damage       = d.weapon_damage;
     cmb.weapon.attack_range = d.weapon_range;
     cmb.weapon.attack_ms    = 900u;
 
-    reg.Emplace<Renderable>(e);
+    reg.Handle(e).emplace<Renderable>();
     ec.Select(e);
     return e;
 }
