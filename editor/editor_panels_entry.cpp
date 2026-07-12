@@ -24,10 +24,17 @@
 #include "editor_layout.h"
 #include "settings_editor.h"
 #include "bug_capture.h"
+#include "editor_reflect_bridge.h"
+#include "editor_reflect_inspector.h"
 #include <cstdio>
 #include <cstring>
 
 static constexpr const char* CFG_PATH = "data/editor_config.json";
+
+// ecs_world_t*, opaque across the dlopen boundary (see editor_module.h's
+// Config::ecs_world doc comment). Stored so BuildUI can pass it into the
+// Inspector tab every frame; re-set on every editor_panels_init() call.
+static ecs_world_t* s_ecs_world = nullptr;
 
 // Persistent panel layout (all tabs).  Loaded on init, saved on shutdown.
 static EditorLayout::Layout s_lay;
@@ -36,14 +43,21 @@ extern "C" {
 
 // ── Init — called after dlopen ────────────────────────────────────────────────
 // ctx:         ImGuiContext* from host (must share for ImGui calls to work)
+// ecs_world:   ecs_world_t* from host (Registry::Get().c_ptr()) — untyped
+//              flecs C API only past this point; see editor_reflect_bridge.h
 // gpu:         SDL_GPUDevice* (for RTT init)
 // window:      SDL_Window*
 // overlay_top: Y offset when running under RenderDoc overlay
 // layout_path: JSON file for panel positions (e.g. "data/editor_layout.json")
-void editor_panels_init(void* ctx, void* /*gpu*/, void* /*window*/,
+void editor_panels_init(void* ctx, void* ecs_world, void* /*gpu*/, void* /*window*/,
                         float overlay_top, const char* layout_path) {
     // Share host's ImGui context — CRITICAL, must be first.
     ImGui::SetCurrentContext(static_cast<ImGuiContext*>(ctx));
+
+    // Re-resolve every reflected component id fresh on every load/reload —
+    // ids from a previous dlopen cycle are not valid in this one.
+    s_ecs_world = static_cast<ecs_world_t*>(ecs_world);
+    EcsReflectBridge::Get().Init(s_ecs_world);
 
     SettingsEditor::Load(CFG_PATH);
     ItemEditor::Load("data/items/items.json");
@@ -348,6 +362,11 @@ uint32_t editor_panels_build_ui(float dt, float toolbar_h,
                 sz = ImGui::GetWindowSize();
                 ImGui::End();
             }
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Inspector")) {
+            ImGui::SetCursorPos({8, ImGui::GetCursorPosY() + 4});
+            EditorReflectInspector::DrawContent(s_ecs_world);
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Settings")) {

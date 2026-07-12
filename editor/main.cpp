@@ -5,6 +5,7 @@
 #include <monkey_dust/render/gpu_hal.h>
 #include <monkey_dust/render/light_system.h>
 #include <monkey_dust/world/terrain_gen.h>
+#include <monkey_dust/ecs/component_reflect.h>
 #ifdef MONKEY_DUST_EDITOR_HOT_RELOAD
 #include <monkey_dust/hot/editor_module.h>
 #endif
@@ -115,6 +116,10 @@ int main(void) {
     EditorUI::SetupTheme();
 
     // ── Data ──────────────────────────────────────────────────────────────────
+    // Field metadata for the reflect-driven Inspector tab (editor_reflect_bridge.h
+    // resolves these names against the live flecs world). Same call game/src/main.cpp
+    // makes — populates md::ComponentReflect only, no ECS world interaction.
+    md::RegisterCoreComponents();
     ItemEditor::Load("data/items/items.json");
     FactionEditor::Load("data/factions/factions.json");
     NpcArchetypeEditor::Load("game/data/defs/npc_archetypes.json");
@@ -139,6 +144,7 @@ int main(void) {
     {
         EditorModule::Config ecfg;
         ecfg.imgui_ctx   = ImGui::GetCurrentContext();
+        ecfg.ecs_world   = Registry::Get().c_ptr();
         ecfg.gpu         = gpu;
         ecfg.window      = _wnd::ptr();
         ecfg.overlay_top = s_overlay_top;

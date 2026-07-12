@@ -13,6 +13,7 @@
 #include <monkey_dust/components/combat.h>
 #include <monkey_dust/components/renderable.h>
 #include <monkey_dust/components/stat_sheet.h>
+#include <monkey_dust/components/skill_xp_accum.h>
 #include <monkey_dust/components/nav_agent.h>
 
 inline MdEntity SpawnFromArchetype(int idx) {
@@ -44,6 +45,11 @@ inline MdEntity SpawnFromArchetype(int idx) {
     ss[Skill::Toughness]  = d.toughness;
     ss[Skill::Strength]   = d.strength;
     ss[Skill::Dexterity]  = d.dexterity;
+
+    // Pre-seed alongside StatSheet so ApplySkillXpGrant (game/src/combat/
+    // skill_xp.h) never has to take its first-grant no-op safety-net path
+    // for NPCs spawned here.
+    reg.Handle(e).emplace<SkillXpAccum>();
 
     reg.Handle(e).emplace<Combat>();
     auto& cmb = reg.Handle(e).get_mut<Combat>();
