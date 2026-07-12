@@ -52,7 +52,7 @@ void EditorFlowGraphPanel::DrawContent() {
 
     MdEntity target = MdEntity::Null();
     MdEntity sel = EditorCore::Get().GetPrimary();
-    if (sel != MdEntity::Null() && reg.Valid(sel) && reg.AllOf<FlowGraph>(sel))
+    if (sel != MdEntity::Null() && reg.Valid(sel) && (reg.Handle(sel).has<FlowGraph>()))
         target = sel;
     if (target == MdEntity::Null()) {
         auto view = reg.View<FlowGraph>();
@@ -64,7 +64,7 @@ void EditorFlowGraphPanel::DrawContent() {
         return;
     }
 
-    auto& fg = reg.Get<FlowGraph>(target);
+    auto& fg = reg.Handle(target).get_mut<FlowGraph>();
     ImGui::Text("Entity: %u  |  Nodes: %d  Conns: %d  Vars: %d",
                 target.ToIntegral(),
                 fg.node_count, fg.conn_count, fg.var_count);

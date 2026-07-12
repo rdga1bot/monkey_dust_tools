@@ -34,23 +34,23 @@ void EditorHierarchy::RefreshCache() {
 // ─────────────────────────────────────────────────────────────────────────────
 const char* EditorHierarchy::EntityIcon(MdEntity e) const {
     auto& reg = MdRegistry::Get();
-    if (reg.AllOf<PlayerController>(e))   return "[PLY]";
-    if (reg.AllOf<AIAgent>(e))            return "[NPC]";
-    if (reg.AllOf<Building>(e))           return "[BLD]";
-    if (reg.AllOf<Inventory>(e))          return "[INV]";
-    if (reg.AllOf<AIScript>(e))           return "[LUA]";
+    if ((reg.Handle(e).has<PlayerController>()))   return "[PLY]";
+    if ((reg.Handle(e).has<AIAgent>()))            return "[NPC]";
+    if ((reg.Handle(e).has<Building>()))           return "[BLD]";
+    if ((reg.Handle(e).has<Inventory>()))          return "[INV]";
+    if ((reg.Handle(e).has<AIScript>()))           return "[LUA]";
     return "[---]";
 }
 
 void EditorHierarchy::EntityLabel(MdEntity e, char* buf, int len) const {
     auto& reg = MdRegistry::Get();
     uint32_t id = e.ToIntegral();
-    if (reg.AllOf<AIAgent>(e)) {
-        const auto& ai = reg.Get<AIAgent>(e);
+    if ((reg.Handle(e).has<AIAgent>())) {
+        const auto& ai = reg.Handle(e).get_mut<AIAgent>();
         snprintf(buf, len, "%s Entity_%u [f%u LOD%u]",
                  EntityIcon(e), id, ai.faction_id, (uint32_t)ai.lod_level);
-    } else if (reg.AllOf<Building>(e)) {
-        const auto& b = reg.Get<Building>(e);
+    } else if ((reg.Handle(e).has<Building>())) {
+        const auto& b = reg.Handle(e).get_mut<Building>();
         const BuildingDef* d = BuildSystem::Get().GetDef(b.def_id);
         snprintf(buf, len, "%s Entity_%u [%s]",
                  EntityIcon(e), id, d ? d->name : "?");
@@ -61,15 +61,15 @@ void EditorHierarchy::EntityLabel(MdEntity e, char* buf, int len) const {
 
 ImVec4 EditorHierarchy::EntityColor(MdEntity e) const {
     auto& reg = MdRegistry::Get();
-    if (reg.AllOf<Combat>(e) && reg.Get<Combat>(e).is_dead)
+    if ((reg.Handle(e).has<Combat>()) && reg.Handle(e).get_mut<Combat>().is_dead)
         return {1.0f, 0.3f, 0.3f, 1.0f}; // RED  = dead
-    if (reg.AllOf<AIAgent>(e)) {
-        uint8_t lod = reg.Get<AIAgent>(e).lod_level;
+    if ((reg.Handle(e).has<AIAgent>())) {
+        uint8_t lod = reg.Handle(e).get_mut<AIAgent>().lod_level;
         if (lod == 2) return {0.5f, 0.5f, 0.5f, 1.0f}; // GRAY   = FROZEN
         if (lod == 1) return {1.0f, 0.9f, 0.3f, 1.0f}; // YELLOW = LOW
         return {0.3f, 1.0f, 0.5f, 1.0f};                // GREEN  = HIGH
     }
-    if (reg.AllOf<PlayerController>(e))
+    if ((reg.Handle(e).has<PlayerController>()))
         return {0.4f, 0.8f, 1.0f, 1.0f}; // CYAN = player
     return {0.85f, 0.85f, 0.85f, 1.0f};  // WHITE = other
 }
@@ -81,60 +81,60 @@ void EditorHierarchy::DrawContextMenu(MdEntity e) {
 
     if (ImGui::MenuItem("Select"))    ec.Select(e);
     if (ImGui::MenuItem("Duplicate")) {
-        if (reg.Valid(e) && reg.AllOf<WorldTransform>(e)) {
+        if (reg.Valid(e) && (reg.Handle(e).has<WorldTransform>())) {
             auto dst = reg.Create();
-            reg.Handle(dst).emplace<WorldTransform>(reg.Get<WorldTransform>(e));
-            auto& tr = reg.Get<WorldTransform>(dst);
+            reg.Handle(dst).emplace<WorldTransform>(reg.Handle(e).get_mut<WorldTransform>());
+            auto& tr = reg.Handle(dst).get_mut<WorldTransform>();
             tr.x += 1.f; tr.slot = 0xFFFFFFFFu;
-            uint32_t fid = reg.AllOf<AIAgent>(e) ? reg.Get<AIAgent>(e).faction_id : 0u;
+            uint32_t fid = (reg.Handle(e).has<AIAgent>()) ? reg.Handle(e).get_mut<AIAgent>().faction_id : 0u;
             tr.slot = TransformSoA::Get().Alloc(dst, tr.x, tr.z, (uint8_t)fid);
             // Copy all components present on source.
-            if (reg.AllOf<AIAgent>(e))       reg.Handle(dst).emplace<AIAgent>(reg.Get<AIAgent>(e));
-            if (reg.AllOf<Health>(e))         reg.Handle(dst).emplace<Health>(reg.Get<Health>(e));
-            if (reg.AllOf<Combat>(e))         reg.Handle(dst).emplace<Combat>(reg.Get<Combat>(e));
-            if (reg.AllOf<Building>(e))       reg.Handle(dst).emplace<Building>(reg.Get<Building>(e));
-            if (reg.AllOf<Inventory>(e))      reg.Handle(dst).emplace<Inventory>(reg.Get<Inventory>(e));
-            if (reg.AllOf<BTComponent>(e))    reg.Handle(dst).emplace<BTComponent>(reg.Get<BTComponent>(e));
-            if (reg.AllOf<AIScript>(e))       reg.Handle(dst).emplace<AIScript>(reg.Get<AIScript>(e));
-            if (reg.AllOf<NavAgent>(e))       reg.Handle(dst).emplace<NavAgent>(reg.Get<NavAgent>(e));
-            if (reg.AllOf<Renderable>(e))     reg.Handle(dst).emplace<Renderable>(reg.Get<Renderable>(e));
-            if (reg.AllOf<StatSheet>(e))      reg.Handle(dst).emplace<StatSheet>(reg.Get<StatSheet>(e));
-            if (reg.AllOf<Faction>(e))          reg.Handle(dst).emplace<Faction>(reg.Get<Faction>(e));
+            if ((reg.Handle(e).has<AIAgent>()))       reg.Handle(dst).emplace<AIAgent>(reg.Handle(e).get_mut<AIAgent>());
+            if ((reg.Handle(e).has<Health>()))         reg.Handle(dst).emplace<Health>(reg.Handle(e).get_mut<Health>());
+            if ((reg.Handle(e).has<Combat>()))         reg.Handle(dst).emplace<Combat>(reg.Handle(e).get_mut<Combat>());
+            if ((reg.Handle(e).has<Building>()))       reg.Handle(dst).emplace<Building>(reg.Handle(e).get_mut<Building>());
+            if ((reg.Handle(e).has<Inventory>()))      reg.Handle(dst).emplace<Inventory>(reg.Handle(e).get_mut<Inventory>());
+            if ((reg.Handle(e).has<BTComponent>()))    reg.Handle(dst).emplace<BTComponent>(reg.Handle(e).get_mut<BTComponent>());
+            if ((reg.Handle(e).has<AIScript>()))       reg.Handle(dst).emplace<AIScript>(reg.Handle(e).get_mut<AIScript>());
+            if ((reg.Handle(e).has<NavAgent>()))       reg.Handle(dst).emplace<NavAgent>(reg.Handle(e).get_mut<NavAgent>());
+            if ((reg.Handle(e).has<Renderable>()))     reg.Handle(dst).emplace<Renderable>(reg.Handle(e).get_mut<Renderable>());
+            if ((reg.Handle(e).has<StatSheet>()))      reg.Handle(dst).emplace<StatSheet>(reg.Handle(e).get_mut<StatSheet>());
+            if ((reg.Handle(e).has<Faction>()))          reg.Handle(dst).emplace<Faction>(reg.Handle(e).get_mut<Faction>());
             ec.Select(dst);
             cache_refresh_counter_ = 0;
         }
     }
     if (ImGui::MenuItem("Delete")) {
         ec.Deselect(e);
-        if (reg.Valid(e) && reg.AllOf<WorldTransform>(e))
+        if (reg.Valid(e) && (reg.Handle(e).has<WorldTransform>()))
             TransformSoA::Get().Free(e);
         if (reg.Valid(e)) reg.Destroy(e);
         cache_refresh_counter_ = 0;
     }
     ImGui::Separator();
     if (ImGui::MenuItem("BT Reset")) {
-        if (reg.Valid(e) && reg.AllOf<BTComponent>(e))
-            reg.Get<BTComponent>(e).bt.reset();
+        if (reg.Valid(e) && (reg.Handle(e).has<BTComponent>()))
+            reg.Handle(e).get_mut<BTComponent>().bt.reset();
     }
     if (ImGui::MenuItem("Kill NPC")) {
         if (reg.Valid(e)) {
-            if (reg.AllOf<Combat>(e))  reg.Get<Combat>(e).is_dead = true;
-            if (reg.AllOf<Health>(e)) { auto& h = reg.Get<Health>(e); for (int _i=0;_i<LIMB_COUNT;++_i) h.hp[_i]=0.f; }
+            if ((reg.Handle(e).has<Combat>()))  reg.Handle(e).get_mut<Combat>().is_dead = true;
+            if ((reg.Handle(e).has<Health>())) { auto& h = reg.Handle(e).get_mut<Health>(); for (int _i=0;_i<LIMB_COUNT;++_i) h.hp[_i]=0.f; }
         }
     }
     if (ImGui::MenuItem("Freeze LOD")) {
-        if (reg.Valid(e) && reg.AllOf<AIAgent>(e))
-            reg.Get<AIAgent>(e).lod_level = 2;
+        if (reg.Valid(e) && (reg.Handle(e).has<AIAgent>()))
+            reg.Handle(e).get_mut<AIAgent>().lod_level = 2;
     }
     if (ImGui::MenuItem("Unfreeze LOD")) {
-        if (reg.Valid(e) && reg.AllOf<AIAgent>(e))
-            reg.Get<AIAgent>(e).lod_level = 0;
+        if (reg.Valid(e) && (reg.Handle(e).has<AIAgent>()))
+            reg.Handle(e).get_mut<AIAgent>().lod_level = 0;
     }
     ImGui::Separator();
     if (ImGui::BeginMenu("Add Component")) {
-        if (ImGui::MenuItem("Health"))  { if (reg.Valid(e) && !reg.AllOf<Health>(e))  reg.Handle(e).emplace<Health>(Health{100.f, 100.f}); }
-        if (ImGui::MenuItem("Combat"))  { if (reg.Valid(e) && !reg.AllOf<Combat>(e))  reg.Handle(e).emplace<Combat>(); }
-        if (ImGui::MenuItem("AIAgent")) { if (reg.Valid(e) && !reg.AllOf<AIAgent>(e)) reg.Handle(e).emplace<AIAgent>(); }
+        if (ImGui::MenuItem("Health"))  { if (reg.Valid(e) && !(reg.Handle(e).has<Health>()))  reg.Handle(e).emplace<Health>(Health{100.f, 100.f}); }
+        if (ImGui::MenuItem("Combat"))  { if (reg.Valid(e) && !(reg.Handle(e).has<Combat>()))  reg.Handle(e).emplace<Combat>(); }
+        if (ImGui::MenuItem("AIAgent")) { if (reg.Valid(e) && !(reg.Handle(e).has<AIAgent>())) reg.Handle(e).emplace<AIAgent>(); }
         ImGui::EndMenu();
     }
 }
@@ -164,7 +164,7 @@ void EditorHierarchy::DrawContent() {
     if (ImGui::SmallButton("[+]")) {
         auto e = reg.Create();
         reg.Handle(e).emplace<WorldTransform>();
-        auto& tr = reg.Get<WorldTransform>(e);
+        auto& tr = reg.Handle(e).get_mut<WorldTransform>();
         tr.x = ec.cam_target.x; tr.y = 0.f; tr.z = ec.cam_target.z; tr.rot_y = 0.f;
         tr.slot = TransformSoA::Get().Alloc(e, tr.x, tr.z, 0);
         ec.Select(e);
@@ -175,7 +175,7 @@ void EditorHierarchy::DrawContent() {
         for (int i = ec.selected_count - 1; i >= 0; --i) {
             MdEntity e = ec.selected[i];
             if (!reg.Valid(e)) continue;
-            if (reg.AllOf<WorldTransform>(e)) TransformSoA::Get().Free(e);
+            if ((reg.Handle(e).has<WorldTransform>())) TransformSoA::Get().Free(e);
             reg.Destroy(e);
         }
         ec.DeselectAll();

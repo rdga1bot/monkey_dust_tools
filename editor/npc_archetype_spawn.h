@@ -23,30 +23,30 @@ inline MdEntity SpawnFromArchetype(int idx) {
     auto  e   = reg.Create();
 
     reg.Handle(e).emplace<WorldTransform>();
-    auto& tr  = reg.Get<WorldTransform>(e);
+    auto& tr  = reg.Handle(e).get_mut<WorldTransform>();
     tr.x = ec.cam_target.x; tr.y = 0.f; tr.z = ec.cam_target.z; tr.rot_y = 0.f;
     tr.slot = TransformSoA::Get().Alloc(e, tr.x, tr.z, (uint8_t)d.faction_id);
 
     reg.Handle(e).emplace<AIAgent>();
-    auto& ai = reg.Get<AIAgent>(e);
+    auto& ai = reg.Handle(e).get_mut<AIAgent>();
     ai.faction_id = d.faction_id;
     ai.lod_level  = d.lod_level;
 
     reg.Handle(e).set<Health>(LimbHealth::Make(d.health));
 
     reg.Handle(e).emplace<NavAgent>();
-    auto& nav = reg.Get<NavAgent>(e);
+    auto& nav = reg.Handle(e).get_mut<NavAgent>();
     nav.walk_speed = d.walk_speed;
     nav.run_speed  = d.run_speed;
 
     reg.Handle(e).emplace<StatSheet>();
-    auto& ss = reg.Get<StatSheet>(e);
+    auto& ss = reg.Handle(e).get_mut<StatSheet>();
     ss[Skill::Toughness]  = d.toughness;
     ss[Skill::Strength]   = d.strength;
     ss[Skill::Dexterity]  = d.dexterity;
 
     reg.Handle(e).emplace<Combat>();
-    auto& cmb = reg.Get<Combat>(e);
+    auto& cmb = reg.Handle(e).get_mut<Combat>();
     cmb.weapon.type         = (DamageType)d.weapon_type;
     cmb.weapon.damage       = d.weapon_damage;
     cmb.weapon.attack_range = d.weapon_range;

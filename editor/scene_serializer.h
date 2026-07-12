@@ -42,13 +42,13 @@ inline bool Export(const char* path) {
 
     reg.Each([&](MdEntity e) -> bool {
         if (!reg.Valid(e)) return true;
-        if (!reg.AllOf<WorldTransform>(e)) return true;
+        if (!(reg.Handle(e).has<WorldTransform>())) return true;
         if (count >= MAX_EXPORT_ENTITIES) {
             MD_LOG(MD_LOG_WARNING, "[SceneSerializer] Truncated at %d entities", MAX_EXPORT_ENTITIES);
             return false;
         }
 
-        const auto& tr = reg.Get<WorldTransform>(e);
+        const auto& tr = reg.Handle(e).get_mut<WorldTransform>();
         uint32_t id = e.ToIntegral();
 
         if (!first) fprintf(f, ",\n");
@@ -60,36 +60,36 @@ inline bool Export(const char* path) {
         fprintf(f, "\n        \"transform\": {\"x\":%.4f,\"y\":%.4f,\"z\":%.4f,\"rot_y\":%.4f}",
                 tr.x, tr.y, tr.z, tr.rot_y);
 
-        if (reg.AllOf<Health>(e)) {
-            const auto& hp = reg.Get<Health>(e);
+        if ((reg.Handle(e).has<Health>())) {
+            const auto& hp = reg.Handle(e).get_mut<Health>();
             fprintf(f, ",\n        \"health\": {\"current\":%.2f,\"max\":%.2f}",
                     hp.TotalHp(), hp.TotalMax());
         }
 
-        if (reg.AllOf<AIAgent>(e)) {
-            const auto& ai = reg.Get<AIAgent>(e);
+        if ((reg.Handle(e).has<AIAgent>())) {
+            const auto& ai = reg.Handle(e).get_mut<AIAgent>();
             fprintf(f, ",\n        \"ai\": {\"faction_id\":%u,\"lod_level\":%u,"
                        "\"bt_template_id\":%u,\"personal_relation\":%d}",
                     ai.faction_id, (uint32_t)ai.lod_level,
                     (uint32_t)ai.bt_template_id, (int)ai.personal_relation);
         }
 
-        if (reg.AllOf<Combat>(e)) {
-            const auto& c = reg.Get<Combat>(e);
+        if ((reg.Handle(e).has<Combat>())) {
+            const auto& c = reg.Handle(e).get_mut<Combat>();
             fprintf(f, ",\n        \"combat\": {\"weapon_type\":%d,\"weapon_dmg\":%.2f,"
                        "\"is_dead\":%d}",
                     (int)c.weapon.type, c.weapon.damage, c.is_dead ? 1 : 0);
         }
 
-        if (reg.AllOf<Building>(e)) {
-            const auto& b = reg.Get<Building>(e);
+        if ((reg.Handle(e).has<Building>())) {
+            const auto& b = reg.Handle(e).get_mut<Building>();
             fprintf(f, ",\n        \"building\": {\"def_id\":%u,\"grid_x\":%d,\"grid_z\":%d,"
                        "\"active\":%d,\"progress\":%.2f}",
                     b.def_id, b.grid_x, b.grid_z, b.active ? 1 : 0, b.progress_s);
         }
 
-        if (reg.AllOf<Inventory>(e)) {
-            const auto& inv = reg.Get<Inventory>(e);
+        if ((reg.Handle(e).has<Inventory>())) {
+            const auto& inv = reg.Handle(e).get_mut<Inventory>();
             fprintf(f, ",\n        \"inventory\": {\"slots\":[");
             for (int i = 0; i < inv.slot_count; ++i) {
                 if (i > 0) fprintf(f, ",");
@@ -98,15 +98,15 @@ inline bool Export(const char* path) {
             fprintf(f, "]}");
         }
 
-        if (reg.AllOf<PlayerController>(e)) {
-            const auto& pc = reg.Get<PlayerController>(e);
+        if ((reg.Handle(e).has<PlayerController>())) {
+            const auto& pc = reg.Handle(e).get_mut<PlayerController>();
             fprintf(f, ",\n        \"player\": {\"move_speed\":%.2f,"
                        "\"attack_cooldown_ms\":%u}",
                     pc.move_speed, pc.attack_cooldown_ms);
         }
 
-        if (reg.AllOf<AIScript>(e)) {
-            const auto& sc = reg.Get<AIScript>(e);
+        if ((reg.Handle(e).has<AIScript>())) {
+            const auto& sc = reg.Handle(e).get_mut<AIScript>();
             fprintf(f, ",\n        \"aiscript\": {\"func\":\"%s\"}", sc.script_func);
         }
 
@@ -205,7 +205,7 @@ inline bool Import(const char* path) {
 
         auto e = reg.Create();
         reg.Handle(e).emplace<WorldTransform>();
-        auto& tr = reg.Get<WorldTransform>(e);
+        auto& tr = reg.Handle(e).get_mut<WorldTransform>();
 
         // Transform
         const char* tr_pos = strstr(comp_pos, "\"transform\"");
@@ -230,7 +230,7 @@ inline bool Import(const char* path) {
         const char* ai_pos = strstr(comp_pos, "\"ai\"");
         if (ai_pos) {
             reg.Handle(e).emplace<AIAgent>();
-            auto& ai = reg.Get<AIAgent>(e);
+            auto& ai = reg.Handle(e).get_mut<AIAgent>();
             int fi = 0, li = 0, ti = 0, pr = 0;
             SsParsInt(ai_pos, "\"faction_id\"",    fi); ai.faction_id    = (uint32_t)fi;
             SsParsInt(ai_pos, "\"lod_level\"",     li); ai.lod_level     = (uint8_t)li;
@@ -243,7 +243,7 @@ inline bool Import(const char* path) {
         const char* cb_pos = strstr(comp_pos, "\"combat\"");
         if (cb_pos) {
             reg.Handle(e).emplace<Combat>(Combat::MakeBandit());
-            auto& c = reg.Get<Combat>(e);
+            auto& c = reg.Handle(e).get_mut<Combat>();
             int wt = 0, dead = 0; float wd = 28.f;
             SsParsInt  (cb_pos, "\"weapon_type\"", wt);
             SsParsFloat(cb_pos, "\"weapon_dmg\"",  wd);
@@ -257,7 +257,7 @@ inline bool Import(const char* path) {
         const char* bld_pos = strstr(comp_pos, "\"building\"");
         if (bld_pos) {
             reg.Handle(e).emplace<Building>();
-            auto& b = reg.Get<Building>(e);
+            auto& b = reg.Handle(e).get_mut<Building>();
             int gx = 0, gz = 0, act = 0, di = 0;
             float prog = 0.f;
             SsParsInt  (bld_pos, "\"def_id\"",   di);   b.def_id     = (uint32_t)di;
@@ -271,7 +271,7 @@ inline bool Import(const char* path) {
         const char* inv_pos = strstr(comp_pos, "\"inventory\"");
         if (inv_pos) {
             reg.Handle(e).emplace<Inventory>();
-            auto& inv = reg.Get<Inventory>(e);
+            auto& inv = reg.Handle(e).get_mut<Inventory>();
             inv.Clear();
             const char* slots = strstr(inv_pos, "\"slots\"");
             if (slots) {
@@ -296,7 +296,7 @@ inline bool Import(const char* path) {
         const char* pc_pos = strstr(comp_pos, "\"player\"");
         if (pc_pos) {
             reg.Handle(e).emplace<PlayerController>();
-            auto& pc = reg.Get<PlayerController>(e);
+            auto& pc = reg.Handle(e).get_mut<PlayerController>();
             float ms = 5.f; int acd = 800;
             SsParsFloat(pc_pos, "\"move_speed\"",        ms);
             SsParsInt  (pc_pos, "\"attack_cooldown_ms\"",acd);
@@ -310,7 +310,7 @@ inline bool Import(const char* path) {
         const char* sc_pos = strstr(comp_pos, "\"aiscript\"");
         if (sc_pos) {
             reg.Handle(e).emplace<AIScript>();
-            auto& sc = reg.Get<AIScript>(e);
+            auto& sc = reg.Handle(e).get_mut<AIScript>();
             SsParsStr(sc_pos, "\"func\"", sc.script_func, sizeof(sc.script_func));
         }
 

@@ -52,7 +52,7 @@ static const PaletteCmd kCommands[] = {
         for (int i = ec.selected_count - 1; i >= 0; --i) {
             MdEntity e = ec.selected[i];
             if (!reg.Valid(e)) continue;
-            if (reg.AllOf<WorldTransform>(e)) TransformSoA::Get().Free(e);
+            if ((reg.Handle(e).has<WorldTransform>())) TransformSoA::Get().Free(e);
             reg.Destroy(e);
         }
         ec.DeselectAll();

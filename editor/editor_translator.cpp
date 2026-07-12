@@ -80,8 +80,8 @@ void EditorTranslator::Draw(const MdCamera& cam, MdEntity sel, EditorGizmoOp op)
 #ifndef USE_SDL3
     // Gizmo rendering uses Raylib 3D draw calls — SDL3 path skips for now.
     auto& reg = MdRegistry::Get();
-    if (!reg.Valid(sel) || !reg.AllOf<WorldTransform>(sel)) return;
-    const auto& tr = reg.Get<WorldTransform>(sel);
+    if (!reg.Valid(sel) || !(reg.Handle(sel).has<WorldTransform>())) return;
+    const auto& tr = reg.Handle(sel).get_mut<WorldTransform>();
     Vec3 pos = {tr.x, tr.y, tr.z};
 
     Color cx = (active_axis_ == 0) ? YELLOW : RED;
@@ -121,14 +121,14 @@ void EditorTranslator::Update(const MdCamera& cam, MdEntity sel,
     (void)space;
     if (sel == MdEntity::Null()) return;
     auto& reg = MdRegistry::Get();
-    if (!reg.Valid(sel) || !reg.AllOf<WorldTransform>(sel)) return;
+    if (!reg.Valid(sel) || !(reg.Handle(sel).has<WorldTransform>())) return;
 
     auto&   ec   = EditorCore::Get();
     ImGuiIO& io  = ImGui::GetIO();
     bool snap = ImGui::IsKeyDown(ImGuiKey_LeftCtrl) || ImGui::IsKeyDown(ImGuiKey_RightCtrl);
     MdRay ray = CameraRay(io.MousePos.x, io.MousePos.y, cam);
 
-    auto& tr  = reg.Get<WorldTransform>(sel);
+    auto& tr  = reg.Handle(sel).get_mut<WorldTransform>();
     Vec3 pos = {tr.x, tr.y, tr.z};
 
     // ── Press: detect which axis was clicked ──────────────────────────────
@@ -182,8 +182,8 @@ void EditorTranslator::Update(const MdCamera& cam, MdEntity sel,
 
             for (int i = 0; i < ec.selected_count; ++i) {
                 MdEntity e = ec.selected[i];
-                if (!reg.Valid(e) || !reg.AllOf<WorldTransform>(e)) continue;
-                auto& etr = reg.Get<WorldTransform>(e);
+                if (!reg.Valid(e) || !(reg.Handle(e).has<WorldTransform>())) continue;
+                auto& etr = reg.Handle(e).get_mut<WorldTransform>();
                 etr.x += delta.x;
                 etr.y += delta.y;
                 etr.z += delta.z;
@@ -202,8 +202,8 @@ void EditorTranslator::Update(const MdCamera& cam, MdEntity sel,
             float new_rot = entity_start_rot_y_ + delta_deg;
             for (int i = 0; i < ec.selected_count; ++i) {
                 MdEntity e = ec.selected[i];
-                if (!reg.Valid(e) || !reg.AllOf<WorldTransform>(e)) continue;
-                reg.Get<WorldTransform>(e).rot_y = new_rot;
+                if (!reg.Valid(e) || !(reg.Handle(e).has<WorldTransform>())) continue;
+                reg.Handle(e).get_mut<WorldTransform>().rot_y = new_rot;
             }
         }
         // SCALE: WorldTransform has no scale field — no-op

@@ -26,12 +26,12 @@ void EditorViewConePanel::DrawContent() {
     auto& reg = MdRegistry::Get();
     MdEntity e = EditorCore::Get().GetPrimary();
 
-    if (e == MdEntity::Null() || !reg.Valid(e) || !reg.AllOf<SenseComponent>(e)) {
+    if (e == MdEntity::Null() || !reg.Valid(e) || !(reg.Handle(e).has<SenseComponent>())) {
         ImGui::TextDisabled("Select an entity with SenseComponent.");
         return;
     }
 
-    auto& sc = reg.Get<SenseComponent>(e);
+    auto& sc = reg.Handle(e).get_mut<SenseComponent>();
 
     // ── Activation bars ────────────────────────────────────────────────
     if (ImGui::CollapsingHeader("Activation", ImGuiTreeNodeFlags_DefaultOpen)) {

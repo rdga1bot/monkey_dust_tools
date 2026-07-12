@@ -579,8 +579,8 @@ void EditorCore::FocusOnSelected() {
     auto& reg = MdRegistry::Get();
     MdEntity e = GetPrimary();
     if (!reg.Valid(e)) return;
-    if (!reg.AllOf<WorldTransform>(e)) return;
-    const auto& tr = reg.Get<WorldTransform>(e);
+    if (!(reg.Handle(e).has<WorldTransform>())) return;
+    const auto& tr = reg.Handle(e).get_mut<WorldTransform>();
     cam_target = Vec3{ tr.x, 0.f, tr.z };
     cam_dist   = 15.f;
 }

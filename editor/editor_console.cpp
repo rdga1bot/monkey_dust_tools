@@ -172,10 +172,10 @@ void EditorConsole::ExecCommand(const char* raw) {
         auto& reg = MdRegistry::Get();
         auto e = reg.Create();
         reg.Handle(e).emplace<WorldTransform>();
-        auto& tr = reg.Get<WorldTransform>(e);
+        auto& tr = reg.Handle(e).get_mut<WorldTransform>();
         tr.x = cx; tr.y = 0.f; tr.z = cz; tr.rot_y = 0.f;
         reg.Handle(e).emplace<AIAgent>();
-        auto& ai = reg.Get<AIAgent>(e);
+        auto& ai = reg.Handle(e).get_mut<AIAgent>();
         ai.faction_id = (uint32_t)faction;
         reg.Handle(e).emplace<Health>(Health{100.f, 100.f});
         reg.Handle(e).emplace<Combat>(Combat::MakeBandit());
@@ -194,8 +194,8 @@ void EditorConsole::ExecCommand(const char* raw) {
         reg.Each([&](MdEntity e) -> bool {
             if (e.ToIntegral() != eid) return true;
             found = true;
-            if (reg.AllOf<Combat>(e))  reg.Get<Combat>(e).is_dead = true;
-            if (reg.AllOf<Health>(e)) { auto& h = reg.Get<Health>(e); for (int _i=0;_i<LIMB_COUNT;++_i) h.hp[_i]=0.f; }
+            if ((reg.Handle(e).has<Combat>()))  reg.Handle(e).get_mut<Combat>().is_dead = true;
+            if ((reg.Handle(e).has<Health>())) { auto& h = reg.Handle(e).get_mut<Health>(); for (int _i=0;_i<LIMB_COUNT;++_i) h.hp[_i]=0.f; }
             return false;  // found — stop
         });
         if (found) {
