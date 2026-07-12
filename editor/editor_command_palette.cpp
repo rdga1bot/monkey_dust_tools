@@ -40,10 +40,10 @@ static const PaletteCmd kCommands[] = {
     { "Select All",              "Ctrl+A",    []{
         auto& ec = EditorCore::Get(); auto& reg = MdRegistry::Get();
         ec.DeselectAll();
-        reg.Each([&](MdEntity e) -> bool {
-            if (ec.selected_count >= EditorCore::MAX_SELECTED) return false;
-            ec.selected[ec.selected_count++] = e;
-            return true;
+        static auto q_all = reg.Raw().query<MdManagedTag>();
+        q_all.each([&](flecs::entity fe, MdManagedTag) {
+            if (ec.selected_count >= EditorCore::MAX_SELECTED) return;
+            ec.selected[ec.selected_count++] = MdEntity(fe.id());
         });
     }},
     { "Deselect All",            "",          []{ EditorCore::Get().DeselectAll(); } },

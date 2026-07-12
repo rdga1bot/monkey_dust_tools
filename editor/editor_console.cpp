@@ -189,15 +189,15 @@ void EditorConsole::ExecCommand(const char* raw) {
         uint32_t eid = 0;
         sscanf(cmd + 4, "%u", &eid);
         auto& reg = MdRegistry::Get();
-        // find entity by integral id
-        bool found = false;
-        reg.Each([&](MdEntity e) -> bool {
-            if (e.ToIntegral() != eid) return true;
-            found = true;
+        // Resolve entity by integral id — generation-aware, so a recycled
+        // index that no longer belongs to this id correctly misses (see
+        // MdRegistry::FromIndex()'s doc comment).
+        MdEntity e = reg.FromIndex(eid);
+        bool found = reg.Valid(e) && e.ToIntegral() == eid;
+        if (found) {
             if ((reg.Handle(e).has<Combat>()))  reg.Handle(e).get_mut<Combat>().is_dead = true;
             if ((reg.Handle(e).has<Health>())) { auto& h = reg.Handle(e).get_mut<Health>(); for (int _i=0;_i<LIMB_COUNT;++_i) h.hp[_i]=0.f; }
-            return false;  // found — stop
-        });
+        }
         if (found) {
             char msg[48];
             snprintf(msg, sizeof(msg), "[Console] Killed entity %u", eid);

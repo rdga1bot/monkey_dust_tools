@@ -39,13 +39,19 @@ inline bool Export(const char* path) {
 
     int count = 0;
     bool first = true;
+    bool truncated_logged = false;
 
-    reg.Each([&](MdEntity e) -> bool {
-        if (!reg.Valid(e)) return true;
-        if (!(reg.Handle(e).has<WorldTransform>())) return true;
+    static auto q_all = reg.Raw().query<MdManagedTag>();
+    q_all.each([&](flecs::entity fe, MdManagedTag) {
+        MdEntity e(fe.id());
+        if (!reg.Valid(e)) return;
+        if (!(reg.Handle(e).has<WorldTransform>())) return;
         if (count >= MAX_EXPORT_ENTITIES) {
-            MD_LOG(MD_LOG_WARNING, "[SceneSerializer] Truncated at %d entities", MAX_EXPORT_ENTITIES);
-            return false;
+            if (!truncated_logged) {
+                MD_LOG(MD_LOG_WARNING, "[SceneSerializer] Truncated at %d entities", MAX_EXPORT_ENTITIES);
+                truncated_logged = true;
+            }
+            return;
         }
 
         const auto& tr = reg.Handle(e).get_mut<WorldTransform>();
@@ -112,7 +118,6 @@ inline bool Export(const char* path) {
 
         fprintf(f, "\n      }\n    }");
         count++;
-        return true;
     });
 
     fprintf(f, "\n  ]\n}\n");

@@ -55,8 +55,8 @@ void EditorFlowGraphPanel::DrawContent() {
     if (sel != MdEntity::Null() && reg.Valid(sel) && (reg.Handle(sel).has<FlowGraph>()))
         target = sel;
     if (target == MdEntity::Null()) {
-        auto view = reg.View<FlowGraph>();
-        if (!view.empty()) target = view.front();
+        static auto q_fg = reg.Raw().query<FlowGraph>();
+        target = MdFirst(q_fg);
     }
 
     if (target == MdEntity::Null()) {

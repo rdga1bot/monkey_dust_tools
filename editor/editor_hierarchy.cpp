@@ -24,10 +24,10 @@
 void EditorHierarchy::RefreshCache() {
     auto& reg = MdRegistry::Get();
     entity_cache_count_ = 0;
-    reg.Each([&](MdEntity e) -> bool {
-        if (entity_cache_count_ >= MAX_CACHE) return false;
-        entity_cache_[entity_cache_count_++] = e;
-        return true;
+    static auto q_all = reg.Raw().query<MdManagedTag>();
+    q_all.each([&](flecs::entity fe, MdManagedTag) {
+        if (entity_cache_count_ >= MAX_CACHE) return;
+        entity_cache_[entity_cache_count_++] = MdEntity(fe.id());
     });
 }
 
