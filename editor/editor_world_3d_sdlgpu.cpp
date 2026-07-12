@@ -1078,13 +1078,14 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
                     // fsMain resolve ground_layers per-fragment from world position
                     // instead (no biome crossfade on this path — hard zone boundary,
                     // acceptable simplification at this distance, see terrain_forward.slang).
-                    // fog_density tuned for normal ~km-scale gameplay view distance
-                    // saturates fog_t=1.0 across this whole-world mesh from an aerial
-                    // camera (tens of km away), washing everything to solid fog colour —
-                    // override with a much smaller density (EXP2 visibility scales
-                    // roughly as 1/density; 0.00002 gives ~50% fog at the world's
-                    // diagonal, ~42km for the 29.5km×29.5km world, vs default 0.001).
-                    s_terrain.SetBatchZoneLookup(cmd, true, 0.00002f);
+                    // fog_far tuned for normal ~km-scale gameplay view distance
+                    // (terrain_cr_m) saturates fog_t=1.0 across this whole-world mesh
+                    // from an aerial camera (tens of km away), washing everything to
+                    // solid fog colour — override with a much larger fog_far (linear
+                    // fog, 2026-07-12; this arg was an EXP2 density override before,
+                    // now overrides fog_far directly). 60000m safely exceeds the
+                    // 29.5km×29.5km world's diagonal (~41.7km).
+                    s_terrain.SetBatchZoneLookup(cmd, true, 60000.f);
                 }
                 SDL_BindGPUGraphicsPipeline(rp, s_synth_pipeline.SDLPipeline()); // override: depth bias
                 SDL_GPUBufferBinding sib { s_synth_ibo.SDLBuffer(), 0u };
@@ -1126,14 +1127,17 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
                         // Use global kenshi colour map (WCX/WCZ/W2UV) for correct vivid colours.
                         // VT composite is built for future height-based detail but not applied
                         // for colour — the local 8km patch can land on muted/grey kenshi zones.
-                        // fog_density_override: see DrawRawPOM's doc comment — normal
-                        // gameplay fog_density is tuned for ground-level view distance;
-                        // the editor's aerial camera (kilometres up) needs a much
-                        // smaller density or every POM chunk renders as solid fog
-                        // colour (the "gear/waffle" artifact).
+                        // fog_density_override: see DrawRawPOM's doc comment (linear
+                        // fog, 2026-07-12 — this arg now overrides fog_far directly,
+                        // was an EXP2 density). Normal gameplay fog_far is tuned for
+                        // ground-level view distance (terrain_cr_m); the editor's
+                        // aerial camera (kilometres up) needs a much LARGER fog_far
+                        // or every POM chunk renders as solid fog colour (the
+                        // "gear/waffle" artifact). 60000m safely exceeds any
+                        // real distance to a POM-tier chunk in this view.
                         int lod = (d2 < d0sq) ? 0 : 1;
                         s_terrain.DrawRawPOM(rp, cmd, ch, vp.m,
-                                            sun, eye_x, eye_y, eye_z, WCX, WCZ, W2UV, lod, 0.00002f);
+                                            sun, eye_x, eye_y, eye_z, WCX, WCZ, W2UV, lod, 60000.f);
                     } else {
                         int flat = cz * EDITOR_TNKN + cx;
                         int tier = (d2 < d2sq) ? 0 : 1;
@@ -1159,9 +1163,9 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
                             // compact-VBO batch share ONE fragment UBO push, so per-zone
                             // ground textures must come from the per-fragment SSBO lookup
                             // (use_zone_lookup=1), not a single fixed ground_layers value.
-                            // Same aerial-altitude fog_density problem as LOD1/synthesis
+                            // Same aerial-altitude fog_far problem as LOD1/synthesis
                             // (see their comments) — override here too, not just ground_layers.
-                            s_terrain.SetBatchZoneLookup(cmd, true, 0.00002f);
+                            s_terrain.SetBatchZoneLookup(cmd, true, 60000.f);
                             SDL_BindGPUIndexBuffer(rp, &cib, SDL_GPU_INDEXELEMENTSIZE_16BIT);
                             SDL_BindGPUVertexBuffers(rp, 0, &vb, 1);
                             batch_open = true;
