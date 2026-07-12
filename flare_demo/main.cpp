@@ -823,7 +823,7 @@ static void SpawnDemoEntities(const md::flare::FlareRuntime& rt) {
             s_npc_atk_cd[idx]  = 0.f;
 
             reg.Emplace<AgentState>(e);
-            auto& ab = reg.Emplace<AgentBlackboard>(e);
+            reg.Emplace<AgentBlackboard>(e);
             reg.Emplace<SquadMemberComponent>(e).squad_id = 0;
 
             float spx = sp.center_x + (float)j * 0.8f;
@@ -832,6 +832,11 @@ static void SpawnDemoEntities(const md::flare::FlareRuntime& rt) {
             auto& wt = reg.Emplace<WorldTransform>(e);
             wt.x = spx; wt.z = spz; wt.y = 0.f; wt.rot_y = 0.f;
 
+            // B3.4: re-fetch AgentBlackboard here — the reference from its
+            // Emplace() above was invalidated by the Emplace<SquadMemberComponent>/
+            // Emplace<WorldTransform> calls since (same pattern as
+            // world_init.cpp/world_serializer.cpp).
+            auto& ab = reg.Get<AgentBlackboard>(e);
             bb_set_float(ab, kSX, spx);
             bb_set_float(ab, kSZ, spz);
 
