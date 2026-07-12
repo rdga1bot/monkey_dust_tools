@@ -12,7 +12,6 @@
 #include "editor_history.h"
 #include <monkey_dust/ecs/registry.h>
 #include <monkey_dust/render/md_camera.h>
-#include <entt/entt.hpp>
 
 enum class EditorGizmoOp    { TRANSLATE = 0, ROTATE = 1, SCALE = 2 };
 enum class EditorGizmoSpace { LOCAL = 0, WORLD = 1 };

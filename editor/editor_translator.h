@@ -2,7 +2,6 @@
 #include <monkey_dust/ecs/md_entity.h>
 #ifdef MONKEY_DUST_EDITOR
 #include <monkey_dust/render/md_camera.h>
-#include <entt/entt.hpp>
 #include "editor_core.h"
 
 class EditorTranslator {

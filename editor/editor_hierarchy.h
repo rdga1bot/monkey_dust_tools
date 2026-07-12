@@ -3,7 +3,6 @@
 #ifdef MONKEY_DUST_EDITOR
 #include "imgui.h"
 #include "editor_core.h"
-#include <entt/entt.hpp>
 
 class EditorHierarchy {
 public:

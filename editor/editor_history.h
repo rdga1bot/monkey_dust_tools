@@ -1,7 +1,6 @@
 #pragma once
 #ifdef MONKEY_DUST_EDITOR
 #include <monkey_dust/ecs/md_registry.h>
-#include <entt/entt.hpp>
 #include <cstdint>
 #include <cstring>
 

@@ -17,7 +17,6 @@
 #include <monkey_dust/components/faction.h>
 #include <monkey_dust/building/build_system.h>
 #include <monkey_dust/world/transform_soa.h>
-#include <entt/entt.hpp>
 #include <cstdio>
 #include <cstring>
 

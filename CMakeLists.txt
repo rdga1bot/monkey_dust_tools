@@ -130,7 +130,6 @@ if(MONKEY_DUST_EDITOR_HOT_RELOAD)
         ${CMAKE_SOURCE_DIR}/engine/src/vendor
         ${CMAKE_SOURCE_DIR}/engine/src/render
         ${CMAKE_SOURCE_DIR}/engine/src/audio
-        ${CMAKE_SOURCE_DIR}/engine/third_party/entt/single_include
         ${CMAKE_SOURCE_DIR}/engine/third_party/flecs
         ${CMAKE_SOURCE_DIR}/engine/third_party/glm
         ${CMAKE_SOURCE_DIR}/engine/third_party/JoltPhysics
@@ -159,7 +158,6 @@ endif()
 if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.16")
     target_precompile_headers(monkey_dust_editor PRIVATE
         <cstdint> <cstdlib> <cstring> <cstdio>
-        <entt/entt.hpp>
         <imgui.h>
         <SDL3/SDL_gpu.h>
     )
@@ -180,7 +178,7 @@ if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.16")
     )
     set_source_files_properties(${_EDITOR_THIRDPARTY_CPP} PROPERTIES
         SKIP_PRECOMPILE_HEADERS ON)
-    message(STATUS "[monkey_dust_editor] PCH: ENABLED (entt + imgui + SDL_GPU)")
+    message(STATUS "[monkey_dust_editor] PCH: ENABLED (imgui + SDL_GPU)")
 endif()
 
 endif() # MONKEY_DUST_TOOLS_NEED_SDL3 — editor + hot-reload panels end here
