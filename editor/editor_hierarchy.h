@@ -21,7 +21,7 @@ private:
     int          cache_refresh_counter_   = 0;
     char         entity_filter_[64]       = {};
 
-    MdEntity ctx_entity_ = entt::null; // right-click target
+    MdEntity ctx_entity_ = MdEntity::Null(); // right-click target
 
     void RefreshCache();
     void DrawContextMenu(MdEntity e);

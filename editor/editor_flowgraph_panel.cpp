@@ -50,16 +50,16 @@ void EditorFlowGraphPanel::DrawContent() {
 
     auto& reg = MdRegistry::Get();
 
-    MdEntity target = entt::null;
+    MdEntity target = MdEntity::Null();
     MdEntity sel = EditorCore::Get().GetPrimary();
-    if (sel != entt::null && reg.Valid(sel) && reg.AllOf<FlowGraph>(sel))
+    if (sel != MdEntity::Null() && reg.Valid(sel) && reg.AllOf<FlowGraph>(sel))
         target = sel;
-    if (target == entt::null) {
+    if (target == MdEntity::Null()) {
         auto view = reg.View<FlowGraph>();
         if (!view.empty()) target = view.front();
     }
 
-    if (target == entt::null) {
+    if (target == MdEntity::Null()) {
         ImGui::TextDisabled("No FlowGraph entity in scene.");
         return;
     }

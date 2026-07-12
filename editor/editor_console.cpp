@@ -70,7 +70,7 @@ void EditorConsole::ExecCommand(const char* raw) {
     PushHistory(raw);
 
     if (lua_mode_) {
-        LuaSystem::Get().CallAction(raw, entt::null);
+        LuaSystem::Get().CallAction(raw, MdEntity::Null());
         return;
     }
 

@@ -90,7 +90,7 @@ static const char* SENSE_JSON    = "data/ai/view_cone_sets.json";
 
 // ── Demo state ────────────────────────────────────────────────────────────────
 
-static MdEntity  s_player         = entt::null;
+static MdEntity  s_player         = MdEntity::Null();
 static MdEntity  s_npcs[DEMO_MAX_NPCS];
 static int           s_npc_count      = 0;
 static int           s_npc_hp[DEMO_MAX_NPCS]      = {};
@@ -694,7 +694,7 @@ static BTStatus actGuardChase(md::EngineContext&, MdEntity e) {
     MoveToward(*wt, sc->last_known_x, sc->last_known_z, GUARD_CHASE_SPD);
 
     // Melee attack: deal damage to player if within range and cooldown expired.
-    if (!s_player_dead && s_player != entt::null) {
+    if (!s_player_dead && s_player != MdEntity::Null()) {
         auto* pwt = reg.TryGet<WorldTransform>(s_player);
         if (pwt) {
             float ddx = pwt->x - wt->x, ddz = pwt->z - wt->z;
@@ -862,9 +862,9 @@ static void DestroyDemoEntities() {
     auto& reg = MdRegistry::Get();
     for (int i = 0; i < s_npc_count; ++i)
         if (reg.Valid(s_npcs[i])) reg.Destroy(s_npcs[i]);
-    if (s_player != entt::null && reg.Valid(s_player)) reg.Destroy(s_player);
+    if (s_player != MdEntity::Null() && reg.Valid(s_player)) reg.Destroy(s_player);
     s_npc_count = 0;
-    s_player    = entt::null;
+    s_player    = MdEntity::Null();
 }
 
 // ── Logic tick (10 TPS) ───────────────────────────────────────────────────────
@@ -995,7 +995,7 @@ int main(int argc, char** argv) {
     // Compute origin so camera centers on player's tile position,
     // then clamp so the map diamond fills at least half the viewport.
     auto ComputeOrigin = [&]() {
-        if (s_player == entt::null) return;
+        if (s_player == MdEntity::Null()) return;
         auto* pwt = MdRegistry::Get().TryGet<WorldTransform>(s_player);
         if (!pwt) return;
         origin_x = (float)vp_w * 0.5f - (pwt->x - pwt->z) * 96.f * scale;
@@ -1058,7 +1058,7 @@ int main(int argc, char** argv) {
                     case SDL_SCANCODE_E:      do_zoom_in  = true; break;
                     case SDL_SCANCODE_I: {
                         // Dump reflected fields of the player entity.
-                        if (s_player != entt::null) {
+                        if (s_player != MdEntity::Null()) {
                             auto* pwt = MdRegistry::Get().TryGet<WorldTransform>(s_player);
                             if (pwt) {
                                 const auto* d = md::ComponentReflect::Get()
@@ -1180,7 +1180,7 @@ int main(int argc, char** argv) {
                             hit3d.world_x, hit3d.world_y, hit3d.world_z,
                             tile_col, tile_row);
                 }
-            } else if (lmb && !over_btn && !s_player_dead && s_player != entt::null) {
+            } else if (lmb && !over_btn && !s_player_dead && s_player != MdEntity::Null()) {
                 // Mouse → tile coords (inverse isometric formula).
                 float xmz = (mx_f - origin_x) / (96.f * scale);
                 float xpz = (my_f - origin_y) / (48.f * scale);
@@ -1227,7 +1227,7 @@ int main(int argc, char** argv) {
         }
 
         // ── Player movement toward target ─────────────────────────────────────
-        if (!s_player_dead && s_player != entt::null) {
+        if (!s_player_dead && s_player != MdEntity::Null()) {
             auto* pwt = MdRegistry::Get().TryGet<WorldTransform>(s_player);
             if (pwt) {
                 float tx = pwt->x, tz = pwt->z;  // default: stay
@@ -1412,7 +1412,7 @@ int main(int argc, char** argv) {
             auto& reg = MdRegistry::Get();
 
             // Player sprite.
-            if (!s_player_dead && s_player != entt::null) {
+            if (!s_player_dead && s_player != MdEntity::Null()) {
                 auto* pwt = reg.TryGet<WorldTransform>(s_player);
                 if (pwt && sp_n < kMax) {
                     sp_x[sp_n]   = pwt->x;

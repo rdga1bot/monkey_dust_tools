@@ -117,7 +117,7 @@ void EditorCore::Init() {
     EditorConsole::Get().Init();
     EditorNodeGraphPanel::Get().Init();
     for (int i = 0; i < MAX_SELECTED; ++i)
-        selected[i] = entt::null;
+        selected[i] = MdEntity::Null();
 
     bool det6[6] = {};
     ImVec2 pos6[6] = { f3_pos_scene, f3_pos_ai, f3_pos_anim, f3_pos_flow, f3_pos_debug, f3_pos_cam };
@@ -431,7 +431,7 @@ void EditorCore::Shutdown() {
 
 // ── Selection ─────────────────────────────────────────────────
 MdEntity EditorCore::GetPrimary() const {
-    return (selected_count > 0) ? selected[0] : entt::null;
+    return (selected_count > 0) ? selected[0] : MdEntity::Null();
 }
 
 void EditorCore::Select(MdEntity e, bool add) {
@@ -445,14 +445,14 @@ void EditorCore::Deselect(MdEntity e) {
     for (int i = 0; i < selected_count; ++i) {
         if (selected[i] == e) {
             selected[i] = selected[--selected_count];
-            selected[selected_count] = entt::null;
+            selected[selected_count] = MdEntity::Null();
             return;
         }
     }
 }
 
 void EditorCore::DeselectAll() {
-    for (int i = 0; i < selected_count; ++i) selected[i] = entt::null;
+    for (int i = 0; i < selected_count; ++i) selected[i] = MdEntity::Null();
     selected_count = 0;
 }
 

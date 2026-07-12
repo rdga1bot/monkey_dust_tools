@@ -76,7 +76,7 @@ Vec3 EditorTranslator::ComputePlaneHit(MdRay ray, EditorGizmoOp op,
 // ── Draw ──────────────────────────────────────────────────────────────────────
 void EditorTranslator::Draw(const MdCamera& cam, MdEntity sel, EditorGizmoOp op) {
     (void)cam; (void)op;
-    if (sel == entt::null) return;
+    if (sel == MdEntity::Null()) return;
 #ifndef USE_SDL3
     // Gizmo rendering uses Raylib 3D draw calls — SDL3 path skips for now.
     auto& reg = MdRegistry::Get();
@@ -119,7 +119,7 @@ void EditorTranslator::Update(const MdCamera& cam, MdEntity sel,
 #ifndef USE_SDL3
     // Gizmo interaction uses Raylib 3D draw + ImGui input — SDL3/SDL_GPU path deferred.
     (void)space;
-    if (sel == entt::null) return;
+    if (sel == MdEntity::Null()) return;
     auto& reg = MdRegistry::Get();
     if (!reg.Valid(sel) || !reg.AllOf<WorldTransform>(sel)) return;
 

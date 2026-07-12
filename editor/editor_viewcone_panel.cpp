@@ -26,7 +26,7 @@ void EditorViewConePanel::DrawContent() {
     auto& reg = MdRegistry::Get();
     MdEntity e = EditorCore::Get().GetPrimary();
 
-    if (e == entt::null || !reg.Valid(e) || !reg.AllOf<SenseComponent>(e)) {
+    if (e == MdEntity::Null() || !reg.Valid(e) || !reg.AllOf<SenseComponent>(e)) {
         ImGui::TextDisabled("Select an entity with SenseComponent.");
         return;
     }
