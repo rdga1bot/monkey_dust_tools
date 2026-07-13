@@ -45,6 +45,25 @@ static int l_md_editor_select_zone(lua_State* L) {
     return 0;
 }
 
+// ── md.editor_camera_pos(x, y, z, yaw, pitch) — full camera pose control ─────
+// Visual-diagnostic tool (not part of the original Etap 4 "3-5 operations"
+// scope) — added specifically to inspect the POM/forward shader-pass
+// crossfade boundary near ground level; TeleportToZone's fixed aerial
+// altitude can't get close enough to see it.
+static int l_md_editor_camera_pos(lua_State* L) {
+    float x     = (float)luaL_checknumber(L, 1);
+    float y     = (float)luaL_checknumber(L, 2);
+    float z     = (float)luaL_checknumber(L, 3);
+    float yaw   = (float)luaL_optnumber(L, 4, 0.0);
+    float pitch = (float)luaL_optnumber(L, 5, 0.38);
+#ifdef MD_SDL_GPU
+    WorldEditor3D_SDLGPU::SetCameraPos(x, y, z, yaw, pitch);
+#else
+    (void)x; (void)y; (void)z; (void)yaw; (void)pitch;
+#endif
+    return 0;
+}
+
 // ── md.editor_terrain_op(op, x, z) -> result ─────────────────────────────────
 // Etap 4 scope: "height" is the one operation actually needed for terrain
 // verification (matches game-side md.terrain_height's TerrainQuery source of
@@ -130,6 +149,7 @@ static int l_md_editor_screenshot(lua_State* L) {
 void RegisterLuaEditorScenarioAPI(LuaSystem& sys) {
     sys.RegisterNamespaceFunction("editor_open_panel",  l_md_editor_open_panel);
     sys.RegisterNamespaceFunction("editor_select_zone", l_md_editor_select_zone);
+    sys.RegisterNamespaceFunction("editor_camera_pos",  l_md_editor_camera_pos);
     sys.RegisterNamespaceFunction("editor_terrain_op",  l_md_editor_terrain_op);
     sys.RegisterNamespaceFunction("editor_screenshot",  l_md_editor_screenshot);
     sys.RegisterNamespaceFunction("log",                l_md_log);

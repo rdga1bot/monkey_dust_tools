@@ -26,6 +26,15 @@ float GetZoomOut();
 // hardcoded Hub position: zone (23,29) == world (11750,14250)).
 void TeleportToZone(int zone_x, int zone_z);
 
+// Autonomy system (md.editor_camera_pos) — full camera pose control for
+// visual diagnostics (e.g. inspecting the POM/forward shader-pass
+// crossfade boundary, which TeleportToZone's fixed altitude/look-down
+// pitch can't get close enough to see). pitch in radians, same convention
+// as s_pitch (0.38 = default look-down angle, clamped [-0.3, 1.3]
+// elsewhere in this file — passing out of range here is NOT clamped,
+// caller's responsibility, this is a diagnostic tool not player input).
+void SetCameraPos(float x, float y, float z, float yaw, float pitch);
+
 // Autonomy system (md.editor_terrain_op("chunks_loaded")) — progress counter
 // for the full 64x64=4096-chunk world build (background thread, see
 // s_chunks_built in editor_world_3d_sdlgpu.cpp). Designed for ~0.5s at 60fps;

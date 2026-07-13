@@ -818,19 +818,32 @@ static void tick_chunk_build() {
 // Ogre never switches shader for near terrain, see RenderFrame's comment);
 // beyond that it draws via the compact VBO (s_cvbo), which only needs
 // heightmap_ready.
-static void s_update_chunk_gpu_window(float eye_x, float eye_z) {
+// Returns true if the near-camera chunk window still has pending uploads
+// within UPLOAD_R2 after this call (i.e. MAX_UPLOADS_PER_CALL was exhausted
+// before every in-range chunk got its GPU buffers) — see RenderFrame's idle-
+// skip, which must NOT freeze the RTT while this window is still catching up
+// after a large camera jump (confirmed bug, 2026-07-13: a teleport-sized jump
+// needs far more than MAX_UPLOADS_PER_CALL=8 chunks uploaded, but the idle-
+// skip only allows ~2 real frames before freezing — the RTT then permanently
+// retains whatever partial/empty state existed at that moment, showing flat
+// clear-colour "sky" instead of terrain. Confirmed via A/B: continuously
+// moving the camera every frame — never triggering idle-skip — always shows
+// correct terrain; a single teleport + hold-still reproduces the bug 100%).
+static bool s_update_chunk_gpu_window(float eye_x, float eye_z) {
     static constexpr float UPLOAD_R2  = 4000.f * 4000.f;  // margin past d1sq=3500m
     static constexpr float RELEASE_R2 = 5500.f * 5500.f;  // hysteresis — avoid thrash at the boundary
     static constexpr int   MAX_UPLOADS_PER_CALL = 8;      // bound per-frame GPU work
 
-    int uploads = 0;
-    for (int cz = 0; cz < EDITOR_TNKN && uploads < MAX_UPLOADS_PER_CALL; ++cz) {
-        for (int cx = 0; cx < EDITOR_TNKN && uploads < MAX_UPLOADS_PER_CALL; ++cx) {
+    int  uploads = 0;
+    bool pending = false;
+    for (int cz = 0; cz < EDITOR_TNKN; ++cz) {
+        for (int cx = 0; cx < EDITOR_TNKN; ++cx) {
             TerrainChunk& ch = s_chunks[cz][cx];
             if (!ch.heightmap_ready) continue;
             float ddx = ch.center_x - eye_x, ddz = ch.center_z - eye_z;
             float d2  = ddx * ddx + ddz * ddz;
             if (!ch.loaded && d2 < UPLOAD_R2) {
+                if (uploads >= MAX_UPLOADS_PER_CALL) { pending = true; continue; }
                 // TerrainGen_Upload() reads module-static staging buffers in
                 // terrain_gen.cpp that are only valid for whichever chunk
                 // TerrainGen_Build() last populated — rebuild (cheap: atlas
@@ -852,6 +865,7 @@ static void s_update_chunk_gpu_window(float eye_x, float eye_z) {
             }
         }
     }
+    return pending;
 }
 
 // ── Camera input (original free-fly) ─────────────────────────────────────────
@@ -944,8 +958,10 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
 
     // Windowed per-chunk GPU buffer upload/release around the camera (see
     // s_update_chunk_gpu_window's doc comment) — must run every frame so
-    // nearby chunks are ready for the LOD0/LOD1 draw loop below.
-    s_update_chunk_gpu_window(eye_x, eye_z);
+    // nearby chunks are ready for the LOD0/LOD1 draw loop below. Return value
+    // feeds the idle-skip below — a jump-sized camera move can leave chunks
+    // still pending past this single call's upload budget.
+    bool chunk_window_pending = s_update_chunk_gpu_window(eye_x, eye_z);
 
     // Rebuild dirty chunks (marked by s_apply_brush)
     bool was_chunk_dirty = false;
@@ -970,13 +986,18 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
     // Idle skip: if camera and scene unchanged, reuse last RTT (LOAD_OP_CLEAR not called
     // → s_color keeps previous content → ImGui image shows last rendered frame).
     // Allow 2 stable frames before skipping so final position is fully rendered.
+    // MUST also stay awake while chunk_window_pending — a teleport-sized jump
+    // needs more than one call's upload budget (see s_update_chunk_gpu_window's
+    // doc comment); freezing before the window finishes catching up retains a
+    // near-empty frame (fixed 2026-07-13, was a real repro: hold the camera
+    // still right after a big jump → permanent flat sky-colour RTT).
     {
         static float s_pcx=-1e9f,s_pcy=-1e9f,s_pcz=-1e9f,s_pyaw=-1e9f,s_ppit=-1e9f;
         static int   s_idle=0;
         bool cam_same = fabsf(s_cx-s_pcx)<0.5f && fabsf(s_cy-s_pcy)<0.5f &&
                         fabsf(s_cz-s_pcz)<0.5f && fabsf(s_yaw-s_pyaw)<0.001f &&
                         fabsf(s_pitch-s_ppit)<0.001f;
-        if (cam_same && !was_chunk_dirty && !s_cvbo_dirty) {
+        if (cam_same && !was_chunk_dirty && !s_cvbo_dirty && !chunk_window_pending) {
             if (++s_idle > 2) return;  // RTT retained → no GPU work needed
         } else {
             s_idle=0;
@@ -1354,6 +1375,11 @@ void TeleportToZone(int zone_x, int zone_z) {
 
 int GetChunksLoaded() { return s_chunks_built.load(); }
 int GetChunksTotal()  { return EDITOR_TNKN * EDITOR_TNKN; }
+
+void SetCameraPos(float x, float y, float z, float yaw, float pitch) {
+    s_cx = x; s_cy = y; s_cz = z;
+    s_yaw = yaw; s_pitch = pitch;
+}
 
 } // namespace WorldEditor3D_SDLGPU
 
