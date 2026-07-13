@@ -709,15 +709,32 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
             sd.has_depth_target   = true;
             sd.vert_uniform_bufs  = 1;
             sd.frag_uniform_bufs  = 1;
-            // terrain_forward.frag samples 5 textures (tex_colour, tex_ground,
-            // tex_detail, tex_overlay_mask, tex_biome_blend). This pipeline's
-            // frag_samplers count must track that exactly (engine's own
-            // TerrainRenderer pipeline for the same shader already does, see
-            // terrain_renderer.cpp:38) — falling behind by even one binding
-            // shifts every descriptor slot, producing solid-colour garbage
-            // quads on the synthesis background mesh (which always renders,
-            // not just at high altitude).
-            sd.frag_samplers      = 5;
+            // terrain_forward.frag samples 6 textures (tex_colour, tex_ground,
+            // tex_detail, tex_overlay_mask, tex_biome_blend, tex_albedo_baked
+            // -- the last one added 2026-07-12 by the albedo-bake work and
+            // never back-ported to this editor-local pipeline copy, found
+            // during task #158). This pipeline's frag_samplers count must
+            // track that exactly (engine's own TerrainRenderer pipeline for
+            // the same shader already does, see terrain_renderer.cpp:38) —
+            // falling behind by even one binding shifts every descriptor
+            // slot, producing solid-colour garbage quads on the synthesis
+            // background mesh (which always renders, not just at high
+            // altitude): BeginRawBatch binds 6 real samplers against
+            // TerrainRenderer's own (correct, 6-sampler) pipeline_, then this
+            // code rebinds s_synth_pipeline (a DIFFERENT pipeline object,
+            // previously only 5 slots) on top for the depth-bias override --
+            // the already-bound 6 resources get reinterpreted under the
+            // wrong 5-slot descriptor layout. A real bug, fixed here, but
+            // NOT the cause of task #158's zone(23,37) black/white
+            // cracked-pattern artifact -- that pattern was proven (before/
+            // after screenshots pixel-identical) to come from the real
+            // per-chunk LOD/POM path, not this synthesis-background pipeline;
+            // further isolation (flat albedo, bypassed normal-map detail)
+            // traced it to raw per-vertex-normal Lambertian contrast on
+            // genuinely rough terrain geometry under a low/raking sun angle
+            // -- a lighting/terrain-roughness tuning matter, not a binding
+            // bug. See AUTONOMY_LOG.md for the full isolation trail.
+            sd.frag_samplers      = 6;
             // Must also track TerrainRenderer::Init()'s frag_storage_bufs=1
             // (per-zone ground-layer lookup SSBO, see
             // TerrainRenderer::UploadZoneGroundLayers/SetBatchZoneLookup) —
