@@ -1,0 +1,345 @@
+#!/usr/bin/env python3
+"""
+md_ctl — единий диспетчер усіх процесів для автономної системи
+(AUTONOMY_SYSTEM_PROMPT_v2.md, Etap 2).
+
+Кожна підкоманда: людський підсумок у 1-3 рядки на stdout + повний лог
+у tmp_/md_ctl_logs/ + чесний exit code (0 = ok, ненульовий = провал).
+
+Usage:
+  tools/md_ctl build [game|editor|all]
+  tools/md_ctl test [gtest-filter]
+  tools/md_ctl run <scenario.lua> [--seed N] [--max-frames N] [--max-seconds N]
+  tools/md_ctl probe-height X Z
+  tools/md_ctl rebuild-terrain
+  tools/md_ctl qa [--compare CAPTURE_ID | --rebase CAPTURE_ID] [--backend hw|lavapipe]
+  tools/md_ctl state
+  tools/md_ctl gc [--days N]
+"""
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+LOG_DIR   = REPO_ROOT / "tmp_" / "md_ctl_logs"
+SCENARIO_DATA_DIR = REPO_ROOT / "tmp_" / "scenario_data"
+FAILURES_DIR       = REPO_ROOT / "tmp_" / "failures"
+
+SUBMODULES = ["engine", "tools"]
+
+
+def _run_id() -> str:
+    return time.strftime("%Y%m%d_%H%M%S")
+
+
+def run_logged(cmd, cwd=None, timeout=None, tag=None):
+    """Runs `cmd`, writes full stdout+stderr to a timestamped log file under
+    tmp_/md_ctl_logs/, returns (returncode, log_path, tail_text). tail_text
+    is the last ~15 lines, for the human summary — full output stays in the
+    log, never dumped to stdout wholesale (VERIFY: each command's own
+    output <= 15 lines)."""
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    tag = tag or Path(str(cmd[0])).name
+    log_path = LOG_DIR / f"{_run_id()}_{tag}.log"
+    try:
+        proc = subprocess.run(cmd, cwd=str(cwd or REPO_ROOT),
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               timeout=timeout, text=True)
+        log_path.write_text(proc.stdout or "")
+        tail = "\n".join((proc.stdout or "").splitlines()[-15:])
+        return proc.returncode, log_path, tail
+    except subprocess.TimeoutExpired as e:
+        partial = (e.stdout or "") if isinstance(e.stdout, str) else ""
+        log_path.write_text(partial + f"\n[md_ctl] TIMEOUT after {timeout}s\n")
+        return 124, log_path, f"TIMEOUT after {timeout}s"
+    except FileNotFoundError as e:
+        log_path.write_text(str(e))
+        return 127, log_path, str(e)
+
+
+# ── build ──────────────────────────────────────────────────────────────────
+def cmd_build(args) -> int:
+    target_map = {
+        "game":   ["monkey_dust"],
+        "editor": ["monkey_dust_editor"],
+        "all":    ["monkey_dust", "monkey_dust_editor", "md_tests", "md_behavior_tests"],
+    }
+    targets = target_map.get(args.target or "all")
+    if targets is None:
+        print(f"[md_ctl build] unknown target '{args.target}' (game|editor|all)")
+        return 2
+    code, log, tail = run_logged(["ninja", "-C", "build"] + targets, tag="build")
+    status = "OK" if code == 0 else "FAIL"
+    print(f"[md_ctl build] {status} targets={','.join(targets)} exit={code}")
+    print(f"  log: {log}")
+    if code != 0:
+        errors = [l for l in tail.splitlines() if "error" in l.lower()]
+        for e in errors[:5]:
+            print(f"  {e}")
+    return code
+
+
+# ── test ───────────────────────────────────────────────────────────────────
+def cmd_test(args) -> int:
+    binaries = [REPO_ROOT / "build/tests/md_tests",
+                REPO_ROOT / "build/tests/md_behavior_tests"]
+    overall = 0
+    for b in binaries:
+        if not b.exists():
+            print(f"[md_ctl test] {b.name}: NOT BUILT (run `md_ctl build all` first)")
+            overall = overall or 1
+            continue
+        cmd = [str(b)]
+        if args.filter:
+            cmd.append(f"--gtest_filter={args.filter}")
+        code, log, tail = run_logged(cmd, tag=b.name)
+        passed_line = next((l for l in tail.splitlines() if "PASSED" in l or "FAILED" in l), "")
+        status = "PASSED" if code == 0 else "FAILED"
+        print(f"[md_ctl test] {b.name}: {status} ({passed_line.strip()})")
+        overall = overall or code
+    print(f"  logs: {LOG_DIR}")
+    return overall
+
+
+# ── run (scenario script mode) ────────────────────────────────────────────
+def cmd_run(args) -> int:
+    script = Path(args.script)
+    if not script.is_absolute():
+        script = REPO_ROOT / script
+    if not script.exists():
+        print(f"[md_ctl run] script not found: {script}")
+        return 2
+
+    run_id = _run_id()
+    data_dir = SCENARIO_DATA_DIR / run_id
+    data_dir.mkdir(parents=True, exist_ok=True)
+    # NOTE (honest gap, see docs/AUTONOMY_LOG.md Etap 1/2): --data-dir is
+    # created and passed through here, but the game binary does not yet
+    # populate it with symlinks/copy-on-write copies (Etap 1 scope decision)
+    # — real isolation today comes from Etap 1's targeted fix
+    # (ShutdownGame(save_world=false)), not from this directory being a
+    # true sandbox yet. Full symlink/CoW population is still Backlog.
+
+    binary = REPO_ROOT / "build/game/monkey_dust"
+    if not binary.exists():
+        print(f"[md_ctl run] game binary not built: {binary} (run `md_ctl build game`)")
+        return 2
+
+    cmd = [str(binary), "--exec", str(script),
+           "--seed", str(args.seed), "--fast", "--headless",
+           "--data-dir", str(data_dir)]
+    if args.max_frames:
+        cmd += ["--max-frames", str(args.max_frames)]
+    if args.max_seconds:
+        cmd += ["--max-seconds", str(args.max_seconds)]
+
+    code, log, tail = run_logged(cmd, tag=f"run_{script.stem}",
+                                  timeout=args.timeout or 120)
+    status = {0: "OK"}.get(code, "FAIL" if code == 1 else ("WATCHDOG" if code == 124 else f"exit={code}"))
+    print(f"[md_ctl run] {script.name} seed={args.seed} {status} (exit={code})")
+    print(f"  log: {log}")
+    if code != 0:
+        fail_lines = [l for l in tail.splitlines() if "FAIL" in l or "artifact" in l]
+        for l in fail_lines[:3]:
+            print(f"  {l}")
+    return code
+
+
+# ── probe-height ───────────────────────────────────────────────────────────
+def cmd_probe_height(args) -> int:
+    """Height at (X,Z) through the full live pipeline (TerrainQuery — the
+    engine's single source of truth, terrain_query.h) — NOT a cross-check
+    against raw world_hmap.r32 bytes (see docs/AUTONOMY_LOG.md Etap 1
+    scope note on probe_heights.lua: TerrainQuery samples the separately
+    generated md_master_hmap.r32, not the raw file, so an external byte
+    read would not be comparing the same thing)."""
+    binary = REPO_ROOT / "build/game/monkey_dust"
+    if not binary.exists():
+        print(f"[md_ctl probe-height] game binary not built: {binary}")
+        return 2
+
+    tmp_script = LOG_DIR / f"_probe_height_{_run_id()}.lua"
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    tmp_script.write_text(
+        f"local h = md.terrain_height({args.x}, {args.z})\n"
+        f"if h == nil then md.log('HEIGHT=nil') else md.log('HEIGHT=' .. tostring(h)) end\n"
+        f"md.quit(0)\n"
+    )
+    cmd = [str(binary), "--exec", str(tmp_script), "--fast", "--headless"]
+    code, log, tail = run_logged(cmd, tag="probe_height", timeout=60)
+    tmp_script.unlink(missing_ok=True)
+
+    h_line = next((l for l in tail.splitlines() if "HEIGHT=" in l), None)
+    if code == 0 and h_line:
+        h_val = h_line.split("HEIGHT=", 1)[1].strip()
+        print(f"[md_ctl probe-height] ({args.x},{args.z}) -> h={h_val}")
+        return 0
+    print(f"[md_ctl probe-height] FAILED (exit={code}) — log: {log}")
+    return code or 1
+
+
+# ── rebuild-terrain ────────────────────────────────────────────────────────
+def cmd_rebuild_terrain(args) -> int:
+    """The documented pipeline (CLAUDE.md "Terrain sync rule") is 3 real
+    scripts, not a single terrain_rebuild.py (that file does not exist in
+    this repo — confirmed, not assumed). Runs them in the documented
+    order. SLOW (tif_to_r32.py reads a 16385x16385 source) and requires
+    the Kenshi asset mount — not run as part of any VERIFY chain, only on
+    explicit invocation."""
+    steps = ["tools/tif_to_r32.py", "tools/md_master_hmap_gen.py", "tools/md_worldmap_gen.py"]
+    for step in steps:
+        path = REPO_ROOT / step
+        if not path.exists():
+            print(f"[md_ctl rebuild-terrain] missing script: {step}")
+            return 2
+        print(f"[md_ctl rebuild-terrain] running {step} ...")
+        code, log, tail = run_logged(["python3", str(path)], tag=Path(step).stem, timeout=1800)
+        if code != 0:
+            print(f"[md_ctl rebuild-terrain] FAILED at {step} (exit={code}) — log: {log}")
+            return code
+    print("[md_ctl rebuild-terrain] OK — 3/3 steps complete")
+    print(f"  logs: {LOG_DIR}")
+    return 0
+
+
+# ── qa ─────────────────────────────────────────────────────────────────────
+def cmd_qa(args) -> int:
+    if args.backend == "lavapipe":
+        print("[md_ctl qa] backend=lavapipe requested, but not installed on this "
+              "system (docs/AUTONOMY_LOG.md §Recon.4: pacman -S vulkan-swrast, "
+              "not present) — per-backend baselines are Etap 4 scope. Aborting.")
+        return 2
+
+    if args.compare:
+        code, log, tail = run_logged(
+            ["python3", "tools/qa/qa_regression.py", "--compare", args.compare], tag="qa_compare")
+        summary = next((l for l in tail.splitlines() if "RMSE" in l or "PASS" in l or "FAIL" in l), "")
+        print(f"[md_ctl qa] compare {args.compare}: exit={code} {summary}")
+        return code
+    if args.rebase:
+        code, log, tail = run_logged(
+            ["python3", "tools/qa/qa_regression.py", "--baseline", args.rebase], tag="qa_baseline")
+        print(f"[md_ctl qa] baseline saved from {args.rebase}: exit={code}")
+        return code
+
+    code, log, tail = run_logged(["bash", "tools/qa/qa_run.sh"], tag="qa_run", timeout=600)
+    print(f"[md_ctl qa] full run: exit={code}")
+    print(f"  log: {log}")
+    return code
+
+
+# ── state ──────────────────────────────────────────────────────────────────
+def _git_short(cwd) -> list:
+    p = subprocess.run(["git", "status", "--short"], cwd=str(cwd),
+                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    return [l for l in p.stdout.splitlines() if l.strip()]
+
+
+def cmd_state(args) -> int:
+    dirty_any = False
+
+    main_dirty = _git_short(REPO_ROOT)
+    print(f"[md_ctl state] main repo: {len(main_dirty)} dirty path(s)"
+          + (f" — {main_dirty[0]}" + (" ..." if len(main_dirty) > 1 else "") if main_dirty else ""))
+    dirty_any = dirty_any or bool(main_dirty)
+
+    for sm in SUBMODULES:
+        sm_dirty = _git_short(REPO_ROOT / sm)
+        flag = " <-- dirty submodule (check before push)" if sm_dirty else ""
+        print(f"[md_ctl state] {sm}/: {len(sm_dirty)} dirty path(s){flag}")
+        dirty_any = dirty_any or bool(sm_dirty)
+
+    binary = REPO_ROOT / "build/game/monkey_dust"
+    build_state = "built" if binary.exists() else "NOT BUILT"
+    print(f"[md_ctl state] build/game/monkey_dust: {build_state}")
+
+    logs = sorted(LOG_DIR.glob("*.log")) if LOG_DIR.exists() else []
+    last_log = logs[-1].name if logs else "(none)"
+    print(f"[md_ctl state] last log: {last_log}")
+
+    sandbox_dirs = list(SCENARIO_DATA_DIR.glob("*")) if SCENARIO_DATA_DIR.exists() else []
+    failure_dirs = list(FAILURES_DIR.glob("*")) if FAILURES_DIR.exists() else []
+    print(f"[md_ctl state] sandbox: {len(sandbox_dirs)} scenario_data dir(s), "
+          f"{len(failure_dirs)} failure artifact(s) (tmp_/, gitignored)")
+
+    # Exit code reflects whether the state QUERY succeeded, not whether the
+    # tree is dirty — dirty is common/expected background noise (WIP,
+    # pre-existing untouched files) and `state` is meant to chain
+    # (`md_ctl state && md_ctl build ...`) without breaking on it. Dirtiness
+    # is reported above; `_` silences the unused-var lint, kept as a visible
+    # signal for anyone reading this that dirty_any was deliberately not
+    # used for the exit code.
+    _ = dirty_any
+    return 0
+
+
+# ── gc ─────────────────────────────────────────────────────────────────────
+def cmd_gc(args) -> int:
+    days = args.days or 7
+    cutoff = time.time() - days * 86400
+    removed = 0
+    for base in (SCENARIO_DATA_DIR, FAILURES_DIR, LOG_DIR):
+        if not base.exists():
+            continue
+        for child in base.iterdir():
+            try:
+                if child.stat().st_mtime < cutoff:
+                    if child.is_dir():
+                        shutil.rmtree(child)
+                    else:
+                        child.unlink()
+                    removed += 1
+            except OSError:
+                pass
+    print(f"[md_ctl gc] removed {removed} item(s) older than {days}d from tmp_/")
+    return 0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(prog="md_ctl", description=__doc__,
+                                  formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser("build"); p.add_argument("target", nargs="?", default="all")
+    p.set_defaults(func=cmd_build)
+
+    p = sub.add_parser("test"); p.add_argument("filter", nargs="?", default=None)
+    p.set_defaults(func=cmd_test)
+
+    p = sub.add_parser("run")
+    p.add_argument("script")
+    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--max-frames", type=int, default=0)
+    p.add_argument("--max-seconds", type=float, default=0.0)
+    p.add_argument("--timeout", type=int, default=0, help="subprocess wall timeout (s), default 120")
+    p.set_defaults(func=cmd_run)
+
+    p = sub.add_parser("probe-height")
+    p.add_argument("x", type=float)
+    p.add_argument("z", type=float)
+    p.set_defaults(func=cmd_probe_height)
+
+    p = sub.add_parser("rebuild-terrain"); p.set_defaults(func=cmd_rebuild_terrain)
+
+    p = sub.add_parser("qa")
+    p.add_argument("--compare", metavar="CAPTURE_ID", default=None)
+    p.add_argument("--rebase", metavar="CAPTURE_ID", default=None)
+    p.add_argument("--backend", choices=["hw", "lavapipe"], default="hw")
+    p.set_defaults(func=cmd_qa)
+
+    p = sub.add_parser("state"); p.set_defaults(func=cmd_state)
+
+    p = sub.add_parser("gc"); p.add_argument("--days", type=int, default=7)
+    p.set_defaults(func=cmd_gc)
+
+    args = ap.parse_args()
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
