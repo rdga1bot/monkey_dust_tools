@@ -86,6 +86,20 @@ def cmd_build(args) -> int:
 
 # ── test ───────────────────────────────────────────────────────────────────
 def cmd_test(args) -> int:
+    if args.filter == "scenario":
+        # scenario_* aren't gtest cases — they're real `monkey_dust --exec`
+        # process runs registered as ctest tests (tests/CMakeLists.txt Etap 3
+        # section). Run from build/tests/ (ctest's registration scope for
+        # this target — see docs/AUTONOMY_LOG.md Etap 3 for why root-level
+        # ctest also needed its own enable_testing()).
+        cmd = ["ctest", "-L", "scenario", "--output-on-failure"]
+        code, log, tail = run_logged(cmd, cwd=REPO_ROOT / "build/tests", tag="scenario")
+        print(f"[md_ctl test] scenario: {'PASSED' if code == 0 else 'FAILED'}")
+        for line in tail.splitlines()[-15:]:
+            print(f"  {line}")
+        print(f"  logs: {log}")
+        return code
+
     binaries = [REPO_ROOT / "build/tests/md_tests",
                 REPO_ROOT / "build/tests/md_behavior_tests"]
     overall = 0
