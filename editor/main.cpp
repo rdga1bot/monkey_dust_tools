@@ -84,13 +84,29 @@ int main(int argc, char** argv) {
     window_init(0, 0, "monkey_dust EDITOR v1.0");
     input_init();
     {
-        SDL_DisplayID disp = SDL_GetDisplayForWindow(_wnd::ptr());
-        SDL_Rect b = {};
-        int mw = window_get_width(), mh = window_get_height();
-        if (SDL_GetDisplayUsableBounds(disp, &b) && b.w > 0) { mw=b.w; mh=b.h; }
-        int wh = (mh*85)/100, ww = (wh*16)/9;
-        if (ww > (mw*90)/100) { ww=(mw*90)/100; wh=(ww*9)/16; }
-        if (wh < 480) { wh=480; ww=854; }
+        int ww, wh;
+        if (scenario_cfg.active) {
+            // Etap 5 VERIFY finding: display-bounds-derived sizing (else
+            // branch below) varies run-to-run in this environment
+            // (SDL_GetDisplayUsableBounds isn't perfectly stable across
+            // launches), which made screenshot RMSE comparisons spuriously
+            // fail — editor_screenshot_compare.py resizes on a size
+            // mismatch, and THAT resize is what produced a 7.5% RMSE
+            // between two runs of the identical scenario+seed, not any
+            // actual rendering difference. Fixed size for --exec mode
+            // removes this non-determinism source at its root (not a
+            // loosened threshold — fixing the criterion's real cause, per
+            // AUTONOMY_PROTOCOL.md point 4, not papering over it).
+            ww = 1366; wh = 706;
+        } else {
+            SDL_DisplayID disp = SDL_GetDisplayForWindow(_wnd::ptr());
+            SDL_Rect b = {};
+            int mw = window_get_width(), mh = window_get_height();
+            if (SDL_GetDisplayUsableBounds(disp, &b) && b.w > 0) { mw=b.w; mh=b.h; }
+            wh = (mh*85)/100; ww = (wh*16)/9;
+            if (ww > (mw*90)/100) { ww=(mw*90)/100; wh=(ww*9)/16; }
+            if (wh < 480) { wh=480; ww=854; }
+        }
         SDL_SetWindowSize(_wnd::ptr(), ww, wh);
         SDL_SetWindowPosition(_wnd::ptr(), SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
         _wnd::width()=ww; _wnd::height()=wh;
