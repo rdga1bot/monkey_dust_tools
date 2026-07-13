@@ -26,6 +26,8 @@
 #include "bug_capture.h"
 #include "editor_reflect_bridge.h"
 #include "editor_reflect_inspector.h"
+#include "lua_editor_scenario_api.h"
+#include <monkey_dust/scripting/lua_system.h>
 #include <cstdio>
 #include <cstring>
 
@@ -50,7 +52,7 @@ extern "C" {
 // overlay_top: Y offset when running under RenderDoc overlay
 // layout_path: JSON file for panel positions (e.g. "data/editor_layout.json")
 void editor_panels_init(void* ctx, void* ecs_world, void* /*gpu*/, void* /*window*/,
-                        float overlay_top, const char* layout_path) {
+                        float overlay_top, const char* layout_path, void* lua_system) {
     // Share host's ImGui context — CRITICAL, must be first.
     ImGui::SetCurrentContext(static_cast<ImGuiContext*>(ctx));
 
@@ -58,6 +60,16 @@ void editor_panels_init(void* ctx, void* ecs_world, void* /*gpu*/, void* /*windo
     // ids from a previous dlopen cycle are not valid in this one.
     s_ecs_world = static_cast<ecs_world_t*>(ecs_world);
     EcsReflectBridge::Get().Init(s_ecs_world);
+
+    // Autonomy system (Etap 4): register md.editor_* into the HOST's
+    // LuaSystem instance (see EditorModule::Config::lua_system doc comment —
+    // LuaSystem::Get() is a header-inline singleton, would otherwise
+    // duplicate independently inside this .so). Re-registering on every
+    // reload is safe/idempotent — RegisterNamespaceFunction just overwrites
+    // the same md.* table fields.
+    if (lua_system) {
+        RegisterLuaEditorScenarioAPI(*static_cast<LuaSystem*>(lua_system));
+    }
 
     SettingsEditor::Load(CFG_PATH);
     ItemEditor::Load("data/items/items.json");
@@ -126,6 +138,11 @@ uint32_t editor_panels_build_ui(float dt, float toolbar_h,
     if (status_timer && *status_timer > 0.f) *status_timer -= dt;
 
     uint32_t flags = 0;
+    // Autonomy system: md.editor_open_panel(name) forces a tab select this
+    // frame. Consumed ONCE here (not per-tab) — EditorPanels_ConsumeForcedTab
+    // clears the pending name on read, so a single local copy must be
+    // compared against every candidate tab below.
+    const char* forced_tab = EditorPanels_ConsumeForcedTab();
 
     EditorCore::Get().Update(dt);
 
@@ -291,7 +308,9 @@ uint32_t editor_panels_build_ui(float dt, float toolbar_h,
             HmapEditor2D::DrawPanel();  // handles own Detach/Dock + floating window internally
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("3D World")) {
+        ImGuiTabItemFlags world3d_flags = (forced_tab && strcmp(forced_tab, "3D World") == 0)
+            ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+        if (ImGui::BeginTabItem("3D World", nullptr, world3d_flags)) {
             flags |= (1u << 0);
             ImVec2 avail = ImGui::GetContentRegionAvail();
             WorldEditor3D_SDLGPU::DrawImGui(avail.x, avail.y - 2, dt);

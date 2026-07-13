@@ -1344,6 +1344,17 @@ float GetScrollStep()   { return s_scroll_step; }
 float GetZoomIn()       { return s_zoom_in; }
 float GetZoomOut()      { return s_zoom_out; }
 
+void TeleportToZone(int zone_x, int zone_z) {
+    static constexpr float ATLAS_MAX = 63.f * CHUNK_SIZE;
+    s_cx = ((float)zone_x + 0.5f) * CHUNK_SIZE;
+    s_cz = ((float)zone_z + 0.5f) * CHUNK_SIZE;
+    if (s_cx < 0.f) s_cx = 0.f; if (s_cx > ATLAS_MAX) s_cx = ATLAS_MAX;
+    if (s_cz < 0.f) s_cz = 0.f; if (s_cz > ATLAS_MAX) s_cz = ATLAS_MAX;
+}
+
+int GetChunksLoaded() { return s_chunks_built.load(); }
+int GetChunksTotal()  { return EDITOR_TNKN * EDITOR_TNKN; }
+
 } // namespace WorldEditor3D_SDLGPU
 
 #endif // MD_SDL_GPU

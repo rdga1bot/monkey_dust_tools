@@ -6,6 +6,11 @@
 #include <monkey_dust/render/light_system.h>
 #include <monkey_dust/world/terrain_gen.h>
 #include <monkey_dust/ecs/component_reflect.h>
+#include <monkey_dust/scripting/lua_system.h>
+#include "lua_editor_scenario_api.h"
+#include "editor_scenario_driver.h"
+#include "editor_screenshot.h"
+#include <ctime>
 #ifdef MONKEY_DUST_EDITOR_HOT_RELOAD
 #include <monkey_dust/hot/editor_module.h>
 #endif
@@ -68,7 +73,10 @@ static constexpr const char* LAYOUT_PATH = "data/editor_layout.json";
 // Set via env var MD_OVERLAY_TOP_OFFSET=50 in .cap file or mde.sh --rd.
 float s_overlay_top = 0.f;
 
-int main(void) {
+int main(int argc, char** argv) {
+    EditorScenarioConfig scenario_cfg;
+    if (!ParseEditorScenarioArgs(argc, argv, scenario_cfg)) return 1;
+
     const char* ov = getenv("MD_OVERLAY_TOP_OFFSET");
     if (ov) s_overlay_top = (float)atof(ov);
 
@@ -120,6 +128,10 @@ int main(void) {
     // resolves these names against the live flecs world). Same call game/src/main.cpp
     // makes — populates md::ComponentReflect only, no ECS world interaction.
     md::RegisterCoreComponents();
+    // Autonomy system (Etap 4) — same call game/src/main.cpp makes; must
+    // happen before RegisterLuaEditorScenarioAPI/StartScenario, which
+    // assume L_ is already a live sandboxed Lua state.
+    LuaSystem::Get().Init("data/scripts");
     ItemEditor::Load("data/items/items.json");
     FactionEditor::Load("data/factions/factions.json");
     NpcArchetypeEditor::Load("game/data/defs/npc_archetypes.json");
@@ -136,6 +148,9 @@ int main(void) {
     CharacterEditor::LoadMorphNames("game/data/chars/morph_names.txt");
     MapViewPanel::Get().Init();
     EditorCore::Get().Init();
+    // Non-hot-reload: single binary, no dlopen boundary — LuaSystem::Get()
+    // here is the same instance the scenario driver resumes against.
+    RegisterLuaEditorScenarioAPI(LuaSystem::Get());
 #endif
 
 #ifdef MONKEY_DUST_EDITOR_HOT_RELOAD
@@ -149,6 +164,7 @@ int main(void) {
         ecfg.window      = _wnd::ptr();
         ecfg.overlay_top = s_overlay_top;
         ecfg.layout_path = LAYOUT_PATH;
+        ecfg.lua_system  = &LuaSystem::Get();
         EditorModule::Get().Init("build/hot/libeditor_panels.so", ecfg);
     }
 #endif
@@ -169,14 +185,87 @@ int main(void) {
 
     SDL_FlushEvent(SDL_EVENT_QUIT);
 
+    // ── Scenario mode (Etap 4, --exec) ───────────────────────────────────────
+    // Reuses the SAME render loop below rather than a second driver function
+    // that duplicates window/ImGui/hot-reload plumbing — ResumeScenario() is
+    // called once per rendered frame (editor has no logic-tick concept the
+    // way the game does; a "tick" here IS a frame).
+    int  scenario_exit_code = 0;
+    bool scenario_done      = false;
+    long scenario_frame_count = 0;
+    double scenario_wall_start_s = 0.0;
+    auto wall_now = []() -> double {
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
+    };
+    if (scenario_cfg.active) {
+        FILE* sf = fopen(scenario_cfg.script_path, "rb");
+        if (!sf) {
+            fprintf(stderr, "[EditorScenario] cannot open script: %s\n", scenario_cfg.script_path);
+            return 1;
+        }
+        fseek(sf, 0, SEEK_END);
+        long sz = ftell(sf);
+        fseek(sf, 0, SEEK_SET);
+        static char s_script_buf[1 << 20];  // 1MB cap, no heap
+        if (sz <= 0 || sz >= (long)sizeof(s_script_buf)) {
+            fprintf(stderr, "[EditorScenario] script too large or empty: %s\n", scenario_cfg.script_path);
+            fclose(sf);
+            return 1;
+        }
+        size_t nread = fread(s_script_buf, 1, (size_t)sz, sf);
+        s_script_buf[nread] = '\0';
+        fclose(sf);
+
+        lua_Integer n_ticks_arg = scenario_cfg.max_frames > 0 ? scenario_cfg.max_frames : 100000;
+        char parse_err[256] = {};
+        if (!LuaSystem::Get().StartScenario(s_script_buf, n_ticks_arg, parse_err, sizeof(parse_err))) {
+            fprintf(stderr, "[EditorScenario] parse error in %s: %s\n", scenario_cfg.script_path, parse_err);
+            return 1;
+        }
+        scenario_wall_start_s = wall_now();
+    }
+
     // ── Main loop ─────────────────────────────────────────────────────────────
     char  status_msg[64] = {};
     float status_timer   = 0.f;
     uint64_t last_ticks  = SDL_GetTicks();
 
     while (!input_should_quit()) {
-        // Frame cap — editor targets 60 fps; iGPU shares cooling with CPU
-        {
+        if (scenario_cfg.active && !scenario_done) {
+            bool watchdog_hit = false;
+            if (scenario_cfg.max_frames > 0 && scenario_frame_count >= scenario_cfg.max_frames) {
+                fprintf(stderr, "[EditorScenario] watchdog: max-frames exceeded\n");
+                scenario_exit_code = 124; watchdog_hit = true;
+            }
+            double now_wall = wall_now();
+            if (!watchdog_hit && scenario_cfg.max_seconds > 0.0 &&
+                (now_wall - scenario_wall_start_s) >= scenario_cfg.max_seconds) {
+                fprintf(stderr, "[EditorScenario] watchdog: max-seconds exceeded\n");
+                scenario_exit_code = 124; watchdog_hit = true;
+            }
+            if (watchdog_hit) {
+                scenario_done = true;
+                _sdl3_input::s_quit = true;
+            } else {
+                LuaSystem::ScenarioResult r = LuaSystem::Get().ResumeScenario();
+                ++scenario_frame_count;
+                if (r.status == LuaSystem::ScenarioStatus::Failed) {
+                    printf("[EditorScenario] FAILED: %s\n", r.error_msg);
+                    scenario_exit_code = 1; scenario_done = true; _sdl3_input::s_quit = true;
+                } else if (r.status == LuaSystem::ScenarioStatus::Quit) {
+                    scenario_exit_code = r.quit_code; scenario_done = true; _sdl3_input::s_quit = true;
+                } else if (r.status == LuaSystem::ScenarioStatus::Finished) {
+                    scenario_exit_code = 0; scenario_done = true; _sdl3_input::s_quit = true;
+                }
+                // Yielded — fall through, render this frame normally, resume again next frame.
+            }
+        }
+
+        // Frame cap — editor targets 60 fps; iGPU shares cooling with CPU.
+        // --fast skips this entirely (scenario mode wants max throughput).
+        if (!(scenario_cfg.active && scenario_cfg.fast)) {
             static Uint64 s_prev_ns = 0;
             static constexpr Uint64 TARGET_NS = 1000000000ULL / 60;
             Uint64 now_ns = SDL_GetTicksNS();
@@ -286,7 +375,16 @@ int main(void) {
                         if (irp) { ImGui_ImplSDLGPU3_RenderDrawData(dd,cmd,irp); SDL_EndGPURenderPass(irp); }
                     }
                 }
-                SDL_SubmitGPUCommandBuffer(cmd);
+                char shot_path[256];
+                if (sc && EditorScreenshot_ConsumePending(shot_path, sizeof(shot_path))) {
+                    // Captures the fully-composited frame (3D viewport + ImGui
+                    // chrome) just rendered above. CaptureAndSubmit submits cmd
+                    // itself (fence-waited, required for DownloadFromGPUTexture) —
+                    // do not also call the plain submit below for this frame.
+                    EditorScreenshot_CaptureAndSubmit(gpu, cmd, sc, sw, sh, sc_fmt, shot_path);
+                } else {
+                    SDL_SubmitGPUCommandBuffer(cmd);
+                }
             }
             window_end_frame();
             continue;  // skip non-hot-reload UI code below
@@ -426,5 +524,5 @@ int main(void) {
     ImGui::DestroyContext();
     md::GpuDevice::Get().Shutdown();
     window_shutdown();
-    return 0;
+    return scenario_cfg.active ? scenario_exit_code : 0;
 }

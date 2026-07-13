@@ -229,6 +229,28 @@ def cmd_qa(args) -> int:
               "not present) — per-backend baselines are Etap 4 scope. Aborting.")
         return 2
 
+    if args.editor:
+        # Etap 4: editor QA-capture (audit finding — only the game was
+        # captured before). Runs the editor's own --exec against the same
+        # VERIFY scenario used to validate Etap 4 itself (real screenshot +
+        # RMSE, per-backend baselines — tools/qa/editor_baselines/<backend>/).
+        script = "tests/editor_scenarios/editor_verify_hub_screenshot.lua"
+        cmd = ["build/tools/monkey_dust_editor", "--exec", script,
+               "--fast", "--seed", "42", "--max-seconds", "180"]
+        code, log, tail = run_logged(cmd, tag="qa_editor", timeout=200)
+        if code != 0:
+            print(f"[md_ctl qa] editor: FAILED (exit={code})")
+            print(f"  log: {log}")
+            return code
+        shot = REPO_ROOT / "tmp_" / "editor_hub_shot.png"
+        cmp_code, cmp_log, cmp_tail = run_logged(
+            ["python3", "tools/qa/editor_screenshot_compare.py", "--compare", "hub",
+             str(shot), "--backend", args.backend], tag="qa_editor_compare")
+        summary = next((l for l in cmp_tail.splitlines() if "RMSE" in l), "")
+        print(f"[md_ctl qa] editor: {summary}")
+        print(f"  logs: {log}, {cmp_log}")
+        return cmp_code
+
     if args.compare:
         code, log, tail = run_logged(
             ["python3", "tools/qa/qa_regression.py", "--compare", args.compare], tag="qa_compare")
@@ -344,6 +366,8 @@ def main() -> int:
     p.add_argument("--compare", metavar="CAPTURE_ID", default=None)
     p.add_argument("--rebase", metavar="CAPTURE_ID", default=None)
     p.add_argument("--backend", choices=["hw", "lavapipe"], default="hw")
+    p.add_argument("--editor", action="store_true",
+                    help="Etap 4: editor QA-capture (screenshot + RMSE) instead of game")
     p.set_defaults(func=cmd_qa)
 
     p = sub.add_parser("state"); p.set_defaults(func=cmd_state)

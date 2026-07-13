@@ -21,5 +21,18 @@ float GetScrollStep();
 float GetZoomIn();
 float GetZoomOut();
 
+// Autonomy system (md.editor_select_zone) — jumps the free-fly camera to the
+// centre of the given zone (500m grid, same convention as the 'T' hotkey's
+// hardcoded Hub position: zone (23,29) == world (11750,14250)).
+void TeleportToZone(int zone_x, int zone_z);
+
+// Autonomy system (md.editor_terrain_op("chunks_loaded")) — progress counter
+// for the full 64x64=4096-chunk world build (background thread, see
+// s_chunks_built in editor_world_3d_sdlgpu.cpp). Designed for ~0.5s at 60fps;
+// observed much slower in this session's environment (~6fps) — scenarios
+// waiting on this should use a generous timeout, not assume the design target.
+int GetChunksLoaded();
+int GetChunksTotal();
+
 } // namespace WorldEditor3D_SDLGPU
 #endif // MD_SDL_GPU
