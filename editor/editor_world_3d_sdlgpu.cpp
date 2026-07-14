@@ -745,6 +745,19 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
         s_props.Init("game/data/props/rock_01.glb", 0.f); // no-op if missing; 0=rock diffuse
         s_terrain.InitKenshiOverlay(op);
         s_terrain.InitGroundTextureArray();
+        // task #158c: editor's 3D World viewport never called these three —
+        // scene_render.cpp (game) does, so terrain_pom.slang's tex_overlay_
+        // mask/tex_biome_blend samplers (and, via BakeAlbedo below, the baked
+        // per-chunk albedo itself) were silently sampling fallback textures
+        // for every editor chunk, producing the black/white "прогалини
+        // текстур" blotch pattern (task #158, re-confirmed at zone 25,30/
+        // 13,15/34,36 this session) — not a POM/altitude bug, a missing
+        // init call. See game/src/render/scene_render.cpp's InitOverlayMask/
+        // InitBiomeBlend/InitAlbedoBake call sites (~line 264-291) this
+        // mirrors.
+        s_terrain.InitOverlayMask("game/data/textures/md_overlay_mask.png");
+        s_terrain.InitBiomeBlend("game/data/textures/md_biome_blend.png");
+        s_terrain.InitAlbedoBake();
         TerrainRenderer::PomParams pom; pom.height_scale=0.04f; pom.layers_min=4; pom.layers_max=8;
         s_terrain.InitPOM("game/data/textures/terrain_pom_rock.png", pom);
         s_master_ready = true;
@@ -846,10 +859,17 @@ static void tick_chunk_build() {
 // clear-colour "sky" instead of terrain. Confirmed via A/B: continuously
 // moving the camera every frame — never triggering idle-skip — always shows
 // correct terrain; a single teleport + hold-still reproduces the bug 100%).
-static bool s_update_chunk_gpu_window(float eye_x, float eye_z) {
+static bool s_update_chunk_gpu_window(SDL_GPUCommandBuffer* cmd, float eye_x, float eye_z) {
     static constexpr float UPLOAD_R2  = 4000.f * 4000.f;  // margin past d1sq=3500m
     static constexpr float RELEASE_R2 = 5500.f * 5500.f;  // hysteresis — avoid thrash at the boundary
     static constexpr int   MAX_UPLOADS_PER_CALL = 8;      // bound per-frame GPU work
+    // Must match RenderFrame's WCX/WCZ/W2UV exactly (task #158c) — BakeAlbedo's
+    // world_origin_x/z/world_to_uv feed the same overlay/biome-blend UV formula
+    // the runtime shader uses, so a baked chunk's sampled mask/blend values line
+    // up with what the live shader would have sampled at that world position.
+    static constexpr float kW2UV = 1.f / (64.f * CHUNK_SIZE);
+    static constexpr float kWCX  = 32.f * CHUNK_SIZE;
+    static constexpr float kWCZ  = 32.f * CHUNK_SIZE;
 
     int  uploads = 0;
     bool pending = false;
@@ -871,6 +891,7 @@ static bool s_update_chunk_gpu_window(float eye_x, float eye_z) {
                 TerrainGenParams p = s_make_gen_params(cx, cz);
                 TerrainGen_Build(ch, coord, p);
                 TerrainGen_Upload(ch);
+                s_terrain.BakeAlbedo(cmd, ch, kWCX, kWCZ, kW2UV);
                 ++uploads;
             } else if (ch.loaded && d2 > RELEASE_R2) {
                 ch.vbo.Shutdown();
@@ -991,7 +1012,7 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
     // nearby chunks are ready for the LOD0/LOD1 draw loop below. Return value
     // feeds the idle-skip below — a jump-sized camera move can leave chunks
     // still pending past this single call's upload budget.
-    bool chunk_window_pending = s_update_chunk_gpu_window(eye_x, eye_z);
+    bool chunk_window_pending = s_update_chunk_gpu_window(cmd, eye_x, eye_z);
 
     // Rebuild dirty chunks (marked by s_apply_brush)
     bool was_chunk_dirty = false;
