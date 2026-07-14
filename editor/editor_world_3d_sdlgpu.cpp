@@ -973,6 +973,19 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
     float eye_x = s_cx, eye_y = s_cy, eye_z = s_cz;
     s_last_eye[0]=s_cx; s_last_eye[1]=s_cy; s_last_eye[2]=s_cz;
 
+    // task #158b: LOD/POM tier selection below is horizontal-only (X/Z), so a
+    // free-fly camera positioned near-vertically above a chunk (e.g. 8-15km
+    // straight up) measured d2~=0 -> POM tier, even though POM (per-pixel
+    // parallax ray-march, designed for near-grazing viewing) breaks down into
+    // visible black/white speckle noise at that minification. Fold the
+    // camera's real altitude ABOVE GROUND (not above world Y=0) into the
+    // distance metric once per frame so extreme-altitude views fall through
+    // to the compact/non-POM tier regardless of horizontal offset. Confirmed
+    // via A/B screenshot: same alt+horizontal-far view renders clean.
+    float _eye_ground_h  = TerrainMaster_SampleWorld(eye_x, eye_z);
+    float _eye_alt_above = eye_y - _eye_ground_h;
+    float _eye_alt2      = _eye_alt_above * _eye_alt_above;
+
     // Windowed per-chunk GPU buffer upload/release around the camera (see
     // s_update_chunk_gpu_window's doc comment) — must run every frame so
     // nearby chunks are ready for the LOD0/LOD1 draw loop below. Return value
@@ -1159,7 +1172,7 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
                     if (!ch.loaded) continue;
                     float ddx = ch.center_x - eye_x;
                     float ddz = ch.center_z - eye_z;
-                    float d2  = ddx*ddx + ddz*ddz;
+                    float d2  = ddx*ddx + ddz*ddz + _eye_alt2;
                     if (d2 > d3sq) continue;
                     if (d2 < d1sq) {
                         // Use global kenshi colour map (WCX/WCZ/W2UV) for correct vivid colours.
