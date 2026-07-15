@@ -74,6 +74,30 @@ static const int CVBO_ROWS[2]   = { TERRAIN_GRID/4+1, TERRAIN_GRID/8+1 };       
 // into each other and past the buffer's true end.
 static const int CVBO_VPC[2]    = { CVBO_ROWS[0]*CVBO_ROWS[0], CVBO_ROWS[1]*CVBO_ROWS[1] };
 
+// Box-filter average of the real heightmap over a `step`-wide block centred
+// on texel (r0,c0) -- replaces naive point-sampling in s_build_compact_vbo.
+// Point-sampling one real vertex every `step` (4 or 8, i.e. every 14.4m/28.8m)
+// silently discards all the real terrain between samples; confirmed via
+// spatial-frequency analysis that real Kenshi dune/cliff wavelengths (29-46m)
+// fall BELOW the Nyquist limit for step=8 (57.6m) -- textbook aliasing that
+// folds fine real detail into a fake, camera-distance-dependent "wavy worm"
+// pattern (task #165) and, over genuinely steep/chaotic terrain (a crater's
+// walls), can pick wildly different heights between adjacent coarse samples
+// and turn a real steep slope into disconnected needle spikes (task #166).
+// Averaging every real texel in the block a coarse vertex stands in for
+// removes both symptoms at the source -- same idea as a texture mipmap.
+static float s_box_avg_height(const TerrainChunk& ch, int r0, int c0, int step, int S)
+{
+    const int half = step / 2;
+    const int rlo = r0 > half ? r0 - half : 0, rhi = r0 + half < S - 1 ? r0 + half : S - 1;
+    const int clo = c0 > half ? c0 - half : 0, chi = c0 + half < S - 1 ? c0 + half : S - 1;
+    float sum = 0.f;
+    int n = 0;
+    for (int r = rlo; r <= rhi; ++r)
+        for (int c = clo; c <= chi; ++c) { sum += ch.heightmap.h[r * S + c]; ++n; }
+    return n > 0 ? sum / (float)n : ch.heightmap.h[r0 * S + c0];
+}
+
 static void s_build_compact_vbo(int li)
 {
     const int step  = CVBO_STEPS[li];
@@ -100,11 +124,11 @@ static void s_build_compact_vbo(int li)
                     // heightmap_ready (not loaded — that means "GPU buffers uploaded",
                     // which most chunks never get now that per-chunk upload is windowed
                     // by camera distance, see s_update_chunk_gpu_window).
-                    float y = ch.heightmap_ready ? ch.heightmap.h[hi] : 0.f;
-                    float hL = (ch.heightmap_ready && col > 0) ? ch.heightmap.h[hi - step]     : y;
-                    float hR = (ch.heightmap_ready && col < G) ? ch.heightmap.h[hi + step]     : y;
-                    float hD = (ch.heightmap_ready && row > 0) ? ch.heightmap.h[hi - step * S] : y;
-                    float hU = (ch.heightmap_ready && row < G) ? ch.heightmap.h[hi + step * S] : y;
+                    float y = ch.heightmap_ready ? s_box_avg_height(ch, row * step, col * step, step, S) : 0.f;
+                    float hL = (ch.heightmap_ready && col > 0) ? s_box_avg_height(ch, row * step, (col-1) * step, step, S) : y;
+                    float hR = (ch.heightmap_ready && col < G) ? s_box_avg_height(ch, row * step, (col+1) * step, step, S) : y;
+                    float hD = (ch.heightmap_ready && row > 0) ? s_box_avg_height(ch, (row-1) * step, col * step, step, S) : y;
+                    float hU = (ch.heightmap_ready && row < G) ? s_box_avg_height(ch, (row+1) * step, col * step, step, S) : y;
                     float nx = (hL - hR) / (2.f * cell);
                     float ny = 1.f;
                     float nz = (hD - hU) / (2.f * cell);
