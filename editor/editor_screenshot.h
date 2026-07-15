@@ -27,6 +27,15 @@ void EditorScreenshot_RequestPending(const char* path);
 // (and clears the pending flag — one-shot).
 bool EditorScreenshot_ConsumePending(char* out_path, int out_path_size);
 
+// Peek without consuming — task #158f: game's RunScenarioMode (--exec) runs
+// a pure logic-tick loop with NO rendering by design (speed, see
+// scenario_driver.cpp's "--fast: no sleep, no real-time pacing, no
+// rendering" comment), so md.screenshot's pending request has nothing to
+// trigger it. The driver checks this flag each tick to decide whether to
+// pay for one real render+capture frame, without disturbing every other
+// scenario's fast no-render ticks.
+bool EditorScreenshot_HasPending();
+
 // Records a copy-to-transfer-buffer pass on cmd (source: swapchain_tex),
 // then submits cmd via SDL_SubmitGPUCommandBufferAndAcquireFence + waits on
 // the fence (synchronous — acceptable here, this is an on-demand scripted
