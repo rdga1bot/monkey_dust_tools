@@ -74,6 +74,30 @@ static const int CVBO_ROWS[2]   = { TERRAIN_GRID/4+1, TERRAIN_GRID/8+1 };       
 // into each other and past the buffer's true end.
 static const int CVBO_VPC[2]    = { CVBO_ROWS[0]*CVBO_ROWS[0], CVBO_ROWS[1]*CVBO_ROWS[1] };
 
+// Box-filter average of the real heightmap over a `step`-wide block centred
+// on texel (r0,c0) -- replaces naive point-sampling in s_build_compact_vbo.
+// Point-sampling one real vertex every `step` (4 or 8, i.e. every 14.4m/28.8m)
+// silently discards all the real terrain between samples; confirmed via
+// spatial-frequency analysis that real Kenshi dune/cliff wavelengths (29-46m)
+// fall BELOW the Nyquist limit for step=8 (57.6m) -- textbook aliasing that
+// folds fine real detail into a fake, camera-distance-dependent "wavy worm"
+// pattern (task #165) and, over genuinely steep/chaotic terrain (a crater's
+// walls), can pick wildly different heights between adjacent coarse samples
+// and turn a real steep slope into disconnected needle spikes (task #166).
+// Averaging every real texel in the block a coarse vertex stands in for
+// removes both symptoms at the source -- same idea as a texture mipmap.
+static float s_box_avg_height(const TerrainChunk& ch, int r0, int c0, int step, int S)
+{
+    const int half = step / 2;
+    const int rlo = r0 > half ? r0 - half : 0, rhi = r0 + half < S - 1 ? r0 + half : S - 1;
+    const int clo = c0 > half ? c0 - half : 0, chi = c0 + half < S - 1 ? c0 + half : S - 1;
+    float sum = 0.f;
+    int n = 0;
+    for (int r = rlo; r <= rhi; ++r)
+        for (int c = clo; c <= chi; ++c) { sum += ch.heightmap.h[r * S + c]; ++n; }
+    return n > 0 ? sum / (float)n : ch.heightmap.h[r0 * S + c0];
+}
+
 static void s_build_compact_vbo(int li)
 {
     const int step  = CVBO_STEPS[li];
@@ -100,11 +124,11 @@ static void s_build_compact_vbo(int li)
                     // heightmap_ready (not loaded — that means "GPU buffers uploaded",
                     // which most chunks never get now that per-chunk upload is windowed
                     // by camera distance, see s_update_chunk_gpu_window).
-                    float y = ch.heightmap_ready ? ch.heightmap.h[hi] : 0.f;
-                    float hL = (ch.heightmap_ready && col > 0) ? ch.heightmap.h[hi - step]     : y;
-                    float hR = (ch.heightmap_ready && col < G) ? ch.heightmap.h[hi + step]     : y;
-                    float hD = (ch.heightmap_ready && row > 0) ? ch.heightmap.h[hi - step * S] : y;
-                    float hU = (ch.heightmap_ready && row < G) ? ch.heightmap.h[hi + step * S] : y;
+                    float y = ch.heightmap_ready ? s_box_avg_height(ch, row * step, col * step, step, S) : 0.f;
+                    float hL = (ch.heightmap_ready && col > 0) ? s_box_avg_height(ch, row * step, (col-1) * step, step, S) : y;
+                    float hR = (ch.heightmap_ready && col < G) ? s_box_avg_height(ch, row * step, (col+1) * step, step, S) : y;
+                    float hD = (ch.heightmap_ready && row > 0) ? s_box_avg_height(ch, (row-1) * step, col * step, step, S) : y;
+                    float hU = (ch.heightmap_ready && row < G) ? s_box_avg_height(ch, (row+1) * step, col * step, step, S) : y;
                     float nx = (hL - hR) / (2.f * cell);
                     float ny = 1.f;
                     float nz = (hD - hU) / (2.f * cell);
@@ -709,15 +733,32 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
             sd.has_depth_target   = true;
             sd.vert_uniform_bufs  = 1;
             sd.frag_uniform_bufs  = 1;
-            // terrain_forward.frag samples 5 textures (tex_colour, tex_ground,
-            // tex_detail, tex_overlay_mask, tex_biome_blend). This pipeline's
-            // frag_samplers count must track that exactly (engine's own
-            // TerrainRenderer pipeline for the same shader already does, see
-            // terrain_renderer.cpp:38) — falling behind by even one binding
-            // shifts every descriptor slot, producing solid-colour garbage
-            // quads on the synthesis background mesh (which always renders,
-            // not just at high altitude).
-            sd.frag_samplers      = 5;
+            // terrain_forward.frag samples 6 textures (tex_colour, tex_ground,
+            // tex_detail, tex_overlay_mask, tex_biome_blend, tex_albedo_baked
+            // -- the last one added 2026-07-12 by the albedo-bake work and
+            // never back-ported to this editor-local pipeline copy, found
+            // during task #158). This pipeline's frag_samplers count must
+            // track that exactly (engine's own TerrainRenderer pipeline for
+            // the same shader already does, see terrain_renderer.cpp:38) —
+            // falling behind by even one binding shifts every descriptor
+            // slot, producing solid-colour garbage quads on the synthesis
+            // background mesh (which always renders, not just at high
+            // altitude): BeginRawBatch binds 6 real samplers against
+            // TerrainRenderer's own (correct, 6-sampler) pipeline_, then this
+            // code rebinds s_synth_pipeline (a DIFFERENT pipeline object,
+            // previously only 5 slots) on top for the depth-bias override --
+            // the already-bound 6 resources get reinterpreted under the
+            // wrong 5-slot descriptor layout. A real bug, fixed here, but
+            // NOT the cause of task #158's zone(23,37) black/white
+            // cracked-pattern artifact -- that pattern was proven (before/
+            // after screenshots pixel-identical) to come from the real
+            // per-chunk LOD/POM path, not this synthesis-background pipeline;
+            // further isolation (flat albedo, bypassed normal-map detail)
+            // traced it to raw per-vertex-normal Lambertian contrast on
+            // genuinely rough terrain geometry under a low/raking sun angle
+            // -- a lighting/terrain-roughness tuning matter, not a binding
+            // bug. See AUTONOMY_LOG.md for the full isolation trail.
+            sd.frag_samplers      = 6;
             // Must also track TerrainRenderer::Init()'s frag_storage_bufs=1
             // (per-zone ground-layer lookup SSBO, see
             // TerrainRenderer::UploadZoneGroundLayers/SetBatchZoneLookup) —
@@ -728,6 +769,19 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
         s_props.Init("game/data/props/rock_01.glb", 0.f); // no-op if missing; 0=rock diffuse
         s_terrain.InitKenshiOverlay(op);
         s_terrain.InitGroundTextureArray();
+        // task #158c: editor's 3D World viewport never called these three —
+        // scene_render.cpp (game) does, so terrain_pom.slang's tex_overlay_
+        // mask/tex_biome_blend samplers (and, via BakeAlbedo below, the baked
+        // per-chunk albedo itself) were silently sampling fallback textures
+        // for every editor chunk, producing the black/white "прогалини
+        // текстур" blotch pattern (task #158, re-confirmed at zone 25,30/
+        // 13,15/34,36 this session) — not a POM/altitude bug, a missing
+        // init call. See game/src/render/scene_render.cpp's InitOverlayMask/
+        // InitBiomeBlend/InitAlbedoBake call sites (~line 264-291) this
+        // mirrors.
+        s_terrain.InitOverlayMask("game/data/textures/md_overlay_mask.png");
+        s_terrain.InitBiomeBlend("game/data/textures/md_biome_blend.png");
+        s_terrain.InitAlbedoBake();
         TerrainRenderer::PomParams pom; pom.height_scale=0.04f; pom.layers_min=4; pom.layers_max=8;
         s_terrain.InitPOM("game/data/textures/terrain_pom_rock.png", pom);
         s_master_ready = true;
@@ -818,19 +872,49 @@ static void tick_chunk_build() {
 // Ogre never switches shader for near terrain, see RenderFrame's comment);
 // beyond that it draws via the compact VBO (s_cvbo), which only needs
 // heightmap_ready.
-static void s_update_chunk_gpu_window(float eye_x, float eye_z) {
+// Returns true if the near-camera chunk window still has pending uploads
+// within UPLOAD_R2 after this call (i.e. MAX_UPLOADS_PER_CALL was exhausted
+// before every in-range chunk got its GPU buffers) — see RenderFrame's idle-
+// skip, which must NOT freeze the RTT while this window is still catching up
+// after a large camera jump (confirmed bug, 2026-07-13: a teleport-sized jump
+// needs far more than MAX_UPLOADS_PER_CALL=8 chunks uploaded, but the idle-
+// skip only allows ~2 real frames before freezing — the RTT then permanently
+// retains whatever partial/empty state existed at that moment, showing flat
+// clear-colour "sky" instead of terrain. Confirmed via A/B: continuously
+// moving the camera every frame — never triggering idle-skip — always shows
+// correct terrain; a single teleport + hold-still reproduces the bug 100%).
+static bool s_update_chunk_gpu_window(SDL_GPUCommandBuffer* cmd, float eye_x, float eye_z) {
+    // Confirmed root cause of task #165 (wavy "worm" ripple) / #166 (needle
+    // spikes): with this window enabled, chunks near the camera swap between
+    // the real per-chunk mesh and the box-filtered compact-VBO background as
+    // they cross UPLOAD_R2/RELEASE_R2 — two fixed-radius circles centred on
+    // the camera — producing a visible seam/pop that rings the camera as it
+    // moves. The editor's World3D tab doesn't need per-chunk near-camera
+    // detail (unlike the game's DrawRawPOM ground-level view); the compact
+    // VBO alone is enough here, so the window is disabled rather than
+    // reworked to hide the seam.
+    return false;
     static constexpr float UPLOAD_R2  = 4000.f * 4000.f;  // margin past d1sq=3500m
     static constexpr float RELEASE_R2 = 5500.f * 5500.f;  // hysteresis — avoid thrash at the boundary
     static constexpr int   MAX_UPLOADS_PER_CALL = 8;      // bound per-frame GPU work
+    // Must match RenderFrame's WCX/WCZ/W2UV exactly (task #158c) — BakeAlbedo's
+    // world_origin_x/z/world_to_uv feed the same overlay/biome-blend UV formula
+    // the runtime shader uses, so a baked chunk's sampled mask/blend values line
+    // up with what the live shader would have sampled at that world position.
+    static constexpr float kW2UV = 1.f / (64.f * CHUNK_SIZE);
+    static constexpr float kWCX  = 32.f * CHUNK_SIZE;
+    static constexpr float kWCZ  = 32.f * CHUNK_SIZE;
 
-    int uploads = 0;
-    for (int cz = 0; cz < EDITOR_TNKN && uploads < MAX_UPLOADS_PER_CALL; ++cz) {
-        for (int cx = 0; cx < EDITOR_TNKN && uploads < MAX_UPLOADS_PER_CALL; ++cx) {
+    int  uploads = 0;
+    bool pending = false;
+    for (int cz = 0; cz < EDITOR_TNKN; ++cz) {
+        for (int cx = 0; cx < EDITOR_TNKN; ++cx) {
             TerrainChunk& ch = s_chunks[cz][cx];
             if (!ch.heightmap_ready) continue;
             float ddx = ch.center_x - eye_x, ddz = ch.center_z - eye_z;
             float d2  = ddx * ddx + ddz * ddz;
             if (!ch.loaded && d2 < UPLOAD_R2) {
+                if (uploads >= MAX_UPLOADS_PER_CALL) { pending = true; continue; }
                 // TerrainGen_Upload() reads module-static staging buffers in
                 // terrain_gen.cpp that are only valid for whichever chunk
                 // TerrainGen_Build() last populated — rebuild (cheap: atlas
@@ -841,6 +925,7 @@ static void s_update_chunk_gpu_window(float eye_x, float eye_z) {
                 TerrainGenParams p = s_make_gen_params(cx, cz);
                 TerrainGen_Build(ch, coord, p);
                 TerrainGen_Upload(ch);
+                s_terrain.BakeAlbedo(cmd, ch, kWCX, kWCZ, kW2UV);
                 ++uploads;
             } else if (ch.loaded && d2 > RELEASE_R2) {
                 ch.vbo.Shutdown();
@@ -852,6 +937,7 @@ static void s_update_chunk_gpu_window(float eye_x, float eye_z) {
             }
         }
     }
+    return pending;
 }
 
 // ── Camera input (original free-fly) ─────────────────────────────────────────
@@ -942,10 +1028,25 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
     float eye_x = s_cx, eye_y = s_cy, eye_z = s_cz;
     s_last_eye[0]=s_cx; s_last_eye[1]=s_cy; s_last_eye[2]=s_cz;
 
+    // task #158b: LOD/POM tier selection below is horizontal-only (X/Z), so a
+    // free-fly camera positioned near-vertically above a chunk (e.g. 8-15km
+    // straight up) measured d2~=0 -> POM tier, even though POM (per-pixel
+    // parallax ray-march, designed for near-grazing viewing) breaks down into
+    // visible black/white speckle noise at that minification. Fold the
+    // camera's real altitude ABOVE GROUND (not above world Y=0) into the
+    // distance metric once per frame so extreme-altitude views fall through
+    // to the compact/non-POM tier regardless of horizontal offset. Confirmed
+    // via A/B screenshot: same alt+horizontal-far view renders clean.
+    float _eye_ground_h  = TerrainMaster_SampleWorld(eye_x, eye_z);
+    float _eye_alt_above = eye_y - _eye_ground_h;
+    float _eye_alt2      = _eye_alt_above * _eye_alt_above;
+
     // Windowed per-chunk GPU buffer upload/release around the camera (see
     // s_update_chunk_gpu_window's doc comment) — must run every frame so
-    // nearby chunks are ready for the LOD0/LOD1 draw loop below.
-    s_update_chunk_gpu_window(eye_x, eye_z);
+    // nearby chunks are ready for the LOD0/LOD1 draw loop below. Return value
+    // feeds the idle-skip below — a jump-sized camera move can leave chunks
+    // still pending past this single call's upload budget.
+    bool chunk_window_pending = s_update_chunk_gpu_window(cmd, eye_x, eye_z);
 
     // Rebuild dirty chunks (marked by s_apply_brush)
     bool was_chunk_dirty = false;
@@ -970,13 +1071,18 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
     // Idle skip: if camera and scene unchanged, reuse last RTT (LOAD_OP_CLEAR not called
     // → s_color keeps previous content → ImGui image shows last rendered frame).
     // Allow 2 stable frames before skipping so final position is fully rendered.
+    // MUST also stay awake while chunk_window_pending — a teleport-sized jump
+    // needs more than one call's upload budget (see s_update_chunk_gpu_window's
+    // doc comment); freezing before the window finishes catching up retains a
+    // near-empty frame (fixed 2026-07-13, was a real repro: hold the camera
+    // still right after a big jump → permanent flat sky-colour RTT).
     {
         static float s_pcx=-1e9f,s_pcy=-1e9f,s_pcz=-1e9f,s_pyaw=-1e9f,s_ppit=-1e9f;
         static int   s_idle=0;
         bool cam_same = fabsf(s_cx-s_pcx)<0.5f && fabsf(s_cy-s_pcy)<0.5f &&
                         fabsf(s_cz-s_pcz)<0.5f && fabsf(s_yaw-s_pyaw)<0.001f &&
                         fabsf(s_pitch-s_ppit)<0.001f;
-        if (cam_same && !was_chunk_dirty && !s_cvbo_dirty) {
+        if (cam_same && !was_chunk_dirty && !s_cvbo_dirty && !chunk_window_pending) {
             if (++s_idle > 2) return;  // RTT retained → no GPU work needed
         } else {
             s_idle=0;
@@ -1121,7 +1227,7 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
                     if (!ch.loaded) continue;
                     float ddx = ch.center_x - eye_x;
                     float ddz = ch.center_z - eye_z;
-                    float d2  = ddx*ddx + ddz*ddz;
+                    float d2  = ddx*ddx + ddz*ddz + _eye_alt2;
                     if (d2 > d3sq) continue;
                     if (d2 < d1sq) {
                         // Use global kenshi colour map (WCX/WCZ/W2UV) for correct vivid colours.
@@ -1354,6 +1460,11 @@ void TeleportToZone(int zone_x, int zone_z) {
 
 int GetChunksLoaded() { return s_chunks_built.load(); }
 int GetChunksTotal()  { return EDITOR_TNKN * EDITOR_TNKN; }
+
+void SetCameraPos(float x, float y, float z, float yaw, float pitch) {
+    s_cx = x; s_cy = y; s_cz = z;
+    s_yaw = yaw; s_pitch = pitch;
+}
 
 } // namespace WorldEditor3D_SDLGPU
 

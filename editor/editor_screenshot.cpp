@@ -11,6 +11,10 @@ void EditorScreenshot_RequestPending(const char* path) {
     strncpy(s_pending_path, path, sizeof(s_pending_path) - 1);
 }
 
+bool EditorScreenshot_HasPending() {
+    return s_pending_path[0] != '\0';
+}
+
 bool EditorScreenshot_ConsumePending(char* out_path, int out_path_size) {
     if (s_pending_path[0] == '\0') return false;
     strncpy(out_path, s_pending_path, out_path_size - 1);
