@@ -9,6 +9,7 @@
 #include <monkey_dust/scripting/lua_system.h>
 #include "lua_editor_scenario_api.h"
 #include "editor_scenario_driver.h"
+#include "editor_cmd_file.h"
 #include "editor_screenshot.h"
 #include <ctime>
 #ifdef MONKEY_DUST_EDITOR_HOT_RELOAD
@@ -278,6 +279,10 @@ int main(int argc, char** argv) {
                 // Yielded — fall through, render this frame normally, resume again next frame.
             }
         }
+
+        // Command-file automation (task #123) — independent of --exec, runs
+        // every frame so an already-running editor can be driven live.
+        EditorCmdFile_Poll();
 
         // Frame cap — editor targets 60 fps; iGPU shares cooling with CPU.
         // --fast skips this entirely (scenario mode wants max throughput).

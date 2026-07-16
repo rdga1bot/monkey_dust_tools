@@ -15,6 +15,7 @@ Usage:
   tools/md_ctl qa [--compare CAPTURE_ID | --rebase CAPTURE_ID] [--backend hw|lavapipe]
   tools/md_ctl state
   tools/md_ctl gc [--days N]
+  tools/md_ctl editor-exec "<lua code>" [--timeout SECONDS]
 """
 import argparse
 import json
@@ -29,6 +30,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 LOG_DIR   = REPO_ROOT / "tmp_" / "md_ctl_logs"
 SCENARIO_DATA_DIR = REPO_ROOT / "tmp_" / "scenario_data"
 FAILURES_DIR       = REPO_ROOT / "tmp_" / "failures"
+EDITOR_CMD_DIR     = REPO_ROOT / "tmp_" / "editor_cmd"
 
 SUBMODULES = ["engine", "tools"]
 
@@ -314,6 +316,53 @@ def cmd_state(args) -> int:
     return 0
 
 
+# ── editor-exec ────────────────────────────────────────────────────────────
+def cmd_editor_exec(args) -> int:
+    """Sends one Lua command to an ALREADY RUNNING editor instance via the
+    live command-file channel (task #123, tools/editor/editor_cmd_file.cpp)
+    — does NOT launch the editor itself. Unlike `md_ctl run` (one-shot
+    --exec script, fresh process per call), this lets an existing session
+    execute commands one at a time so each next command can depend on the
+    previous result (e.g. move camera, screenshot, inspect, repeat) without
+    paying the window/GPU init cost again."""
+    EDITOR_CMD_DIR.mkdir(parents=True, exist_ok=True)
+
+    seq_path = EDITOR_CMD_DIR / "cmd.seq"
+    try:
+        last_seq = int(seq_path.read_text().strip()) if seq_path.exists() else 0
+    except ValueError:
+        last_seq = 0
+    seq = last_seq + 1
+
+    cmd_tmp = EDITOR_CMD_DIR / "cmd.lua.tmp"
+    cmd_tmp.write_text(args.lua)
+    cmd_tmp.rename(EDITOR_CMD_DIR / "cmd.lua")
+
+    seq_tmp = EDITOR_CMD_DIR / "cmd.seq.tmp"
+    seq_tmp.write_text(str(seq))
+    seq_tmp.rename(seq_path)
+
+    result_path = EDITOR_CMD_DIR / "result.json"
+    timeout = args.timeout or 10.0
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if result_path.exists():
+            try:
+                data = json.loads(result_path.read_text())
+            except (json.JSONDecodeError, OSError):
+                data = None
+            if data and data.get("seq") == seq:
+                ok = bool(data.get("ok"))
+                err = data.get("error", "")
+                print(f"[md_ctl editor-exec] {'OK' if ok else 'ERROR'} seq={seq}"
+                      + (f": {err}" if err else ""))
+                return 0 if ok else 1
+        time.sleep(0.05)
+    print(f"[md_ctl editor-exec] TIMEOUT after {timeout}s — is monkey_dust_editor "
+          f"running and polling {EDITOR_CMD_DIR}?")
+    return 124
+
+
 # ── gc ─────────────────────────────────────────────────────────────────────
 def cmd_gc(args) -> int:
     days = args.days or 7
@@ -374,6 +423,11 @@ def main() -> int:
 
     p = sub.add_parser("gc"); p.add_argument("--days", type=int, default=7)
     p.set_defaults(func=cmd_gc)
+
+    p = sub.add_parser("editor-exec")
+    p.add_argument("lua")
+    p.add_argument("--timeout", type=float, default=10.0)
+    p.set_defaults(func=cmd_editor_exec)
 
     args = ap.parse_args()
     return args.func(args)
