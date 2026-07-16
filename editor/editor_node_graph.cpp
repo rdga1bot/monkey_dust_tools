@@ -262,8 +262,9 @@ void EditorNodeGraphPanel::DrawNode(Node& n) {
 
     // Dirty indicator
     if (n.pcg_slot >= 0 && pcg_graph_.nodes[n.pcg_slot] &&
-        pcg_graph_.nodes[n.pcg_slot]->dirty)
+        pcg_graph_.nodes[n.pcg_slot]->dirty) {
         ImGui::SameLine(); ImGui::TextDisabled("*");
+    }
 
     char uid[32];
 

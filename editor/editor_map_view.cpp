@@ -137,7 +137,7 @@ void MapViewPanel::Undo() {
     PaintOp op = undo_stack_[--undo_top_];
     if (op.type == OpType::FLOOD) {
         auto& s = snap_pool_[op.count];
-        for (int i = 0; i < map_.width * map_.height; i++)
+        for (int i = 0; i < md::flare::MAX_MAP_WIDTH * md::flare::MAX_MAP_HEIGHT; i++)
             map_.layers[op.layer].tiles[i] = s.before[i];
     } else {
         for (int i = 0; i < op.count; i++)
@@ -151,7 +151,7 @@ void MapViewPanel::Redo() {
     PaintOp op = redo_stack_[--redo_top_];
     if (op.type == OpType::FLOOD) {
         auto& s = snap_pool_[op.count];
-        for (int i = 0; i < map_.width * map_.height; i++)
+        for (int i = 0; i < md::flare::MAX_MAP_WIDTH * md::flare::MAX_MAP_HEIGHT; i++)
             map_.layers[op.layer].tiles[i] = s.after[i];
     } else {
         for (int i = 0; i < op.count; i++)
@@ -333,12 +333,18 @@ bool MapViewPanel::FloodFillAt(float mx, float my) {
     uint16_t   target = tiles[sr * stride + sc];
     if (target == new_val) return false;
 
-    // Snapshot before state
+    // Snapshot before state. tiles[] is a fixed MAX_MAP_WIDTH*MAX_MAP_HEIGHT
+    // row-major buffer (index = row*MAX_MAP_WIDTH+col, see stride above) --
+    // NOT tightly packed to map_.width/height. snap.before/after share that
+    // exact same fixed size/layout, so copy the whole buffer 1:1 instead of
+    // the first map_.width*map_.height elements (which, for any map narrower
+    // than MAX_MAP_WIDTH, previously read/wrote the wrong cells entirely on
+    // Undo/Redo -- confirmed bug, see Undo()/Redo() below).
     int si = snap_next_ % SNAP_MAX;
     snap_next_++;
     auto& snap = snap_pool_[si];
-    for (int i = 0; i < map_.width * map_.height; i++)
-        snap.before[i] = tiles[i];  // copy only live area via row*stride+col below
+    for (int i = 0; i < md::flare::MAX_MAP_WIDTH * md::flare::MAX_MAP_HEIGHT; i++)
+        snap.before[i] = tiles[i];
 
     // BFS flood fill using static queue/visited (singleton — no concurrent use)
     static bool    visited[md::flare::MAX_MAP_WIDTH * md::flare::MAX_MAP_HEIGHT];
@@ -370,8 +376,8 @@ bool MapViewPanel::FloodFillAt(float mx, float my) {
         }
     }
 
-    // Snapshot after state
-    for (int i = 0; i < map_.width * map_.height; i++)
+    // Snapshot after state (full fixed buffer, see before-state comment above)
+    for (int i = 0; i < md::flare::MAX_MAP_WIDTH * md::flare::MAX_MAP_HEIGHT; i++)
         snap.after[i] = tiles[i];
 
     PaintOp op;
