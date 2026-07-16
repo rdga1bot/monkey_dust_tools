@@ -884,6 +884,16 @@ static void tick_chunk_build() {
 // moving the camera every frame — never triggering idle-skip — always shows
 // correct terrain; a single teleport + hold-still reproduces the bug 100%).
 static bool s_update_chunk_gpu_window(SDL_GPUCommandBuffer* cmd, float eye_x, float eye_z) {
+    // Confirmed root cause of task #165 (wavy "worm" ripple) / #166 (needle
+    // spikes): with this window enabled, chunks near the camera swap between
+    // the real per-chunk mesh and the box-filtered compact-VBO background as
+    // they cross UPLOAD_R2/RELEASE_R2 — two fixed-radius circles centred on
+    // the camera — producing a visible seam/pop that rings the camera as it
+    // moves. The editor's World3D tab doesn't need per-chunk near-camera
+    // detail (unlike the game's DrawRawPOM ground-level view); the compact
+    // VBO alone is enough here, so the window is disabled rather than
+    // reworked to hide the seam.
+    return false;
     static constexpr float UPLOAD_R2  = 4000.f * 4000.f;  // margin past d1sq=3500m
     static constexpr float RELEASE_R2 = 5500.f * 5500.f;  // hysteresis — avoid thrash at the boundary
     static constexpr int   MAX_UPLOADS_PER_CALL = 8;      // bound per-frame GPU work
