@@ -400,7 +400,6 @@ def main():
         write_preview(zones_h, biome_grid, prev)
 
     print("\n[done] Next steps:")
-    print("  python3 tools/md_master_hmap_gen.py   # optional: regen master hmap")
     print("  python3 tools/md_worldmap_gen.py      # regen world map PNG")
     print(f"  ninja -C build monkey_dust            # rebuild + launch to verify terrain")
 

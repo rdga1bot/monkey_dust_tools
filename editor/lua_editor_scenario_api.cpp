@@ -67,16 +67,16 @@ static int l_md_editor_camera_pos(lua_State* L) {
 // ── md.editor_terrain_op(op, x, z) -> result ─────────────────────────────────
 // Etap 4 scope: "height" is the one operation actually needed for terrain
 // verification (matches game-side md.terrain_height's TerrainQuery source of
-// truth, but via the editor's own already-loaded TerrainMaster atlas — same
-// underlying md_master_hmap.r32, no second implementation of the sampling
-// transform). Not a general brush-edit API — see plan's own "3-5 operations
-// really needed, don't wrap every panel" scope note.
+// truth, via the editor's own already-loaded TerrainAtlas — same underlying
+// world_hmap data, no second implementation of the sampling transform).
+// Not a general brush-edit API — see plan's own "3-5 operations really
+// needed, don't wrap every panel" scope note.
 static int l_md_editor_terrain_op(lua_State* L) {
     const char* op = luaL_checkstring(L, 1);
     if (strcmp(op, "height") == 0) {
         float x = (float)luaL_checknumber(L, 2);
         float z = (float)luaL_checknumber(L, 3);
-        float h = TerrainMaster_SampleWorld(x, z);
+        float h = TerrainAtlas_SampleWorld(x, z);
         lua_pushnumber(L, (lua_Number)h);
         return 1;
     }

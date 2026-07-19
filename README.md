@@ -38,6 +38,14 @@ Zero dependencies on `game/` sources — compiles without the game repo present 
 > never part of the standalone `tools/` build. **3D World and Settings panels are NOT game-coupled**
 > — they live in `tools/editor/` (`editor_world_3d_sdlgpu.h/.cpp`, `settings_editor.h`), depend only
 > on `engine/` + SDL3, and ARE part of the standalone `monkey_dust_editor` build.
+>
+> **3D World is view-only** (2026-07-19) — the whole-world (64×64 zone) viewport is for navigation/
+> preview only, no in-viewport terrain brush. Real terrain sculpting is the in-game F3 "Terrain
+> Sculpt" panel (`game/src/editor/editor_terrain_panel.cpp`), which writes directly to the real
+> Kenshi `TerrainAtlas`. The old 2D "Heightmap" brush tab and the 3D World's own macro-geography
+> brush both painted a separate, now-removed synthetic `md_master_hmap` layer that only ever guided
+> procedural generation (also removed) — neither ever touched real terrain, so removing them lost no
+> real editing capability.
 
 **Toolbar:**
 - New Entity popup (Transform / NPC Bandit / NPC Trader / NPC Holy / Building)

@@ -29,7 +29,6 @@
 #endif
 #include "editor_world_panel.h"
 #include "editor_3d_bridge.h"
-#include "editor_hmap_2d.h"
 #include "editor_char_preview_sdlgpu.h"
 #include "character_editor.h"
 #include "npc_archetype_editor.h"
@@ -155,7 +154,7 @@ int main(int argc, char** argv) {
     WorldPanel::Init();
     // Terrain atlas (editable heightmap) + light system for editor 3D view
     LightSystem::Get().Init();
-    TerrainAtlas_Load("game/data/terrain/world_hmap.r32");
+    TerrainAtlas_Load("game/data/terrain/world_hmap");
     TerrainAtlas_SmoothBoundaries();
 #ifndef MONKEY_DUST_EDITOR_HOT_RELOAD
     WorldEditor3D_SDLGPU::Init(
@@ -414,12 +413,10 @@ int main(int argc, char** argv) {
 
         // Non-hot-reload path ─────────────────────────────────────────────────
         static bool s_world3d_was_active  = false;
-        static bool s_hmap_was_active     = false;
         static bool s_charpreview_active  = false;
         static bool s_mapview_active      = false;
         EditorCore::Get().f3_passthrough = s_world3d_was_active;
         s_world3d_was_active = false;
-        s_hmap_was_active    = false;
         s_charpreview_active = false;
         s_mapview_active     = false;
         EditorCore::Get().Update(dt);
@@ -470,11 +467,6 @@ int main(int argc, char** argv) {
                 WorldPanel::Draw(dt);
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Heightmap")) {
-                s_hmap_was_active = true;
-                HmapEditor2D::DrawPanel();
-                ImGui::EndTabItem();
-            }
             if (ImGui::BeginTabItem("NPCs")) {
                 ImGui::SetCursorPos({8, ImGui::GetCursorPosY() + 4});
                 NpcArchetypeEditor::DrawContent();
@@ -494,8 +486,7 @@ int main(int argc, char** argv) {
         // ── SDL_GPU: render terrain RTT + ImGui to swapchain ─────────────────
         SDL_GPUCommandBuffer* cmd = md::GpuDevice::Get().AcquireCommandBuffer();
         if (cmd) {
-            // 1. Render character preview + tile map + heightmap to off-screen RTTs
-            if (s_hmap_was_active)    HmapEditor2D::UploadTexture(cmd);
+            // 1. Render character preview + tile map to off-screen RTTs
             if (s_charpreview_active) CharPreviewSDLGPU::RenderFrame(cmd);
             if (s_mapview_active)     MapViewPanel::Get().RenderFrame(cmd);
 

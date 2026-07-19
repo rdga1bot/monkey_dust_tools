@@ -41,10 +41,10 @@ spacing) — real mountains and ordinary steep slopes below the
 threshold are left untouched.
 
 Pipeline position: run AFTER tools/tif_to_r32.py (which produces
-world_hmap.r32 from the raw Kenshi fullmap.tif) and BEFORE
-tools/md_master_hmap_gen.py / tools/md_worldmap_gen.py (per CLAUDE.md's
-"Terrain sync rule" — both must be re-run after this script touches
-world_hmap.r32 too, since they derive from it).
+world_hmap.r16 from the raw Kenshi fullmap.tif) and BEFORE
+tools/md_worldmap_gen.py (per CLAUDE.md's "Terrain sync rule" — it must
+be re-run after this script touches world_hmap.r16 too, since it derives
+from it).
 
 Usage:
   python3 tools/md_terrain_erode.py                          # in-place, defaults
@@ -53,15 +53,13 @@ Usage:
 """
 
 import argparse
-import struct
 import sys
 import time
 import numpy as np
 from pathlib import Path
+sys.path.insert(0, "tools")
+from md_hmap_io import ATLAS_ZONES, ATLAS_VERTS, load_atlas_tiled, save_atlas_tiled
 
-ATLAS_MAGIC  = 0x414D4800
-ATLAS_ZONES  = 64
-ATLAS_VERTS  = 129   # 129x129 heights per zone; last row/col duplicates the next zone's first
 G            = ATLAS_VERTS - 1  # 128 unique verts per zone per axis
 FULL_SIZE    = ATLAS_ZONES * G + 1   # 8193 — includes the true unique edge row/col from the
                                      # last zone row/col (tif_to_r32.py samples vr=128 of zone 63
@@ -70,43 +68,33 @@ FULL_SIZE    = ATLAS_ZONES * G + 1   # 8193 — includes the true unique edge ro
 
 
 def load_atlas(path: str) -> np.ndarray:
-    """TerrainAtlas binary -> float32 (FULL_SIZE, FULL_SIZE), one row-major
+    """world_hmap.r16 -> float32 (FULL_SIZE, FULL_SIZE), one row-major
     world height field. Zones 0..62 contribute their non-duplicate 128x128
     interior; zone 63 (last row/col) contributes its full 129x129 block,
     since its own last row/col is real unique source data, not a duplicate
     of a following zone that doesn't exist."""
+    tiled = load_atlas_tiled(path)  # [zy, zx, row, col]
     full = np.zeros((FULL_SIZE, FULL_SIZE), dtype=np.float32)
-    with open(path, 'rb') as f:
-        magic, zx, zy, verts = struct.unpack('<4I', f.read(16))
-        if magic != ATLAS_MAGIC:
-            sys.exit(f"ERROR: bad magic 0x{magic:08X} (expected 0x{ATLAS_MAGIC:08X})")
-        if zx != ATLAS_ZONES or zy != ATLAS_ZONES or verts != ATLAS_VERTS:
-            sys.exit(f"ERROR: unexpected atlas dimensions {zx}x{zy}, verts={verts}")
-        for zi in range(ATLAS_ZONES * ATLAS_ZONES):
-            f.read(8)  # per-zone hmin/hmax — recomputed on save, skip here
-            zone_h = np.frombuffer(f.read(ATLAS_VERTS * ATLAS_VERTS * 4),
-                                    dtype=np.float32).reshape(ATLAS_VERTS, ATLAS_VERTS)
-            zrow, zcol = zi // ATLAS_ZONES, zi % ATLAS_ZONES
-            rn = ATLAS_VERTS if zrow == ATLAS_ZONES - 1 else G
-            cn = ATLAS_VERTS if zcol == ATLAS_ZONES - 1 else G
-            full[zrow*G:zrow*G+rn, zcol*G:zcol*G+cn] = zone_h[:rn, :cn]
+    for zy in range(ATLAS_ZONES):
+        for zx in range(ATLAS_ZONES):
+            rn = ATLAS_VERTS if zy == ATLAS_ZONES - 1 else G
+            cn = ATLAS_VERTS if zx == ATLAS_ZONES - 1 else G
+            full[zy*G:zy*G+rn, zx*G:zx*G+cn] = tiled[zy, zx, :rn, :cn]
     return full
 
 
 def save_atlas(path: str, full: np.ndarray):
-    """Write full (FULL_SIZE, FULL_SIZE) height field back into the
-    TerrainAtlas format — each zone's last row/col mirrors the next zone's
-    first row/col (edge-shared verts, true world edge zones use their own
-    real last row/col from `full`, restored 1:1 by load_atlas above)."""
-    with open(path, 'wb') as f:
-        f.write(struct.pack('<IIII', ATLAS_MAGIC, ATLAS_ZONES, ATLAS_ZONES, ATLAS_VERTS))
-        for zi in range(ATLAS_ZONES * ATLAS_ZONES):
-            zrow, zcol = zi // ATLAS_ZONES, zi % ATLAS_ZONES
-            r0, c0 = zrow*G, zcol*G
-            zone_h = full[r0:r0+ATLAS_VERTS, c0:c0+ATLAS_VERTS]
-            hmin, hmax = float(zone_h.min()), float(zone_h.max())
-            f.write(struct.pack('<ff', hmin, hmax))
-            f.write(np.ascontiguousarray(zone_h).tobytes())
+    """Write full (FULL_SIZE, FULL_SIZE) height field back into the tiled
+    world_hmap.r16 format — each zone's last row/col mirrors the next
+    zone's first row/col (edge-shared verts, true world edge zones use
+    their own real last row/col from `full`, restored 1:1 by load_atlas
+    above)."""
+    tiled = np.zeros((ATLAS_ZONES, ATLAS_ZONES, ATLAS_VERTS, ATLAS_VERTS), dtype=np.float32)
+    for zy in range(ATLAS_ZONES):
+        for zx in range(ATLAS_ZONES):
+            r0, c0 = zy*G, zx*G
+            tiled[zy, zx] = full[r0:r0+ATLAS_VERTS, c0:c0+ATLAS_VERTS]
+    save_atlas_tiled(path, tiled)
 
 
 def erode_pass(h: np.ndarray, talus: float, rate: float) -> np.ndarray:
@@ -140,7 +128,7 @@ def slope_stats(label: str, h: np.ndarray):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                   formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--input",      default="game/data/terrain/world_hmap.r32")
+    ap.add_argument("--input",      default="game/data/terrain/world_hmap.r16")
     ap.add_argument("--output",     default=None, help="default: overwrite --input")
     ap.add_argument("--talus",      type=float, default=12.0,
                     help="max allowed height diff (m) between adjacent 3.6m cells before erosion")
@@ -171,8 +159,8 @@ def main():
 
     print(f"[save] {out_path} ...")
     save_atlas(out_path, h)
-    print(f"Done in {time.time()-t0:.1f}s — re-run md_master_hmap_gen.py + "
-          f"md_worldmap_gen.py (CLAUDE.md's Terrain sync rule).")
+    print(f"Done in {time.time()-t0:.1f}s — re-run md_worldmap_gen.py "
+          f"(CLAUDE.md's Terrain sync rule).")
 
 
 if __name__ == "__main__":

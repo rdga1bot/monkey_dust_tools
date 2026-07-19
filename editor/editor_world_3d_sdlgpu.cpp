@@ -380,10 +380,6 @@ static constexpr int      s_zone_ox_saved = 0;
 static constexpr int      s_zone_oz_saved = 0;
 static bool               s_rebuild_pending = false;
 
-// Per-zone amplitude from terrain_config.txt (indexed [gz][gx], default 40)
-static float s_zone_amp[64][64];
-
-
 // Build deterministic rock positions across the 7×7 near-zone viewport.
 // Uses LCG seeded per-chunk so positions are stable across camera moves.
 // Called once after atlas is ready; rebuilt when zone_ox/oz changes.
@@ -403,7 +399,7 @@ static void s_build_prop_positions() {
                 float lz = (float)((rng >> 8) & 0xFFFF) / 65535.f * CHUNK_SIZE;
                 float wx = zx * CHUNK_SIZE + lx;
                 float wz = zz * CHUNK_SIZE + lz;
-                float wy = TerrainMaster_SampleWorld(wx, wz);
+                float wy = TerrainAtlas_SampleWorld(wx, wz);
                 float* p3 = &s_prop_pos[s_prop_count * 3];
                 p3[0] = wx; p3[1] = wy; p3[2] = wz;
                 ++s_prop_count;
@@ -412,30 +408,6 @@ static void s_build_prop_positions() {
     }
     s_props_built = true;
 }
-
-static void s_load_zone_amplitudes(const char* cfg_path) {
-    for (int i = 0; i < 64; ++i)
-        for (int j = 0; j < 64; ++j)
-            s_zone_amp[i][j] = 40.f;
-    FILE* f = fopen(cfg_path, "r");
-    if (!f) return;
-    char line[256];
-    int gx = -1, gz = -1; float amp = 40.f;
-    auto commit = [&]() {
-        if (gx >= 0 && gx < 64 && gz >= 0 && gz < 64) s_zone_amp[gz][gx] = amp;
-    };
-    while (fgets(line, sizeof(line), f)) {
-        int v; float fv;
-        if (strncmp(line, "zone=", 5) == 0)   { commit(); gx = gz = -1; amp = 40.f; }
-        else if (sscanf(line, " grid_x=%d",    &v)  == 1) gx  = v;
-        else if (sscanf(line, " grid_z=%d",    &v)  == 1) gz  = v;
-        else if (sscanf(line, " amplitude=%f", &fv) == 1) amp = fv;
-    }
-    commit();
-    fclose(f);
-    fprintf(stdout, "[W3D] zone amplitudes loaded from %s\n", cfg_path);
-}
-
 
 // RTT
 static SDL_GPUTexture* s_color = nullptr;
@@ -461,17 +433,7 @@ static float s_zoom_out    = 1.06f;   // s_cy *= s_zoom_out on scroll down
 static bool  s_rmb      = false;
 static bool  s_focused  = false;
 
-// ── Terrain brush ──────────────────────────────────────────────────────────────
-enum class BrushMode { Raise=0, Lower, Smooth, Flatten };
-static BrushMode s_brush_mode     = BrushMode::Raise;
-static float     s_brush_radius   = 150.f;    // metres
-static float     s_brush_strength = 8.f;      // m/s
-static bool      s_brush_hit      = false;
-static float     s_brush_wx = 0.f, s_brush_wy = 0.f, s_brush_wz = 0.f;
-static float     s_last_vp[16]    = {};        // VP matrix from last RenderFrame
-static float     s_last_eye[3]    = {};        // camera world pos from last RenderFrame
 static bool      s_chunk_dirty[EDITOR_TNKN][EDITOR_TNKN] = {};
-static constexpr const char* MASTER_PATH = "game/data/terrain/md_master_hmap.r32";
 
 // ── Mat4 helpers (column-major) ────────────────────────────────────────────────
 struct M4 { float m[16] = {1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1}; };
@@ -504,148 +466,18 @@ static M4 m4_view(float ex, float ey, float ez, float yaw, float pitch) {
     return r;
 }
 
-// ── Ray → terrain intersection ─────────────────────────────────────────────────
-// Returns true if the ray hits terrain within 30 km; fills out_w*.
-static bool s_ray_terrain(float ox, float oy, float oz,
-                           float rdx, float rdy, float rdz,
-                           float& out_wx, float& out_wy, float& out_wz) {
-    float len = sqrtf(rdx*rdx + rdy*rdy + rdz*rdz);
-    if (len < 1e-6f) return false;
-    rdx /= len; rdy /= len; rdz /= len;
-    if (rdy >= 0.f) return false;  // ray goes upward — never hits ground
-
-    auto sample_h = [](float wx, float wz) -> float {
-        return TerrainMaster_SampleWorld(wx, wz);
-    };
-
-    float prev_t = 0.f, t = 0.f;
-    while (t < 30000.f) {
-        float wx = ox + rdx*t, wy = oy + rdy*t, wz = oz + rdz*t;
-        if (wx < 0||wz < 0||wx > 64.f*CHUNK_SIZE||wz > 64.f*CHUNK_SIZE) break;
-        float h = sample_h(wx, wz);
-        if (wy < h) {
-            // Binary refine
-            float lo = prev_t, hi = t;
-            for (int i = 0; i < 12; ++i) {
-                float mid = (lo + hi) * 0.5f;
-                float my = oy + rdy*mid, mh = sample_h(ox + rdx*mid, oz + rdz*mid);
-                if (my < mh) hi = mid; else lo = mid;
-            }
-            float ft = (lo + hi) * 0.5f;
-            out_wx = ox + rdx*ft;  out_wz = oz + rdz*ft;
-            out_wy = sample_h(out_wx, out_wz);
-            return true;
-        }
-        prev_t = t;
-        float gap = wy - h;
-        t += (gap < 5.f) ? 2.f : (gap < 100.f ? 10.f : fminf(gap * 0.4f, 200.f));
-    }
-    return false;
-}
-
-// ── Apply brush to master heightmap pixels ─────────────────────────────────────
-static void s_apply_brush(float dt) {
-    if (!TerrainMaster_Loaded()) return;
-    int   mw  = TerrainMaster_Width();
-    int   mhh = TerrainMaster_Height();
-    float R2  = s_brush_radius * s_brush_radius;
-    float str = s_brush_strength * dt;
-    // world extent covered by master hmap = 64 zones × CHUNK_SIZE
-    const float WEXT = (float)(64 * CHUNK_SIZE);
-    float px_sz = WEXT / (float)mw;  // metres per pixel (≈125m at 256×256)
-
-    int c0 = (int)((s_brush_wx - s_brush_radius) / WEXT * mw) - 1;
-    int c1 = (int)((s_brush_wx + s_brush_radius) / WEXT * mw) + 1;
-    int r0 = (int)((s_brush_wz - s_brush_radius) / WEXT * mhh) - 1;
-    int r1 = (int)((s_brush_wz + s_brush_radius) / WEXT * mhh) + 1;
-    if (c0 < 0) c0 = 0;  if (c1 >= mw)  c1 = mw  - 1;
-    if (r0 < 0) r0 = 0;  if (r1 >= mhh) r1 = mhh - 1;
-
-    bool any_touched = false;
-    for (int row = r0; row <= r1; ++row) {
-        for (int col = c0; col <= c1; ++col) {
-            float wx = (col + 0.5f) * px_sz;
-            float wz = (row + 0.5f) * px_sz;
-            float dx = wx - s_brush_wx, dz = wz - s_brush_wz;
-            float d2 = dx*dx + dz*dz;
-            if (d2 > R2) continue;
-            float t       = 1.f - sqrtf(d2) / s_brush_radius;
-            float falloff = t * t;
-            float h  = TerrainMaster_GetPixel(col, row);
-            float nh = h;
-            switch (s_brush_mode) {
-                case BrushMode::Raise:   nh = h + str * falloff; break;
-                case BrushMode::Lower:   nh = h - str * falloff; break;
-                case BrushMode::Flatten: nh = h + (s_brush_wy - h) * falloff * fminf(str * 0.2f, 1.f); break;
-                case BrushMode::Smooth: {
-                    float avg = 0.f;
-                    for (int dc = -2; dc <= 2; ++dc)
-                        for (int dr = -2; dr <= 2; ++dr)
-                            avg += TerrainMaster_GetPixel(col+dc, row+dr);
-                    avg /= 25.f;
-                    nh = h + (avg - h) * falloff * fminf(str * 0.05f, 1.f);
-                    break;
-                }
-            }
-            if (nh < 0.f) nh = 0.f;
-            TerrainMaster_SetPixel(col, row, nh);
-            any_touched = true;
-        }
-    }
-    if (any_touched) {
-        // Mark all near chunks dirty — master hmap change affects the whole area
-        for (int dz = 0; dz < EDITOR_TNKN; ++dz)
-            for (int dx = 0; dx < EDITOR_TNKN; ++dx) {
-                float chunk_wx0 = (s_zone_ox_saved + dx) * CHUNK_SIZE;
-                float chunk_wz0 = (s_zone_oz_saved + dz) * CHUNK_SIZE;
-                if (s_brush_wx >= chunk_wx0 - s_brush_radius &&
-                    s_brush_wx <= chunk_wx0 + CHUNK_SIZE + s_brush_radius &&
-                    s_brush_wz >= chunk_wz0 - s_brush_radius &&
-                    s_brush_wz <= chunk_wz0 + CHUNK_SIZE + s_brush_radius)
-                    s_chunk_dirty[dz][dx] = true;
-            }
-    }
-}
-
-// ── UploadTerrainHeightmap — write PCG tile into master + mark chunks dirty ─────
+// ── UploadTerrainHeightmap — mark chunks dirty for a PCG-generated tile ─────────
 // hmap: W×H float array (metres), chunk_x/z: zone-grid coords (same as TileData).
+// 2026-07-19: used to also write the PCG tile into the (now-removed)
+// TerrainMaster macro layer, which real Kenshi zone chunks never actually
+// sampled from (TerrainGen_Build's atlas path always wins when zone_origin_x
+// is in-bounds and the atlas is loaded — the case for every real chunk).
+// Kept as a dirty-marking hook for EditorTerrainPanel's PCG Generate panel
+// (game/src/editor/editor_terrain_panel.cpp) so it keeps compiling; the
+// actual heightmap write has no real-terrain target to land on anymore.
 void UploadTerrainHeightmap(const float* hmap, int W, int H,
                                     float world_size_m, int chunk_x, int chunk_z) {
     if (!hmap || W <= 0 || H <= 0) return;
-    if (TerrainMaster_Loaded()) {
-        int mw = TerrainMaster_Width();
-        int mhh = TerrainMaster_Height();
-        const float WEXT = (float)(64 * CHUNK_SIZE);
-        float m_px = WEXT / (float)mw; // metres per master pixel
-        float pcg_cell = world_size_m / (float)W;
-
-        float wx0 = (float)chunk_x * world_size_m;
-        float wz0 = (float)chunk_z * world_size_m;
-
-        int c0 = (int)(wx0 / m_px);
-        int c1 = (int)((wx0 + world_size_m) / m_px) + 1;
-        int r0 = (int)(wz0 / m_px);
-        int r1 = (int)((wz0 + world_size_m) / m_px) + 1;
-        if (c0 < 0) c0 = 0; if (c1 > mw)  c1 = mw;
-        if (r0 < 0) r0 = 0; if (r1 > mhh) r1 = mhh;
-
-        for (int row = r0; row < r1; ++row) {
-            for (int col = c0; col < c1; ++col) {
-                float lx = col * m_px - wx0;
-                float lz = row * m_px - wz0;
-                float fx = lx / pcg_cell, fz = lz / pcg_cell;
-                int ix = (int)fx, iz = (int)fz;
-                if (ix < 0) ix = 0; if (ix >= W-1) ix = W-2;
-                if (iz < 0) iz = 0; if (iz >= H-1) iz = H-2;
-                float tx = fx - (float)ix, tz = fz - (float)iz;
-                float h = hmap[iz*W+ix]*(1-tx)*(1-tz)
-                        + hmap[iz*W+(ix+1)]*tx*(1-tz)
-                        + hmap[(iz+1)*W+ix]*(1-tx)*tz
-                        + hmap[(iz+1)*W+(ix+1)]*tx*tz;
-                TerrainMaster_SetPixel(col, row, h);
-            }
-        }
-    }
     // Mark near chunks that overlap this zone dirty
     for (int dz = 0; dz < EDITOR_TNKN; ++dz)
         for (int dx = 0; dx < EDITOR_TNKN; ++dx)
@@ -676,23 +508,17 @@ static void ensure_rtt(int w, int h) {
     fprintf(stdout, "[W3D-SDLGPU] RTT %dx%d\n", w, h);
 }
 
-// ── Init — loads master hmap synchronously (257 KiB), background: renderer ──
+// ── Init — background: renderer thread does the heavy chunk build ───────────
 bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
     s_cx = 11750.f;
     s_cy = 8000.f;   // start high to see whole world
     s_cz = 14250.f;
     s_yaw = 0.f; s_pitch = 0.38f;
 
-    s_load_zone_amplitudes("game/data/terrain_config.txt");
-
     // Real per-biome data lives in a private data file, not compiled into
     // the public engine/tools repos — see docs/ENGINE_AUDIT.md /
     // TERRAIN_FIX_PROMPT.md. Must load before any TerrainGen_Build call.
     BiomeRegistry::Get().LoadFromFile("game/data/biome_table.txt");
-
-    // Master hmap is 257 KiB — load synchronously before spinning the thread
-    if (!TerrainMaster_Load(MASTER_PATH, 64.f * CHUNK_SIZE, 64.f * CHUNK_SIZE))
-        fprintf(stderr, "[W3D-SDLGPU] master hmap load failed: %s\n", MASTER_PATH);
 
     // Sky pipeline — same shaders as game (sky.vert/frag, SkyUBO)
     {
@@ -733,32 +559,18 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
             sd.has_depth_target   = true;
             sd.vert_uniform_bufs  = 1;
             sd.frag_uniform_bufs  = 1;
-            // terrain_forward.frag samples 6 textures (tex_colour, tex_ground,
-            // tex_detail, tex_overlay_mask, tex_biome_blend, tex_albedo_baked
-            // -- the last one added 2026-07-12 by the albedo-bake work and
-            // never back-ported to this editor-local pipeline copy, found
-            // during task #158). This pipeline's frag_samplers count must
-            // track that exactly (engine's own TerrainRenderer pipeline for
-            // the same shader already does, see terrain_renderer.cpp:38) —
+            // terrain_forward.frag samples 5 textures (tex_colour, tex_ground,
+            // tex_detail, tex_overlay_mask, tex_biome_blend — the per-chunk
+            // baked-albedo sampler was removed 2026-07-19 along with the
+            // whole bake pipeline, see terrain_renderer.h's class doc
+            // comment). This pipeline's frag_samplers count must track that
+            // exactly (engine's own TerrainRenderer pipeline for the same
+            // shader already does, see terrain_renderer.cpp's Init()) —
             // falling behind by even one binding shifts every descriptor
             // slot, producing solid-colour garbage quads on the synthesis
             // background mesh (which always renders, not just at high
-            // altitude): BeginRawBatch binds 6 real samplers against
-            // TerrainRenderer's own (correct, 6-sampler) pipeline_, then this
-            // code rebinds s_synth_pipeline (a DIFFERENT pipeline object,
-            // previously only 5 slots) on top for the depth-bias override --
-            // the already-bound 6 resources get reinterpreted under the
-            // wrong 5-slot descriptor layout. A real bug, fixed here, but
-            // NOT the cause of task #158's zone(23,37) black/white
-            // cracked-pattern artifact -- that pattern was proven (before/
-            // after screenshots pixel-identical) to come from the real
-            // per-chunk LOD/POM path, not this synthesis-background pipeline;
-            // further isolation (flat albedo, bypassed normal-map detail)
-            // traced it to raw per-vertex-normal Lambertian contrast on
-            // genuinely rough terrain geometry under a low/raking sun angle
-            // -- a lighting/terrain-roughness tuning matter, not a binding
-            // bug. See AUTONOMY_LOG.md for the full isolation trail.
-            sd.frag_samplers      = 6;
+            // altitude).
+            sd.frag_samplers      = 5;
             // Must also track TerrainRenderer::Init()'s frag_storage_bufs=1
             // (per-zone ground-layer lookup SSBO, see
             // TerrainRenderer::UploadZoneGroundLayers/SetBatchZoneLookup) —
@@ -781,9 +593,7 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
         // mirrors.
         s_terrain.InitOverlayMask("game/data/textures/md_overlay_mask.png");
         s_terrain.InitBiomeBlend("game/data/textures/md_biome_blend.png");
-        s_terrain.InitAlbedoBake();
-        TerrainRenderer::PomParams pom; pom.height_scale=0.04f; pom.layers_min=4; pom.layers_max=8;
-        s_terrain.InitPOM("game/data/textures/terrain_pom_rock.png", pom);
+        s_terrain.InitDetailTexture("game/data/textures/terrain_pom_rock.png");
         s_master_ready = true;
         s_build_prop_positions();
     });
@@ -813,11 +623,10 @@ static void rebuild_inplace() {
 // windowed re-build in s_update_chunk_gpu_window) — factored out so both
 // stay in sync.
 static TerrainGenParams s_make_gen_params(int cx, int cz) {
+    (void)cx; (void)cz;  // real zones always resolve via the atlas path; amplitude is ignored
     TerrainGenParams p;
     p.zone_origin_x = 0;
     p.zone_origin_z = 0;
-    p.amplitude = TerrainMaster_Loaded() ? 0.f :
-        ((cx >= 0 && cx < 64 && cz >= 0 && cz < 64) ? s_zone_amp[cz][cx] : 40.f);
     return p;
 }
 
@@ -897,13 +706,6 @@ static bool s_update_chunk_gpu_window(SDL_GPUCommandBuffer* cmd, float eye_x, fl
     static constexpr float UPLOAD_R2  = 4000.f * 4000.f;  // margin past d1sq=3500m
     static constexpr float RELEASE_R2 = 5500.f * 5500.f;  // hysteresis — avoid thrash at the boundary
     static constexpr int   MAX_UPLOADS_PER_CALL = 8;      // bound per-frame GPU work
-    // Must match RenderFrame's WCX/WCZ/W2UV exactly (task #158c) — BakeAlbedo's
-    // world_origin_x/z/world_to_uv feed the same overlay/biome-blend UV formula
-    // the runtime shader uses, so a baked chunk's sampled mask/blend values line
-    // up with what the live shader would have sampled at that world position.
-    static constexpr float kW2UV = 1.f / (64.f * CHUNK_SIZE);
-    static constexpr float kWCX  = 32.f * CHUNK_SIZE;
-    static constexpr float kWCZ  = 32.f * CHUNK_SIZE;
 
     int  uploads = 0;
     bool pending = false;
@@ -925,7 +727,6 @@ static bool s_update_chunk_gpu_window(SDL_GPUCommandBuffer* cmd, float eye_x, fl
                 TerrainGenParams p = s_make_gen_params(cx, cz);
                 TerrainGen_Build(ch, coord, p);
                 TerrainGen_Upload(ch);
-                s_terrain.BakeAlbedo(cmd, ch, kWCX, kWCZ, kW2UV);
                 ++uploads;
             } else if (ch.loaded && d2 > RELEASE_R2) {
                 ch.vbo.Shutdown();
@@ -1000,10 +801,9 @@ static void handle_input(float dt) {
     if (s_cy > 150000.f) s_cy = 150000.f;
 
     // Terrain floor clamp — prevent camera clipping through surface.
-    // TerrainMaster gives world-space height; add clearance so viewport stays above.
     static constexpr float MIN_ABOVE_TERRAIN = 2.f;
-    if (TerrainMaster_Loaded()) {
-        float th = TerrainMaster_SampleWorld(s_cx, s_cz);
+    if (TerrainAtlas_Loaded()) {
+        float th = TerrainAtlas_SampleWorld(s_cx, s_cz);
         if (s_cy < th + MIN_ABOVE_TERRAIN) s_cy = th + MIN_ABOVE_TERRAIN;
     } else {
         if (s_cy < 5.f) s_cy = 5.f;
@@ -1023,10 +823,8 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
     M4 proj = m4_persp(0.80f, asp, 5.f, 350000.f);
     M4 view = m4_view(s_cx, s_cy, s_cz, s_yaw, s_pitch);
     M4 vp   = m4_mul(proj, view);
-    memcpy(s_last_vp, vp.m, 64);
-    // eye position for POM + brush ray
+    // eye position for POM tier folding
     float eye_x = s_cx, eye_y = s_cy, eye_z = s_cz;
-    s_last_eye[0]=s_cx; s_last_eye[1]=s_cy; s_last_eye[2]=s_cz;
 
     // task #158b: LOD/POM tier selection below is horizontal-only (X/Z), so a
     // free-fly camera positioned near-vertically above a chunk (e.g. 8-15km
@@ -1037,7 +835,7 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
     // distance metric once per frame so extreme-altitude views fall through
     // to the compact/non-POM tier regardless of horizontal offset. Confirmed
     // via A/B screenshot: same alt+horizontal-far view renders clean.
-    float _eye_ground_h  = TerrainMaster_SampleWorld(eye_x, eye_z);
+    float _eye_ground_h  = TerrainAtlas_SampleWorld(eye_x, eye_z);
     float _eye_alt_above = eye_y - _eye_ground_h;
     float _eye_alt2      = _eye_alt_above * _eye_alt_above;
 
@@ -1048,7 +846,7 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
     // still pending past this single call's upload budget.
     bool chunk_window_pending = s_update_chunk_gpu_window(cmd, eye_x, eye_z);
 
-    // Rebuild dirty chunks (marked by s_apply_brush)
+    // Rebuild dirty chunks (marked by UploadTerrainHeightmap / PCG Apply-to-World)
     bool was_chunk_dirty = false;
     if (s_loaded) {
         for (int cz = 0; cz < EDITOR_TNKN; ++cz) for (int cx = 0; cx < EDITOR_TNKN; ++cx) {
@@ -1056,10 +854,7 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
             was_chunk_dirty = true;
             int chunk_zx = s_zone_ox_saved + cx, chunk_zz = s_zone_oz_saved + cz;
             ChunkCoord coord = { chunk_zx, chunk_zz };
-            TerrainGenParams p; p.zone_origin_x = 0; p.zone_origin_z = 0;
-            p.amplitude = TerrainMaster_Loaded() ? 0.f :
-                ((chunk_zx>=0&&chunk_zx<64&&chunk_zz>=0&&chunk_zz<64)
-                    ? s_zone_amp[chunk_zz][chunk_zx] : 40.f);
+            TerrainGenParams p = s_make_gen_params(chunk_zx, chunk_zz);
             TerrainGen_Build(s_chunks[cz][cx], coord, p);
             TerrainGen_Upload(s_chunks[cz][cx]);
             s_chunk_dirty[cz][cx] = false;
@@ -1233,17 +1028,16 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
                         // Use global kenshi colour map (WCX/WCZ/W2UV) for correct vivid colours.
                         // VT composite is built for future height-based detail but not applied
                         // for colour — the local 8km patch can land on muted/grey kenshi zones.
-                        // fog_density_override: see DrawRawPOM's doc comment (linear
-                        // fog, 2026-07-12 — this arg now overrides fog_far directly,
-                        // was an EXP2 density). Normal gameplay fog_far is tuned for
+                        // fog_density_override: normal gameplay fog_far is tuned for
                         // ground-level view distance (terrain_cr_m); the editor's
                         // aerial camera (kilometres up) needs a much LARGER fog_far
-                        // or every POM chunk renders as solid fog colour (the
+                        // or every chunk renders as solid fog colour (the
                         // "gear/waffle" artifact). 60000m safely exceeds any
-                        // real distance to a POM-tier chunk in this view.
+                        // real distance to a near-tier chunk in this view.
                         int lod = (d2 < d0sq) ? 0 : 1;
-                        s_terrain.DrawRawPOM(rp, cmd, ch, vp.m,
-                                            sun, eye_x, eye_y, eye_z, WCX, WCZ, W2UV, lod, 60000.f);
+                        s_terrain.DrawRaw(rp, cmd, ch, vp.m,
+                                          sun, eye_x, eye_y, eye_z, WCX, WCZ, W2UV, lod,
+                                          0.f, 60000.f);
                     } else {
                         int flat = cz * EDITOR_TNKN + cx;
                         int tier = (d2 < d2sq) ? 0 : 1;
@@ -1338,32 +1132,6 @@ void DrawImGui(float W, float H, float dt) {
             handle_input(dt);
     }
 
-    // ── Mouse → terrain ray cast (brush targeting) ───────────────────────────
-    bool edit_mode = s_loaded;
-    if (hov && edit_mode && !s_rmb) {
-        ImVec2 mouse = ImGui::GetMousePos();
-        float ndc_x = ((mouse.x - origin.x) / W) * 2.f - 1.f;
-        float ndc_y = 1.f - ((mouse.y - origin.y) / H) * 2.f;
-        // Unproject mouse ray using VP matrix inverse for orbit camera
-        float thf = tanf(45.f * 0.00872664f), asp_b = W / H;
-        const float* v = s_last_vp;
-        float rdx = v[0]*(ndc_x*thf*asp_b) + v[4]*(ndc_y*thf) - v[8];
-        float rdy = v[1]*(ndc_x*thf*asp_b) + v[5]*(ndc_y*thf) - v[9];
-        float rdz = v[2]*(ndc_x*thf*asp_b) + v[6]*(ndc_y*thf) - v[10];
-        // Only cast when ray points at least 20° below horizontal.
-        float rdlen = sqrtf(rdx*rdx + rdy*rdy + rdz*rdz);
-        bool ray_ok = rdlen > 1e-4f && (rdy / rdlen) < -0.34f;  // sin(20°)≈0.34
-        s_brush_hit = ray_ok && s_ray_terrain(s_last_eye[0], s_last_eye[1], s_last_eye[2],
-                                              rdx, rdy, rdz,
-                                              s_brush_wx, s_brush_wy, s_brush_wz);
-
-        // LMB held → paint (only when close enough to terrain)
-        if (s_brush_hit && s_cy < 500.f && ImGui::GetIO().MouseDown[0])
-            s_apply_brush(dt);
-    } else {
-        s_brush_hit = false;
-    }
-
     // Display RTT
     if (s_color) {
         ImGui::GetWindowDrawList()->AddImage(
@@ -1374,50 +1142,6 @@ void DrawImGui(float W, float H, float dt) {
     } else {
         ImGui::GetWindowDrawList()->AddRectFilled(origin, {origin.x+W,origin.y+H},
             IM_COL32(20,20,28,255));
-    }
-
-    // ── Brush cursor — crosshair at mouse position (no world-space projection) ──
-    if (s_brush_hit && edit_mode && !s_rmb && s_cy < 500.f) {
-        ImVec2 mp = ImGui::GetMousePos();
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        uint32_t col = (s_brush_mode == BrushMode::Lower) ? IM_COL32(255,80,60,220)
-                     : (s_brush_mode == BrushMode::Smooth || s_brush_mode == BrushMode::Flatten)
-                       ? IM_COL32(80,200,255,220) : IM_COL32(255,210,60,220);
-        const float R = 10.f;
-        dl->AddLine({mp.x-R, mp.y}, {mp.x+R, mp.y}, col, 2.f);
-        dl->AddLine({mp.x, mp.y-R}, {mp.x, mp.y+R}, col, 2.f);
-        dl->AddCircle(mp, 4.f, col, 8, 1.5f);
-    }
-
-    // ── Brush settings overlay (top-right) ───────────────────────────────────
-    if (edit_mode) {
-        ImGui::SetNextWindowPos({origin.x + W - 210.f, origin.y + 5.f}, ImGuiCond_Always);
-        ImGui::SetNextWindowSize({205.f, 145.f}, ImGuiCond_Always);
-        ImGui::SetNextWindowBgAlpha(0.78f);
-        ImGuiWindowFlags pf = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
-            ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoSavedSettings |
-            ImGuiWindowFlags_NoFocusOnAppearing;
-        if (ImGui::Begin("##brush_panel", nullptr, pf)) {
-            ImGui::TextUnformatted("Terrain Brush");
-            ImGui::Separator();
-            const char* modes[] = {"Raise","Lower","Smooth","Flatten"};
-            int m = (int)s_brush_mode;
-            ImGui::SetNextItemWidth(-1);
-            if (ImGui::Combo("##bmode", &m, modes, 4)) s_brush_mode = (BrushMode)m;
-            ImGui::SetNextItemWidth(-1);
-            ImGui::SliderFloat("##brad", &s_brush_radius, 30.f, 600.f, "R=%.0fm");
-            ImGui::SetNextItemWidth(-1);
-            ImGui::SliderFloat("##bstr", &s_brush_strength, 0.5f, 60.f, "S=%.1fm/s");
-            ImGui::Separator();
-            if (ImGui::Button("Save master hmap (F5)", {-1, 0}))
-                TerrainMaster_Save(MASTER_PATH);
-            ImGui::TextDisabled("LMB=paint  RMB=look");
-        }
-        ImGui::End();
-
-        // F5 shortcut
-        if (ImGui::IsKeyPressed(ImGuiKey_F5))
-            TerrainMaster_Save(MASTER_PATH);
     }
 
     // HUD — top-left

@@ -15,7 +15,6 @@
 #include "faction_editor.h"
 #include "editor_world_panel.h"
 #include "editor_world_3d_sdlgpu.h"
-#include "editor_hmap_2d.h"
 #include "editor_char_preview_sdlgpu.h"
 #include "character_editor.h"
 #include "npc_archetype_editor.h"
@@ -102,10 +101,6 @@ void editor_panels_init(void* ctx, void* ecs_world, void* /*gpu*/, void* /*windo
         SettingsEditor::g_detached     = s_lay.settings.detached;
         SettingsEditor::g_win_pos      = s_lay.settings.pos;
         SettingsEditor::g_win_size     = s_lay.settings.size;
-        // Heightmap: DrawPanel() manages its own floating window — sync its internal statics
-        HmapEditor2D::s_detached = s_lay.heightmap.detached;
-        HmapEditor2D::s_win_pos  = s_lay.heightmap.pos;
-        HmapEditor2D::s_win_size = s_lay.heightmap.size;
         // map/world/terrain/world3d used directly from s_lay in BuildUI
     }
     (void)overlay_top;
@@ -121,8 +116,6 @@ void editor_panels_shutdown(const char* layout_path) {
         s_lay.npcs     = {NpcArchetypeEditor::g_detached, NpcArchetypeEditor::g_win_pos, NpcArchetypeEditor::g_win_size};
         s_lay.chars    = {CharacterEditor::g_detached,    CharacterEditor::g_win_pos,    CharacterEditor::g_win_size};
         s_lay.settings = {SettingsEditor::g_detached,    SettingsEditor::g_win_pos,     SettingsEditor::g_win_size};
-        // Heightmap: read back from DrawPanel()'s own statics
-        s_lay.heightmap = {HmapEditor2D::s_detached, HmapEditor2D::s_win_pos, HmapEditor2D::s_win_size};
         // map/world/terrain/world3d are updated live in BuildUI → already in s_lay
         EditorLayout::Save(layout_path, s_lay);
     }
@@ -132,7 +125,7 @@ void editor_panels_shutdown(const char* layout_path) {
 
 // ── BuildUI — called inside ImGui frame ──────────────────────────────────────
 // Returns active-viewport bitmask:
-//   bit 0: 3D World, bit 1: CharPreview, bit 2: Heightmap, bit 3: Map View
+//   bit 0: 3D World, bit 1: CharPreview, bit 2: (unused), bit 3: Map View
 uint32_t editor_panels_build_ui(float dt, float toolbar_h,
                                  char* status_msg, float* status_timer) {
     if (status_timer && *status_timer > 0.f) *status_timer -= dt;
@@ -303,11 +296,6 @@ uint32_t editor_panels_build_ui(float dt, float toolbar_h,
             }
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Heightmap")) {
-            flags |= (1u << 2);
-            HmapEditor2D::DrawPanel();  // handles own Detach/Dock + floating window internally
-            ImGui::EndTabItem();
-        }
         ImGuiTabItemFlags world3d_flags = (forced_tab && strcmp(forced_tab, "3D World") == 0)
             ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
         if (ImGui::BeginTabItem("3D World", nullptr, world3d_flags)) {
@@ -429,7 +417,6 @@ uint32_t editor_panels_build_ui(float dt, float toolbar_h,
 void editor_panels_render(void* cmd_ptr, float dt, uint32_t active_flags) {
     auto* cmd = static_cast<SDL_GPUCommandBuffer*>(cmd_ptr);
     if ((active_flags >> 0) & 1) WorldEditor3D_SDLGPU::RenderFrame(cmd, dt, (active_flags >> 0) & 1);
-    if ((active_flags >> 2) & 1) HmapEditor2D::UploadTexture(cmd);
     if ((active_flags >> 1) & 1) CharPreviewSDLGPU::RenderFrame(cmd);
     if ((active_flags >> 3) & 1) MapViewPanel::Get().RenderFrame(cmd);
 }

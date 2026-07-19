@@ -170,10 +170,10 @@ def cmd_run(args) -> int:
 def cmd_probe_height(args) -> int:
     """Height at (X,Z) through the full live pipeline (TerrainQuery — the
     engine's single source of truth, terrain_query.h) — NOT a cross-check
-    against raw world_hmap.r32 bytes (see docs/AUTONOMY_LOG.md Etap 1
-    scope note on probe_heights.lua: TerrainQuery samples the separately
-    generated md_master_hmap.r32, not the raw file, so an external byte
-    read would not be comparing the same thing)."""
+    against raw world_hmap.r16 bytes (see docs/AUTONOMY_LOG.md Etap 1
+    scope note on probe_heights.lua: TerrainQuery goes through TerrainAtlas'
+    in-RAM copy, not a raw file read, so an external byte read would not be
+    comparing the same thing)."""
     binary = REPO_ROOT / "build/game/monkey_dust"
     if not binary.exists():
         print(f"[md_ctl probe-height] game binary not built: {binary}")
@@ -201,13 +201,13 @@ def cmd_probe_height(args) -> int:
 
 # ── rebuild-terrain ────────────────────────────────────────────────────────
 def cmd_rebuild_terrain(args) -> int:
-    """The documented pipeline (CLAUDE.md "Terrain sync rule") is 3 real
+    """The documented pipeline (CLAUDE.md "Terrain sync rule") is 2 real
     scripts, not a single terrain_rebuild.py (that file does not exist in
     this repo — confirmed, not assumed). Runs them in the documented
     order. SLOW (tif_to_r32.py reads a 16385x16385 source) and requires
     the Kenshi asset mount — not run as part of any VERIFY chain, only on
     explicit invocation."""
-    steps = ["tools/tif_to_r32.py", "tools/md_master_hmap_gen.py", "tools/md_worldmap_gen.py"]
+    steps = ["tools/tif_to_r32.py", "tools/md_worldmap_gen.py"]
     for step in steps:
         path = REPO_ROOT / step
         if not path.exists():

@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
-"""Convert Kenshi fullmap.tif to monkey_dust atlas .r32 format.
+"""Convert Kenshi fullmap.tif to monkey_dust's world_hmap.r16 atlas.
 
-TIF:   16385×16385 uint16, 256 px/zone, ~300m height range.
-Atlas: 64×64 zones, 129×129 verts/zone (ATLAS_ZBLOCK=16641), float32 metres.
+TIF:   16385×16385 uint16, 256 px/zone, ~980m height range.
+Atlas: 64×64 zones, 129×129 verts/zone, raw uint16 (no compression — was
+       float32 .r32 until 2026-07-19, then briefly 16-bit PNG; see
+       tools/md_hmap_io.py's doc comment: PNG was ~2.7x smaller but ~5x
+       slower to load in the real engine, and this project's target
+       hardware has a documented history of slow-startup complaints, so
+       raw uint16 won — still under half the size of the original .r32).
 Step:  256/128 = 2 px per vert — exact, no interpolation needed. Matches
        Kenshi's own real in-engine resolution (RE-confirmed: raw 258x258
        tile fetch downsampled internally to 129x129/zone,
@@ -13,27 +18,27 @@ Usage:
   python3 tools/tif_to_r32.py --tif <path> --out <path>  # custom paths
 """
 
-import struct, sys, argparse, time
+import sys, argparse, time
 import numpy as np
 from PIL import Image
+sys.path.insert(0, "tools")
+from md_hmap_io import ATLAS_ZONES, ATLAS_VERTS, HEIGHT_MAX_M, save_atlas_tiled
 
 Image.MAX_IMAGE_PIXELS = None
 
-ATLAS_MAGIC = 0x414D4800
-ATLAS_ZONES = 64
-ATLAS_VERTS = 129         # TERRAIN_GRID+1
 TIF_ZONE_PX = 256         # pixels per zone in fullmap.tif
 STEP        = TIF_ZONE_PX // (ATLAS_VERTS - 1)   # = 2
-HEIGHT_MAX_M = 980.0   # Ogre Terrain::setTerrainScale() vertical_scale=9800.0 world UNITS,
-                       # /10 for Kenshi's engine unit (1 unit=0.1m decimetre) — confirmed
-                       # against the real map size (29.491km, community save-file measurement;
-                       # 294912/10=29491.2m matches to 5 sig figs). A prior version of this
-                       # fix used 9800.0 directly (treating units as metres) — 10x too tall.
+# HEIGHT_MAX_M (from md_hmap_io, shared with the engine's TERRAIN_HEIGHT_
+# SCALE_M): Ogre Terrain::setTerrainScale() vertical_scale=9800.0 world
+# UNITS, /10 for Kenshi's engine unit (1 unit=0.1m decimetre) — confirmed
+# against the real map size (29.491km, community save-file measurement;
+# 294912/10=29491.2m matches to 5 sig figs). A prior version of this fix
+# used 9800.0 directly (treating units as metres) — 10x too tall.
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tif", default="tmp_/kenshi/data/newland/land/fullmap.tif")
-    ap.add_argument("--out", default="game/data/terrain/world_hmap.r32")
+    ap.add_argument("--out", default="game/data/terrain/world_hmap.r16")
     args = ap.parse_args()
 
     t0 = time.time()
@@ -70,21 +75,13 @@ def main():
     # Reorder to [zy, zx, vr, vc] = (64, 64, 65, 65)
     all_h = all_h.transpose(0, 2, 1, 3).astype(np.float32)
 
-    # ── Write binary atlas ────────────────────────────────────────────────────
+    # ── Write tiled raw uint16 atlas ─────────────────────────────────────────
     print(f"  Writing {args.out} ...")
-    with open(args.out, "wb") as f:
-        # 16-byte header
-        f.write(struct.pack("<IIII", ATLAS_MAGIC, ATLAS_ZONES, ATLAS_ZONES, ATLAS_VERTS))
-        for zy in range(ATLAS_ZONES):
-            for zx in range(ATLAS_ZONES):
-                h = all_h[zy, zx]          # shape (129, 129) float32
-                hmin = float(h.min())
-                hmax = float(h.max())
-                f.write(struct.pack("<ff", hmin, hmax))
-                f.write(h.tobytes())       # 129*129*4 = 66564 bytes
+    save_atlas_tiled(args.out, all_h)
 
     elapsed = time.time() - t0
-    size_mb = (16 + ATLAS_ZONES**2 * (8 + ATLAS_VERTS**2 * 4)) / 1048576
+    import os
+    size_mb = os.path.getsize(args.out) / 1048576
     print(f"Done in {elapsed:.1f}s — {args.out} ({size_mb:.1f} MB)")
 
 if __name__ == "__main__":

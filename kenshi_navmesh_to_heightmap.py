@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """Merge Kenshi's real navmesh geometry (tmp_/kenshi_navmesh_obj/zone_X_Z.obj,
-produced by kenshi_navmesh_extract) into world_hmap.r32.
+produced by kenshi_navmesh_extract) into world_hmap.r16.
 
-Why: world_hmap.r32 currently comes entirely from fullmap.tif, a flat 16385x16385
+Why: world_hmap.r16 currently comes entirely from fullmap.tif, a flat 16385x16385
 uint16 heightmap subsampled to 129x129/zone (tools/tif_to_r32.py). The Havok AI
 navmesh Kenshi actually shipped with carries real per-zone walkable-surface
 geometry at a different (finer, irregular) resolution -- a second, independent
 ground truth we can cross-reference/refine against.
 
-Axis convention (verified numerically against world_hmap.r32, not assumed):
+Axis convention (verified numerically against world_hmap's atlas, not assumed):
   navmesh vertex X -> grid column, navmesh vertex Z -> grid row, no flips,
-  zone(gx,gz) obj <-> world_hmap.r32 zone index (zx=gx, zy=gz) directly.
+  zone(gx,gz) obj <-> atlas zone index (zx=gx, zy=gz) directly.
   (See conversation notes: 6-point spot check across 2 well-matching zones,
   max residual ~2.7m -- consistent with navmesh/TIF using different underlying
   triangulations, not an axis error.)
@@ -29,43 +29,29 @@ Per-vertex within an accepted zone: only grid points actually covered by a
 navmesh triangle are replaced; everything else (holes -- water, unwalkable
 slopes) keeps the existing fullmap.tif-derived height.
 
-Output is written to a NEW file (does not overwrite world_hmap.r32) --
+Output is written to a NEW file (does not overwrite world_hmap.r16) --
 promotion to production is a separate, explicit step after visual review.
 
 Usage:
   python3 tools/kenshi_navmesh_to_heightmap.py
   python3 tools/kenshi_navmesh_to_heightmap.py --hmap <path> --obj-dir <path> --out <path>
 """
-import struct, argparse, glob, os, re, time
+import argparse, glob, os, re, sys, time
 import numpy as np
+sys.path.insert(0, "tools")
+from md_hmap_io import ATLAS_ZONES, ATLAS_VERTS, load_atlas_tiled, save_atlas_tiled
 
-ATLAS_MAGIC = 0x414D4800
-ATLAS_ZONES = 64
-ATLAS_VERTS = 129
 CHUNK_SIZE_M = 460.8
 ZONE_TOLERANCE_M = 10.0   # overlap slack when deciding whether to trust a zone's navmesh
 
 
 def load_hmap(path):
-    with open(path, "rb") as f:
-        magic, nzx, nzy, verts = struct.unpack("<IIII", f.read(16))
-        assert magic == ATLAS_MAGIC and verts == ATLAS_VERTS, "unexpected world_hmap.r32 header"
-        grids = np.empty((nzy, nzx, verts, verts), dtype=np.float32)
-        for zy in range(nzy):
-            for zx in range(nzx):
-                f.read(8)  # stored hmin/hmax -- recomputed on write
-                grids[zy, zx] = np.frombuffer(f.read(verts * verts * 4), dtype=np.float32).reshape(verts, verts)
-    return nzx, nzy, verts, grids
+    grids = load_atlas_tiled(path)  # [zy, zx, row, col], float32 metres
+    return ATLAS_ZONES, ATLAS_ZONES, ATLAS_VERTS, grids
 
 
 def write_hmap(path, nzx, nzy, verts, grids):
-    with open(path, "wb") as f:
-        f.write(struct.pack("<IIII", ATLAS_MAGIC, nzx, nzy, verts))
-        for zy in range(nzy):
-            for zx in range(nzx):
-                g = grids[zy, zx]
-                f.write(struct.pack("<ff", float(g.min()), float(g.max())))
-                f.write(g.tobytes())
+    save_atlas_tiled(path, grids)
 
 
 def parse_obj(path):
@@ -139,9 +125,9 @@ def rasterize_zone(verts, faces, n):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--hmap", default="game/data/terrain/world_hmap.r32")
+    ap.add_argument("--hmap", default="game/data/terrain/world_hmap.r16")
     ap.add_argument("--obj-dir", default="tmp_/kenshi_navmesh_obj")
-    ap.add_argument("--out", default="game/data/terrain/world_hmap_navmesh_merged.r32")
+    ap.add_argument("--out", default="game/data/terrain/world_hmap_navmesh_merged.r16")
     args = ap.parse_args()
 
     t0 = time.time()

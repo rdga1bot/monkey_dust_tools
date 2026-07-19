@@ -17,7 +17,6 @@ struct Layout {
     Panel map       = {false, {80.f,  100.f}, {800.f, 600.f}};
     Panel world     = {false, {80.f,  100.f}, {800.f, 600.f}};
     Panel terrain   = {false, {80.f,  100.f}, {900.f, 600.f}};
-    Panel heightmap = {false, {80.f,  100.f}, {800.f, 600.f}};
     Panel world3d   = {false, {80.f,  100.f}, {1000.f,700.f}};
     Panel npcs      = {false, {80.f,   60.f}, {660.f, 540.f}};
     Panel chars     = {false, {160.f,  60.f}, {900.f, 640.f}};
@@ -63,7 +62,6 @@ inline bool Load(const char* path, Layout& lay) {
     load_one("map",       lay.map);
     load_one("world",     lay.world);
     load_one("terrain",   lay.terrain);
-    load_one("heightmap", lay.heightmap);
     load_one("world3d",   lay.world3d);
     load_one("npcs",      lay.npcs);
     load_one("chars",     lay.chars);
@@ -85,7 +83,6 @@ inline bool Save(const char* path, const Layout& lay) {
     wr("map",       lay.map,       false);
     wr("world",     lay.world,     false);
     wr("terrain",   lay.terrain,   false);
-    wr("heightmap", lay.heightmap, false);
     wr("world3d",   lay.world3d,   false);
     wr("npcs",      lay.npcs,      false);
     wr("chars",     lay.chars,     false);

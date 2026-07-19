@@ -518,8 +518,8 @@ void EditorCore::UpdateEditorCamera(float dt, bool viewport_hovered) {
                     : fminf(cam_target.y * 1.06f, 150000.f);
             }
         }
-        if (TerrainMaster_Loaded()) {
-            float th = TerrainMaster_SampleWorld(cam_target.x, cam_target.z);
+        if (TerrainAtlas_Loaded()) {
+            float th = TerrainAtlas_SampleWorld(cam_target.x, cam_target.z);
             if (cam_target.y < th + 1.5f) cam_target.y = th + 1.5f;
         }
         float cp = cosf(fly_pitch), sp2 = sinf(fly_pitch);
@@ -561,9 +561,9 @@ void EditorCore::UpdateEditorCamera(float dt, bool viewport_hovered) {
     };
     // Terrain floor clamp — prevent eye clipping through surface in both
     // Flythrough (cam_target moves via WASD) and Orbit (cam_dist shrinks) modes.
-    if (TerrainMaster_Loaded()) {
+    if (TerrainAtlas_Loaded()) {
         static constexpr float MIN_ABOVE_TERRAIN = 1.5f;
-        float th = TerrainMaster_SampleWorld(editor_cam.pos.x, editor_cam.pos.z);
+        float th = TerrainAtlas_SampleWorld(editor_cam.pos.x, editor_cam.pos.z);
         if (editor_cam.pos.y < th + MIN_ABOVE_TERRAIN) {
             float dy = (th + MIN_ABOVE_TERRAIN) - editor_cam.pos.y;
             editor_cam.pos.y = th + MIN_ABOVE_TERRAIN;

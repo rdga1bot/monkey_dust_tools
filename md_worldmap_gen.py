@@ -15,13 +15,14 @@ Legal: we use zone boundary SHAPES (positional data), not Kenshi artwork.
 Usage: python3 tools/md_worldmap_gen.py
 """
 
-import os, struct, math, hashlib
+import os, sys, struct, math, hashlib
 import numpy as np
 from scipy.ndimage import gaussian_filter, zoom as sci_zoom
 from scipy.spatial import cKDTree
 from PIL import Image, ImageDraw
+sys.path.insert(0, os.path.dirname(__file__))
+from md_hmap_io import ATLAS_ZONES, ATLAS_VERTS, load_atlas_tiled
 
-ATLAS_ZONES = 64
 OUT_SIZE    = 2048
 
 KENSHI_BIOME = "tmp_/kenshi/data/newland/land/biomemap.png"
@@ -64,21 +65,16 @@ def zone_color(biome, gx, gz):
 
 # ── Loaders ───────────────────────────────────────────────────────────────────
 
-def load_atlas(r32_path):
-    if not os.path.exists(r32_path):
+def load_atlas(png_path):
+    if not os.path.exists(png_path):
         return None, None
     print(f"[mapgen] loading heightmap…")
-    with open(r32_path, 'rb') as f:
-        magic, _, _, verts = struct.unpack('<4I', f.read(16))
-        if magic != 0x414D4800:
-            return None, None
-        G = verts - 1; full = ATLAS_ZONES * G
-        hmap = np.zeros((full, full), dtype=np.float32)
-        for zi in range(ATLAS_ZONES * ATLAS_ZONES):
-            struct.unpack('<ff', f.read(8))
-            zone = np.frombuffer(f.read(verts*verts*4), dtype=np.float32).reshape(verts, verts)
-            zy_i, zx_i = zi // ATLAS_ZONES, zi % ATLAS_ZONES
-            hmap[zy_i*G:zy_i*G+G, zx_i*G:zx_i*G+G] = zone[:G, :G]
+    tiled = load_atlas_tiled(png_path)  # [zy, zx, row, col]
+    G = ATLAS_VERTS - 1; full = ATLAS_ZONES * G
+    hmap = np.zeros((full, full), dtype=np.float32)
+    for zy_i in range(ATLAS_ZONES):
+        for zx_i in range(ATLAS_ZONES):
+            hmap[zy_i*G:zy_i*G+G, zx_i*G:zx_i*G+G] = tiled[zy_i, zx_i, :G, :G]
     print(f"[mapgen] heightmap range {hmap.min():.1f}–{hmap.max():.1f}m")
     return hmap, full
 
@@ -340,7 +336,7 @@ def fallback_voronoi(zones, S):
 
 def main():
     root = os.path.join(os.path.dirname(__file__), '..')
-    r32  = os.path.join(root, 'game', 'data', 'terrain', 'world_hmap.r32')
+    r32  = os.path.join(root, 'game', 'data', 'terrain', 'world_hmap.r16')
     cfg  = os.path.join(root, 'game', 'data', 'terrain_config.txt')
     out  = os.path.join(root, 'game', 'data', 'textures', 'world_map.png')
 
