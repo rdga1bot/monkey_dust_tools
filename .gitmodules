@@ -1,9 +1,6 @@
 [submodule "third_party/imguizmo"]
 	path = third_party/imguizmo
 	url = https://github.com/CedricGuillemet/ImGuizmo.git
-[submodule "third_party/imgui-node-editor"]
-	path = third_party/imgui-node-editor
-	url = https://github.com/rdga1bot/imgui-node-editor.git
 [submodule "third_party/imgui-flame-graph"]
 	path = third_party/imgui-flame-graph
 	url = https://github.com/bwrsandman/imgui-flame-graph.git
