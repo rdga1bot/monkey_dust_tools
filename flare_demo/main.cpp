@@ -21,6 +21,7 @@
 #include <monkey_dust/render/npc_gpu_culler.h>
 #include <monkey_dust/render/evsm_shadow.h>
 #include <monkey_dust/ecs/component_reflect.h>
+#include <monkey_dust/ecs/component_warmup.h>
 #include <monkey_dust/spatial/world_bvh.h>
 #include <monkey_dust/platform/math_types.h>
 #include <monkey_dust/ai/sense_system.h>
@@ -950,6 +951,7 @@ int main(int argc, char** argv) {
 
     // ── Component reflection ──────────────────────────────────────────────────
     md::RegisterCoreComponents();
+    md::WarmUpEngineComponents();  // flecs type registration before any JobGraph batch (task #248)
 
     HotReload::Get().Watch(BT_JSON_PATH, OnBTFileChanged);
     HotReload::Get().Start(500);
