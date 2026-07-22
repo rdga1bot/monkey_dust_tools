@@ -6,6 +6,7 @@
 #include <monkey_dust/render/light_system.h>
 #include <monkey_dust/world/terrain_gen.h>
 #include <monkey_dust/ecs/component_reflect.h>
+#include <monkey_dust/ecs/component_warmup.h>
 #include <monkey_dust/scripting/lua_system.h>
 #include "lua_editor_scenario_api.h"
 #include "editor_scenario_driver.h"
@@ -144,6 +145,7 @@ int main(int argc, char** argv) {
     // resolves these names against the live flecs world). Same call game/src/main.cpp
     // makes — populates md::ComponentReflect only, no ECS world interaction.
     md::RegisterCoreComponents();
+    md::WarmUpEngineComponents();  // flecs type registration before any JobGraph batch (task #248)
     // Autonomy system (Etap 4) — same call game/src/main.cpp makes; must
     // happen before RegisterLuaEditorScenarioAPI/StartScenario, which
     // assume L_ is already a live sandboxed Lua state.
