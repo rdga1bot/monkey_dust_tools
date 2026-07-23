@@ -139,6 +139,31 @@ ninja -C build md_tests && ./build/tests/md_tests
 ninja -C build md_behavior_tests && ./build/tests/md_behavior_tests
 ```
 
+### GPU resource leak-detection
+
+`GpuResourceTracker` (engine/include/monkey_dust/render/gpu_resource_tracker.h)
+рахує живі GPU-ресурси, створені через 5 публічних HAL-обгорток
+(`GpuStaticBuffer`/`GpuTexture`/`GpuPipeline`/`GpuComputePipeline`/
+`GpuDepthTexture`) — інкремент/декремент у їхніх `Init`/`Shutdown`.
+Свідомо НЕ покриває ~100 сирих `SDL_CreateGPU*`/`SDL_ReleaseGPU*`
+викликів у 17 внутрішніх файлах рендеру (bloom/ssao/motion_blur/
+gbuffer/тощо) — це окремий, значно більший рефакторинг.
+
+`tests/stress_gpu_resource_cycle.cpp` (`GpuResourceStressTest.*`, частина
+`md_tests`) створює/знищує тисячі буферів/текстур/depth-текстур і
+перевіряє, що лічильник повертається до бейзліну. Потребує реального
+GPU (SDL3 hidden window + `GpuDevice::Init`) — **пропускається**
+(`GTEST_SKIP`, не фейл), якщо GPU/дисплей недоступний (headless CI без
+Vulkan ICD). `GpuPipeline`/`GpuComputePipeline` навмисно не стрес-
+тестуються — `Create()` компілює реальний SPIR-V з диска (секунди на
+ітерацію), непридатно для юніт-тесту; трекінг для них лишається
+активним і відображає реальні pipeline'и під час звичайного запуску
+гри/редактора.
+
+```bash
+./build/tests/md_tests --gtest_filter="GpuResourceStressTest.*"
+```
+
 ---
 
 ## Що аналізує QA report
