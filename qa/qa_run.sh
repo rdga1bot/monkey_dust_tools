@@ -12,20 +12,37 @@
 #   bash tools/qa/qa_run.sh --no-capture   # пропустити запуск гри
 #   bash tools/qa/qa_run.sh --no-tests     # пропустити unit tests
 #   bash tools/qa/qa_run.sh --open         # відкрити HTML після
+#   bash tools/qa/qa_run.sh --validation   # Debug build у temp_/build_qa_validation
+#                                          # (MD_GPU_VALIDATION auto-ON) + validation-log scan
 
 set -euo pipefail
 cd "$(dirname "$0")/../.."   # repo root
 
 # ── Аргументи ─────────────────────────────────────────────────────────────────
-NO_BUILD=0; NO_CAPTURE=0; NO_TESTS=0; OPEN_REPORT=0
+NO_BUILD=0; NO_CAPTURE=0; NO_TESTS=0; OPEN_REPORT=0; VALIDATION=0
 for arg in "$@"; do
   case $arg in
     --no-build)   NO_BUILD=1   ;;
     --no-capture) NO_CAPTURE=1 ;;
     --no-tests)   NO_TESTS=1   ;;
     --open)       OPEN_REPORT=1 ;;
+    --validation) VALIDATION=1 ;;
   esac
 done
+
+# Vulkan validation layers only turn on for CMAKE_BUILD_TYPE=Debug
+# (engine/CMakeLists.txt's MD_GPU_VALIDATION gate) — real per-pipeline
+# compile overhead (documented ~4.5s stall on terrain_forward alone), so
+# this uses a SEPARATE build dir under temp_/ (project convention: temp_/
+# for experimental/throwaway builds) instead of touching the normal
+# Release `build/` dir every other qa_run.sh invocation relies on.
+if [[ $VALIDATION -eq 1 ]]; then
+  BUILD_DIR="temp_/build_qa_validation"
+  BUILD_TYPE="Debug"
+else
+  BUILD_DIR="build"
+  BUILD_TYPE="Release"
+fi
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; NC='\033[0m'; BOLD='\033[1m'
@@ -44,16 +61,16 @@ FAIL=0
 
 # ── 1. Build ──────────────────────────────────────────────────────────────────
 if [[ $NO_BUILD -eq 0 ]]; then
-  log "Build (Release)..."
-  if cmake -S . -B build -G Ninja \
-      -DCMAKE_BUILD_TYPE=Release \
+  log "Build (${BUILD_TYPE})..."
+  if cmake -S . -B "${BUILD_DIR}" -G Ninja \
+      -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
       -DUSE_SDL3=ON \
       -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
       --log-level=ERROR \
       2>&1 | grep -E "error:|Error" | head -5; then
     :
   fi
-  BUILD_OUT=$(ninja -C build monkey_dust md_tests md_behavior_tests 2>&1) || {
+  BUILD_OUT=$(ninja -C "${BUILD_DIR}" monkey_dust md_tests md_behavior_tests 2>&1) || {
     BUILD_OUT_ERR=$(echo "$BUILD_OUT" | grep "error:" | head -10)
     err "Build failed:\n$BUILD_OUT_ERR"
     FAIL=1
@@ -91,11 +108,12 @@ if [[ $NO_CAPTURE -eq 0 ]] && [[ $FAIL -eq 0 ]]; then
   # the wmctrl/ffmpeg branch below never redirected it at all — only visible
   # if this whole script's own stdout happened to be captured by the caller —
   # and the headless branch truncated to `tail -5`. Both silently dropped the
-  # periodic FrameStats "[PERF] ..." lines (frame_stats.h), which
-  # qa_perf_baseline.py needs to read after the run.
+  # periodic FrameStats "[PERF] ..." lines (frame_stats.h) and any Vulkan
+  # validation-layer output, which qa_perf_baseline.py / qa_validation_check.py
+  # need to read after the run.
   if command -v wmctrl &>/dev/null && command -v ffmpeg &>/dev/null; then
     DISPLAY="${DISPLAY:-:0}" MD_QA_STATE="${QA_JSONL}" \
-        ./build/game/monkey_dust > "${GAME_LOG}" 2>&1 &
+        ./${BUILD_DIR}/game/monkey_dust > "${GAME_LOG}" 2>&1 &
     GAME_PID=$!
     sleep 1
 
@@ -108,7 +126,7 @@ if [[ $NO_CAPTURE -eq 0 ]] && [[ $FAIL -eq 0 ]]; then
   else
     log "Headless режим (без wmctrl/ffmpeg)..."
     DISPLAY="${DISPLAY:-:0}" MD_QA_STATE="${QA_JSONL}" \
-        ./build/game/monkey_dust > "${GAME_LOG}" 2>&1 || true
+        ./${BUILD_DIR}/game/monkey_dust > "${GAME_LOG}" 2>&1 || true
     tail -5 "${GAME_LOG}" || true
     ok "Game run завершено"
   fi
@@ -148,6 +166,15 @@ fi
 if [[ -n "${CAPTURE_ID}" ]] && [[ -f "tools/qa/qa_perf_baseline.py" ]]; then
   log "Perf regression check..."
   python3 tools/qa/qa_perf_baseline.py --check --capture "${CAPTURE_ID}" || true
+fi
+
+# ── 4d. Vulkan validation-layer check (--validation only) ───────────────────
+# Only meaningful when this run actually had MD_GPU_VALIDATION on (Debug
+# build via --validation above) — real ERROR-level misuse (invalid state
+# transitions, resource-lifetime hazards, sync hazards) DOES fail the run.
+if [[ $VALIDATION -eq 1 ]] && [[ -n "${CAPTURE_ID}" ]] && [[ -f "tools/qa/qa_validation_check.py" ]]; then
+  log "Validation-layer log check..."
+  python3 tools/qa/qa_validation_check.py --capture "${CAPTURE_ID}" || FAIL=1
 fi
 
 # ── Підсумок ──────────────────────────────────────────────────────────────────
