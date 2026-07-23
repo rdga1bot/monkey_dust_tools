@@ -68,8 +68,14 @@ def run_logged(cmd, cwd=None, timeout=None, tag=None):
 def cmd_build(args) -> int:
     target_map = {
         "game":   ["monkey_dust"],
-        "editor": ["monkey_dust_editor"],
-        "all":    ["monkey_dust", "monkey_dust_editor", "md_tests", "md_behavior_tests"],
+        # monkey_dust_editor_panels: hot-reload libeditor_panels.so — the
+        # editor binary dlopen()s this at startup (MONKEY_DUST_EDITOR_HOT_RELOAD
+        # defaults ON, tools/CMakeLists.txt) and warns/no-ops its panels if
+        # missing. Building monkey_dust_editor alone leaves a stale or
+        # missing .so — must always be built alongside it.
+        "editor": ["monkey_dust_editor", "monkey_dust_editor_panels"],
+        "all":    ["monkey_dust", "monkey_dust_editor", "monkey_dust_editor_panels",
+                   "md_tests", "md_behavior_tests"],
     }
     targets = target_map.get(args.target or "all")
     if targets is None:
