@@ -14,6 +14,7 @@ tools/qa/
 ├── qa_regression.py   — Visual regression: baseline / compare / HTML scrubber
 ├── qa_bdd.py          — BDD Gherkin runner (7 built-in steps)
 ├── qa_perf_baseline.py — Perf regression: parse FrameStats [PERF] lines / baseline / compare
+├── qa_validation_check.py — Vulkan validation-layer log scan (VUID-*/ERROR)
 ├── features/          — .feature files
 │   ├── npc_behavior.feature
 │   ├── rendering.feature
@@ -107,6 +108,30 @@ python3 tools/qa/qa_perf_baseline.py --update-baseline
 Наразі підключено в `qa_run.sh` як **non-blocking** (не валить весь QA
 прогін) — поки бейзлін і поріг не підтверджені кількома реальними
 прогонами.
+
+### Vulkan validation layers
+
+`MD_GPU_VALIDATION` (engine/CMakeLists.txt) вмикається автоматично лише
+для `CMAKE_BUILD_TYPE=Debug` — реальний per-pipeline compile overhead
+(задокументовано: ~4.5с стопор на `terrain_forward` окремо), тому це
+**НЕ** частина дефолтного швидкого `qa_run.sh`.
+
+```bash
+bash tools/qa/qa_run.sh --validation   # Debug build у temp_/build_qa_validation,
+                                        # окремо від звичайного build/
+```
+
+Це збирає в **окрему** директорію (`temp_/build_qa_validation` —
+конвенція проєкту: `temp_/` для тимчасових/експериментальних збірок),
+не займаючи основний `build/`. Після прогону — автоматичний скан
+`<capture>/game_stdout.log` через `qa_validation_check.py`: шукає
+`VUID-*`/`Validation Error` (ERROR-рівень — валить прогін), WARNING —
+тільки логується.
+
+```bash
+# Вручну, проти вже наявного validation-capture:
+python3 tools/qa/qa_validation_check.py --capture 20260722_235959
+```
 
 ### Unit tests
 ```bash
