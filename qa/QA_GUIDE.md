@@ -13,6 +13,7 @@ tools/qa/
 ├── qa_report.py       — Генератор QA звіту (аналіз frames + JSONL)
 ├── qa_regression.py   — Visual regression: baseline / compare / HTML scrubber
 ├── qa_bdd.py          — BDD Gherkin runner (7 built-in steps)
+├── qa_perf_baseline.py — Perf regression: parse FrameStats [PERF] lines / baseline / compare
 ├── features/          — .feature files
 │   ├── npc_behavior.feature
 │   ├── rendering.feature
@@ -81,6 +82,31 @@ python3 tools/qa/qa_regression.py --list
 ```
 
 HTML звіт: `tools/qa/reports/TIMESTAMP/regression/report.html` — drag-to-reveal scrubber.
+
+### Perf regression
+
+`FrameStats` (engine/include/monkey_dust/platform/frame_stats.h) друкує
+`[PERF] N FPS | NPCs=N | Name=avgms(maxms) ...` кожні 5с у stderr —
+`qa_run.sh` тепер завжди зберігає повний stdout+stderr гри в
+`<capture>/game_stdout.log` (раніше губилось: headless-гілка обрізала
+до `tail -5`, wmctrl-гілка не редіректила взагалі).
+
+```bash
+# Порівняти capture проти збереженого бейзліну:
+python3 tools/qa/qa_perf_baseline.py --check                       # latest capture
+python3 tools/qa/qa_perf_baseline.py --check --capture 20260722_235959
+python3 tools/qa/qa_perf_baseline.py --check --threshold 15         # свій поріг (default 10%)
+
+# Зберегти capture як новий бейзлін (після підтвердження що продуктивність ОК):
+python3 tools/qa/qa_perf_baseline.py --update-baseline
+```
+
+Бейзлін: `tools/qa/baselines/perf_baseline.json` (усереднення по всіх
+5-секундних інтервалах capture, крім першого — warmup: компіляція
+шейдерів/pipeline ще триває в перші секунди після старту).
+Наразі підключено в `qa_run.sh` як **non-blocking** (не валить весь QA
+прогін) — поки бейзлін і поріг не підтверджені кількома реальними
+прогонами.
 
 ### Unit tests
 ```bash

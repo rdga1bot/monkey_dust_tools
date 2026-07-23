@@ -84,11 +84,18 @@ if [[ $NO_CAPTURE -eq 0 ]] && [[ $FAIL -eq 0 ]]; then
   CAPTURE_DIR="tools/qa/captures/${CAPTURE_ID}"
   mkdir -p "${CAPTURE_DIR}/frames"
   QA_JSONL="${CAPTURE_DIR}/qa_state.jsonl"
+  GAME_LOG="${CAPTURE_DIR}/game_stdout.log"
   log "QA capture → ${CAPTURE_DIR}"
 
+  # Full game stdout+stderr → a per-capture file, ALWAYS (was previously lost:
+  # the wmctrl/ffmpeg branch below never redirected it at all — only visible
+  # if this whole script's own stdout happened to be captured by the caller —
+  # and the headless branch truncated to `tail -5`. Both silently dropped the
+  # periodic FrameStats "[PERF] ..." lines (frame_stats.h), which
+  # qa_perf_baseline.py needs to read after the run.
   if command -v wmctrl &>/dev/null && command -v ffmpeg &>/dev/null; then
     DISPLAY="${DISPLAY:-:0}" MD_QA_STATE="${QA_JSONL}" \
-        ./build/game/monkey_dust &
+        ./build/game/monkey_dust > "${GAME_LOG}" 2>&1 &
     GAME_PID=$!
     sleep 1
 
@@ -101,7 +108,8 @@ if [[ $NO_CAPTURE -eq 0 ]] && [[ $FAIL -eq 0 ]]; then
   else
     log "Headless режим (без wmctrl/ffmpeg)..."
     DISPLAY="${DISPLAY:-:0}" MD_QA_STATE="${QA_JSONL}" \
-        ./build/game/monkey_dust 2>&1 | tail -5 || true
+        ./build/game/monkey_dust > "${GAME_LOG}" 2>&1 || true
+    tail -5 "${GAME_LOG}" || true
     ok "Game run завершено"
   fi
 
@@ -129,6 +137,17 @@ if [[ -n "${CAPTURE_ID}" ]] && [[ -f "tools/qa/qa_bdd.py" ]]; then
   log "BDD перевірки..."
   BDD_ARGS="--capture ${CAPTURE_ID}"
   python3 tools/qa/qa_bdd.py tools/qa/features/ $BDD_ARGS 2>&1 | tail -20 || true
+fi
+
+# ── 4c. Perf regression (FrameStats [PERF] lines vs baseline) ────────────────
+# Non-fatal by design (does not set FAIL=1): perf variance on shared/CI
+# hardware is noisy and this is new/unproven — surface regressions for
+# review without blocking the whole QA pipeline yet. Promote to blocking
+# (add `|| FAIL=1`) once the baseline + threshold have proven stable over
+# a few real runs.
+if [[ -n "${CAPTURE_ID}" ]] && [[ -f "tools/qa/qa_perf_baseline.py" ]]; then
+  log "Perf regression check..."
+  python3 tools/qa/qa_perf_baseline.py --check --capture "${CAPTURE_ID}" || true
 fi
 
 # ── Підсумок ──────────────────────────────────────────────────────────────────
