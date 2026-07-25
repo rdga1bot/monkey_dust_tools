@@ -160,7 +160,7 @@ int main(int argc, char** argv) {
     TerrainAtlas_SmoothBoundaries();
 #ifndef MONKEY_DUST_EDITOR_HOT_RELOAD
     WorldEditor3D_SDLGPU::Init(
-        "game/data/textures/md_terrain.png",
+        "game/data/textures/md_terrain.dds",
         29, 25);  // 7×7 view centred near The Hub area
     CharacterEditor::LoadJSON("game/data/chars/player.chardef");
     CharacterEditor::LoadMorphNames("game/data/chars/morph_names.txt");
