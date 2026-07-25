@@ -76,7 +76,7 @@ void editor_panels_init(void* ctx, void* ecs_world, void* /*gpu*/, void* /*windo
     NpcArchetypeEditor::Load("game/data/defs/npc_archetypes.json");
     WorldPanel::Init();
 
-    WorldEditor3D_SDLGPU::Init("game/data/textures/md_terrain.png", 29, 25);
+    WorldEditor3D_SDLGPU::Init("game/data/textures/md_terrain.dds", 29, 25);
     CharacterEditor::LoadJSON("game/data/chars/player.chardef");
     CharacterEditor::LoadMorphNames("game/data/chars/morph_names.txt");
     MapViewPanel::Get().Init();

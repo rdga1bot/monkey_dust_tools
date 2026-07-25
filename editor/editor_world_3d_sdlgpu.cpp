@@ -28,6 +28,7 @@
 #include <thread>
 #include <cstring>
 #include <cstdio>
+#include <cstdlib>
 #include <cmath>
 
 // SkyUBO — mirrors game's scene_render.h SkyUBO (same sky.vert/frag shaders)
@@ -198,10 +199,133 @@ extern "C" {
     extern void stbi_image_free(void* retval_from_stbi_load);
 }
 
+// Decode one BC3/DXT5 block (16 bytes) to 16 RGBA texels (row-major within
+// the block). Alpha decode follows the full spec (not hardcoded to 255)
+// even though this codebase's own encoder (tools/md_bc3_encode.py) only
+// ever emits constant-opaque alpha — this decoder has no way to assume
+// that about an arbitrary file. Color0/color1 byte order (offset 8-9 then
+// 10-11) and the color0>color1 4-color-mode convention match the real
+// BC1/BC3 spec exactly — verified against md_bc3_encode.py's own
+// independent cross-check before this was written (a byte-order bug in an
+// earlier draft of the encoder was caught exactly this way, not assumed
+// correct from a self-consistent round-trip alone).
+static void s_bc3_decode_block(const uint8_t* blk, uint8_t out_rgba[16 * 4]) {
+    uint8_t a0 = blk[0], a1 = blk[1];
+    uint64_t abits = 0;
+    for (int i = 0; i < 6; ++i) abits |= (uint64_t)blk[2 + i] << (8 * i);
+    uint8_t alpha_lut[8];
+    alpha_lut[0] = a0; alpha_lut[1] = a1;
+    if (a0 > a1) {
+        for (int i = 1; i <= 6; ++i) alpha_lut[1 + i] = (uint8_t)(((7 - i) * a0 + i * a1) / 7);
+    } else {
+        for (int i = 1; i <= 4; ++i) alpha_lut[1 + i] = (uint8_t)(((5 - i) * a0 + i * a1) / 5);
+        alpha_lut[6] = 0; alpha_lut[7] = 255;
+    }
+
+    uint16_t c0 = (uint16_t)(blk[8] | (blk[9] << 8));
+    uint16_t c1 = (uint16_t)(blk[10] | (blk[11] << 8));
+    uint32_t cidx = (uint32_t)blk[12] | ((uint32_t)blk[13] << 8) | ((uint32_t)blk[14] << 16) | ((uint32_t)blk[15] << 24);
+    auto unpack565 = [](uint16_t v, uint8_t& r, uint8_t& g, uint8_t& b) {
+        r = (uint8_t)(((v >> 11) & 0x1F) * 255 / 31);
+        g = (uint8_t)(((v >> 5) & 0x3F) * 255 / 63);
+        b = (uint8_t)((v & 0x1F) * 255 / 31);
+    };
+    uint8_t r0, g0, b0, r1, g1, b1;
+    unpack565(c0, r0, g0, b0);
+    unpack565(c1, r1, g1, b1);
+    uint8_t r2 = (uint8_t)((2 * r0 + r1) / 3), g2 = (uint8_t)((2 * g0 + g1) / 3), b2 = (uint8_t)((2 * b0 + b1) / 3);
+    uint8_t r3 = (uint8_t)((r0 + 2 * r1) / 3), g3 = (uint8_t)((g0 + 2 * g1) / 3), b3 = (uint8_t)((b0 + 2 * b1) / 3);
+    uint8_t cr[4] = {r0, r1, r2, r3}, cg[4] = {g0, g1, g2, g3}, cb[4] = {b0, b1, b2, b3};
+
+    for (int t = 0; t < 16; ++t) {
+        int ci = (cidx >> (t * 2)) & 0x3;
+        int ai = (int)((abits >> (t * 3)) & 0x7);
+        out_rgba[t * 4 + 0] = cr[ci];
+        out_rgba[t * 4 + 1] = cg[ci];
+        out_rgba[t * 4 + 2] = cb[ci];
+        out_rgba[t * 4 + 3] = alpha_lut[ai];
+    }
+}
+
+// DDS loader for the CPU-side VT overlay copy — needs raw decoded RGBA in
+// memory (not a GPU texture) since s_vt_build_composite samples arbitrary
+// pixels from it directly. Supports both this codebase's two DDS
+// pixelformats: uncompressed DDPF_RGB (single fread) and BC3/DXT5 (decode
+// mip level 0 only — the composite builder always samples full-res, mips
+// beyond level 0 are for the GPU sampler path only, engine's
+// GpuTexture::InitFromDDS). Returned buffer is malloc'd (not new[]) so the
+// existing stbi_image_free(s_vt_img) call below stays valid for all three
+// paths — stbi_image_free is just STBI_FREE == free() under the hood.
+static uint8_t* s_vt_load_dds_rgba(const char* path, int* out_w, int* out_h) {
+    FILE* f = fopen(path, "rb");
+    if (!f) return nullptr;
+    uint8_t header[128];
+    if (fread(header, 1, 128, f) != 128 ||
+        header[0] != 'D' || header[1] != 'D' || header[2] != 'S' || header[3] != ' ') {
+        fclose(f);
+        return nullptr;
+    }
+    auto r32 = [&](uint32_t o) { uint32_t v; memcpy(&v, header + o, 4); return v; };
+    int w = (int)r32(16), h = (int)r32(12);
+    uint32_t pf_flags = r32(80);
+    uint32_t fourcc = r32(84);
+    uint32_t rgb_bit_count = r32(88);
+    static constexpr uint32_t DDPF_RGB = 0x40, DDPF_FOURCC = 0x4, FOURCC_DXT5 = 0x35545844u;
+    bool is_rgb32 = (pf_flags & DDPF_RGB) && rgb_bit_count == 32;
+    bool is_bc3   = (pf_flags & DDPF_FOURCC) && fourcc == FOURCC_DXT5;
+    if ((!is_rgb32 && !is_bc3) || w <= 0 || h <= 0) {
+        fclose(f);
+        return nullptr;
+    }
+
+    if (is_bc3) {
+        int bw = (w + 3) / 4, bh = (h + 3) / 4;
+        size_t block_bytes = (size_t)bw * bh * 16;
+        uint8_t* blocks = (uint8_t*)malloc(block_bytes);
+        bool ok = blocks && fread(blocks, 1, block_bytes, f) == block_bytes;
+        fclose(f);
+        if (!ok) { free(blocks); return nullptr; }
+
+        uint8_t* rgba = (uint8_t*)malloc((size_t)w * h * 4);
+        if (!rgba) { free(blocks); return nullptr; }
+        for (int by = 0; by < bh; ++by) {
+            for (int bx = 0; bx < bw; ++bx) {
+                uint8_t texels[16 * 4];
+                s_bc3_decode_block(blocks + ((size_t)by * bw + bx) * 16, texels);
+                for (int ty = 0; ty < 4; ++ty) {
+                    int py = by * 4 + ty;
+                    if (py >= h) continue;
+                    for (int tx = 0; tx < 4; ++tx) {
+                        int px = bx * 4 + tx;
+                        if (px >= w) continue;
+                        memcpy(rgba + ((size_t)py * w + px) * 4, texels + (ty * 4 + tx) * 4, 4);
+                    }
+                }
+            }
+        }
+        free(blocks);
+        *out_w = w; *out_h = h;
+        return rgba;
+    }
+
+    size_t total_bytes = (size_t)w * (size_t)h * 4;
+    uint8_t* rgba = (uint8_t*)malloc(total_bytes);
+    bool ok = rgba && fread(rgba, 1, total_bytes, f) == total_bytes;
+    fclose(f);
+    if (!ok) { free(rgba); return nullptr; }
+    *out_w = w; *out_h = h;
+    return rgba;
+}
+
 static void s_vt_load_source(const char* overlay_path) {
     if (s_vt_img) { stbi_image_free(s_vt_img); s_vt_img = nullptr; }
-    int ch = 0;
-    s_vt_img = stbi_load(overlay_path, &s_vt_img_w, &s_vt_img_h, &ch, 4);
+    size_t len = strlen(overlay_path);
+    if (len > 4 && strcmp(overlay_path + len - 4, ".dds") == 0) {
+        s_vt_img = s_vt_load_dds_rgba(overlay_path, &s_vt_img_w, &s_vt_img_h);
+    } else {
+        int ch = 0;
+        s_vt_img = stbi_load(overlay_path, &s_vt_img_w, &s_vt_img_h, &ch, 4);
+    }
     if (!s_vt_img)
         fprintf(stderr, "[VT] failed to load overlay: %s\n", overlay_path);
     else
