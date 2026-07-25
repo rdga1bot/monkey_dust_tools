@@ -717,7 +717,6 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
         // mirrors.
         s_terrain.InitOverlayMask("game/data/textures/md_overlay_mask.png");
         s_terrain.InitBiomeBlend("game/data/textures/md_biome_blend.png");
-        s_terrain.InitDetailTexture("game/data/textures/terrain_pom_rock.png");
         s_master_ready = true;
         s_build_prop_positions();
     });
