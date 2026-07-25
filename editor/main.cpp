@@ -531,6 +531,9 @@ int main(int argc, char** argv) {
         lay.chars    = {CharacterEditor::g_detached,    CharacterEditor::g_win_pos,    CharacterEditor::g_win_size};
         EditorLayout::Save(LAYOUT_PATH, lay);
     }
+    // See WorldEditor3D_SDLGPU::Shutdown()'s doc comment — must run before
+    // GpuDevice::Get().Shutdown() below.
+    WorldEditor3D_SDLGPU::Shutdown();
     EditorCore::Get().Shutdown();
 #endif
     ImGui_ImplSDLGPU3_Shutdown();

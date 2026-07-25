@@ -720,8 +720,24 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
         s_master_ready = true;
         s_build_prop_positions();
     });
-    s_loader_thread.detach();
     return true;
+}
+
+// ── Shutdown ────────────────────────────────────────────────────────────────
+// Joins the background loader thread. MUST run before GpuDevice::Shutdown()
+// destroys the Vulkan device: this thread was previously detach()'d, which let
+// main() reach vkDestroyDevice() while the thread was still mid-upload of the
+// 699MB ground-texture array (InitGroundTextureArray → SDL3 GPU transfer-
+// buffer realloc) — a destroy-during-upload race that corrupted the Vulkan
+// driver's internal allocator. Confirmed via 5 identical --exec-mode
+// coredumps: crashing thread always mid-realloc inside InitFromDDSArray,
+// main thread always concurrently inside GpuDevice::Shutdown → vkDestroyDevice
+// (see CLAUDE.md Hardware Checklist's "ВІДКРИТИЙ БАГ" entry, now closed).
+// Never reproduced interactively because a human never quits within the
+// ~1s load window; --exec scenarios that render+screenshot take just long
+// enough for main() to race ahead to shutdown before the load finishes.
+void Shutdown() {
+    if (s_loader_thread.joinable()) s_loader_thread.join();
 }
 
 // ── Internal: begin rebuild (s_zone_ox/oz must be set before calling) ─────────

@@ -9,6 +9,10 @@
 namespace WorldEditor3D_SDLGPU {
 
 bool Init(const char* overlay_path, int zone_ox = 28, int zone_oz = 28);
+// Joins the background loader thread spawned by Init(). MUST be called
+// before GpuDevice::Shutdown() — see this header's Init() doc and the
+// definition site in editor_world_3d_sdlgpu.cpp for the race this fixes.
+void Shutdown();
 void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active = false);
 void DrawImGui(float W, float H, float dt);
 void UploadTerrainHeightmap(const float* hmap, int W, int H,
