@@ -240,9 +240,14 @@ static void s_rebuild_quadtree_region(float cam_x, float cam_z) {
     if (zx0 < 0) zx0 = 0; if (zx0 > kZoneMax) zx0 = kZoneMax;
     if (zy0 < 0) zy0 = 0; if (zy0 > kZoneMax) zy0 = kZoneMax;
 
+    // local_origin_x/z == absolute zx0*CHUNK_SIZE here (no-op translation) —
+    // the editor's camera/tree already live in absolute Kenshi metres, see
+    // TerrainQuadtreeRenderer::Init's doc comment for why this must match
+    // whatever space s_qt_tree.Init() below uses.
+    float local_ox = (float)zx0 * CHUNK_SIZE, local_oz = (float)zy0 * CHUNK_SIZE;
     bool ok;
     if (!s_qt_ready) {
-        ok = s_qt.Init(zx0, zy0, kQtZoneSpan, s_qt_height_min, s_qt_height_max);
+        ok = s_qt.Init(zx0, zy0, kQtZoneSpan, local_ox, local_oz, s_qt_height_min, s_qt_height_max);
         if (ok) {
             for (int d = 0; d <= kQtMaxDepth; ++d) {
                 float node_size = ((float)kQtZoneSpan * CHUNK_SIZE) / (float)(1 << d);
@@ -251,7 +256,7 @@ static void s_rebuild_quadtree_region(float cam_x, float cam_z) {
             s_qt_async.Init(&s_qt_tree);
         }
     } else {
-        ok = s_qt.RebuildRegion(zx0, zy0, kQtZoneSpan, s_qt_height_min, s_qt_height_max);
+        ok = s_qt.RebuildRegion(zx0, zy0, kQtZoneSpan, local_ox, local_oz, s_qt_height_min, s_qt_height_max);
     }
     if (!ok) return;
     s_qt_ready = true;
