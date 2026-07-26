@@ -266,6 +266,51 @@ static void s_rebuild_quadtree_region(float cam_x, float cam_z) {
     s_qt_tree.Init((float)zx0 * CHUNK_SIZE, (float)zy0 * CHUNK_SIZE, region_size, kQtMaxDepth);
 }
 
+// Async pair for the FREQUENT camera-movement-triggered re-centre (2026-07-26,
+// bug #3 third follow-up: "GPU load >80%" + visible seams during fast F3
+// flythrough) — s_rebuild_quadtree_region above stays synchronous and is
+// still used for the debounced terrain-dirty refresh (a rare, deliberate
+// one-time refresh right after editing; a brief block there is acceptable
+// UX, not a repeated per-movement cost). This pair is for the trigger that
+// fires from ordinary camera movement, which at 559 m/s (this viewport's
+// own documented move speed) can retrigger every ~0.4-3s depending on
+// distance threshold — RebuildRegion's measured 75-90ms synchronous cost
+// (16-zone window, N=2049) at that frequency is exactly the reported load.
+// Kick dispatches the CPU sampling to a JobSystem worker and returns
+// immediately; Poll (called once per frame) applies a completed result
+// (cheap GPU upload) and re-roots s_qt_tree to match — see
+// TerrainQuadtreeRenderer::KickRebuildAsync/PollRebuildApply's own doc
+// comments for the full design (game/src/render/scene_render.cpp's
+// SceneRender::RebuildQuadtreeRegion/PollQuadtreeRebuild mirror this).
+static void s_kick_quadtree_rebuild_async(float cam_x, float cam_z) {
+    if (!s_qt_ready) { s_rebuild_quadtree_region(cam_x, cam_z); return; } // first-time Init stays sync
+    static constexpr int kZoneMax = EDITOR_TNKN - kQtZoneSpan;
+    int zx0 = (int)(cam_x / CHUNK_SIZE) - kQtZoneSpan / 2;
+    int zy0 = (int)(cam_z / CHUNK_SIZE) - kQtZoneSpan / 2;
+    if (zx0 < 0) zx0 = 0; if (zx0 > kZoneMax) zx0 = kZoneMax;
+    if (zy0 < 0) zy0 = 0; if (zy0 > kZoneMax) zy0 = kZoneMax;
+    float local_ox = (float)zx0 * CHUNK_SIZE, local_oz = (float)zy0 * CHUNK_SIZE;
+    s_qt.KickRebuildAsync(zx0, zy0, kQtZoneSpan, local_ox, local_oz);
+    // No s_qt_center_zx/zz or s_qt_tree update here — happens in
+    // s_poll_quadtree_rebuild_async once the async result is actually
+    // applied, so the tree and the height texture it's drawn against never
+    // disagree (see PollRebuildApply's own doc comment for why that pairing
+    // must be atomic from the caller's perspective).
+}
+
+// Returns true if a pending async rebuild was applied this call (caller
+// uses this the same way it used to use s_rebuild_quadtree_region's always-
+// synchronous completion — see qt_rebuilt_this_frame's use at this file's
+// render-frame call site).
+static bool s_poll_quadtree_rebuild_async() {
+    if (!s_qt_ready) return false;
+    if (!s_qt.PollRebuildApply(s_qt_height_min, s_qt_height_max)) return false;
+    s_qt_center_zx = (int)(s_qt.RegionOriginX() / CHUNK_SIZE + 0.5f);
+    s_qt_center_zz = (int)(s_qt.RegionOriginZ() / CHUNK_SIZE + 0.5f);
+    s_qt_tree.Init(s_qt.RegionOriginX(), s_qt.RegionOriginZ(), s_qt.RegionSize(), kQtMaxDepth);
+    return true;
+}
+
 // RTT
 static SDL_GPUTexture* s_color = nullptr;
 static SDL_GPUTexture* s_depth = nullptr;
@@ -586,20 +631,33 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
     M4 vp   = m4_mul(proj, view);
     float eye_x = s_cx, eye_y = s_cy, eye_z = s_cz;
 
+    // Apply any completed async rebuild BEFORE evaluating the re-centre
+    // trigger below, so a just-applied window's centre is what that check
+    // measures drift against (see s_poll_quadtree_rebuild_async's doc
+    // comment). qt_rebuilt_this_frame now means "the visible texture
+    // actually changed this frame" (an apply), not "a rebuild was
+    // requested" (a kick) — a kick alone changes nothing on screen yet.
+    bool qt_rebuilt_this_frame = s_poll_quadtree_rebuild_async();
+
     // Re-centre the near-tier quadtree window once the camera has drifted
-    // past 1/4 of the window's width from its last-rebuilt centre — mirrors
+    // past 1/4 of the window's width from its last-APPLIED centre — mirrors
     // game/src/render/scene_render.cpp's RebuildQuadtreeRegion trigger
     // (Phase 7), continuous-distance here since the editor camera isn't
-    // gated to gameplay's discrete zone-crossing streaming ticks.
-    bool qt_rebuilt_this_frame = false;
+    // gated to gameplay's discrete zone-crossing streaming ticks. Async
+    // (2026-07-26, bug #3 third follow-up: "GPU load >80%" during fast F3
+    // flythrough, measured 75-90ms synchronous cost at this window's
+    // N=2049 — see s_kick_quadtree_rebuild_async's doc comment) — kicking
+    // repeatedly while a previous kick is still in flight is harmless
+    // (KickRebuildAsync no-ops internally), so this simply re-evaluates
+    // drift against the stale centre every frame until the next apply
+    // updates it; no queuing, no correctness issue, just a cheap re-check.
     if (s_qt_ready) {
         float win_cx = ((float)s_qt_center_zx + (float)kQtZoneSpan * 0.5f) * CHUNK_SIZE;
         float win_cz = ((float)s_qt_center_zz + (float)kQtZoneSpan * 0.5f) * CHUNK_SIZE;
         float dx = eye_x - win_cx, dz = eye_z - win_cz;
         static constexpr float kRebuildR = (float)kQtZoneSpan * CHUNK_SIZE * 0.25f;
         if (dx*dx + dz*dz > kRebuildR*kRebuildR) {
-            s_rebuild_quadtree_region(eye_x, eye_z);
-            qt_rebuilt_this_frame = true;
+            s_kick_quadtree_rebuild_async(eye_x, eye_z);
         }
     }
 
