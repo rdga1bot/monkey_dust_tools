@@ -14,9 +14,9 @@
 
 #include "imgui.h"
 #include <monkey_dust/render/terrain_renderer.h>
-#include <monkey_dust/render/terrain_quadtree_renderer.h>
-#include <monkey_dust/world/terrain_quadtree.h>
-#include <monkey_dust/world/terrain_quadtree_async.h>
+#include <monkey_dust/render/terrain_world_heightmap.h>
+#include <monkey_dust/render/terrain_patch_renderer.h>
+#include <monkey_dust/world/terrain_patch_grid.h>
 #include <monkey_dust/render/prop_renderer.h>
 #include <monkey_dust/render/gpu_device.h>
 #include <monkey_dust/render/gpu_hal.h>
@@ -54,77 +54,116 @@ static constexpr int   EDITOR_TNKN = 64;  // 64×64 = full world (32×32 km)
 static TerrainRenderer    s_terrain;
 static PropRenderer       s_props;
 
-// Quadtree-LOD terrain rewrite Phase 8 (see plan at
-// /home/rdga1/.claude/plans/serene-pondering-teapot.md): coarse whole-world
-// BACKDROP mesh — the far tier of a two-tier scheme, the near tier being a
-// window-following TerrainQuadtree region (s_qt_* below, same engine classes
-// the game's SceneRender uses). This backdrop replaces BOTH the old
-// per-chunk-array-fed synthesis mesh AND the compact-VBO LOD2/LOD3 tier that
-// used to sit between it and near-camera detail — with the quadtree handling
-// its own internal LOD via CDLOD recursion, only two tiers are needed at
-// all: this static backdrop (always drawn, depth-biased so the quadtree
-// always wins the depth test against it) and the quadtree window itself.
+// Granite terrain migration, Phase 7 (plan: /home/rdga1/.claude/plans/
+// serene-pondering-teapot.md): replaces BOTH the old two-tier scheme's
+// far backdrop mesh (s_build_synth_hmap, ~513x513-sample synchronous
+// CPU loop) AND the near-tier window-following TerrainQuadtree
+// (s_qt_*/s_rebuild_quadtree_region/s_kick_quadtree_rebuild_async/
+// s_poll_quadtree_rebuild_async, all removed this phase along with the
+// per-window rebuild/re-centre machinery they needed) with ONE static
+// world-wide heightmap + flat patch grid + Phase 5's instanced renderer
+// -- no window to re-centre at all, so the whole "camera drifted past
+// N% of window width, kick an async rebuild" class of complexity this
+// file used to carry (and the "GPU load >80%" bug that class caused,
+// bug #3 third follow-up) doesn't exist here anymore. Unlike the game's
+// SceneRender (Phase 6, dual-run A/B alongside terrain_qt), this is a
+// full replacement -- the editor's own s_qt_*/s_synth_* state was local
+// to this file and unused elsewhere, so removing it now (rather than
+// deferring to Phase 8) leaves no dead code. terrain_qt/TerrainQuadtree
+// themselves are NOT deleted from the engine yet (game's dual-run still
+// needs them) -- that's Phase 8, after the game side also confirms.
 //
-// Reads TerrainAtlas_SampleWorld directly (the same always-resident,
-// whole-world CPU heightmap every other engine height-query already uses —
-// see terrain_query.h/physics_terrain_region.cpp) instead of a 4096-entry
-// TerrainChunk array — removes the entire multi-frame chunk-build sweep this
-// used to depend on (see git history for tick_chunk_build, deleted this
-// phase): building this mesh is now a single synchronous ~513x513-sample
-// CPU loop, done once in Init()'s loader thread right after ground textures
-// are ready, not spread across ~32 frames.
-static constexpr int   SYNTH_N          = 256;   // 256×256 quads, ~115m/quad
-static GpuStaticBuffer s_synth_vbo;               // TerrainVertex, (SYNTH_N+1)²
-static GpuStaticBuffer s_synth_ibo;               // uint32 IBO, SYNTH_N²×6
-static bool            s_synth_built    = false;
-static GpuPipeline     s_synth_pipeline;          // terrain_forward + depth bias (pushes behind quadtree)
+// The editor's free-fly camera already lives in ABSOLUTE Kenshi metres
+// (s_cx/s_cy/s_cz, see handle_input's ATLAS_MAX clamp) -- the SAME
+// [0,extent) convention TerrainWorldHeightmap/TerrainPatchGrid use
+// natively, so unlike the game side (Phase 6's GraniteAbsCam) no local-
+// to-absolute camera translation is needed here at all.
+static TerrainWorldHeightmap s_granite_hmap;
+static TerrainPatchGrid      s_granite_grid;
+static TerrainPatchRenderer  s_granite_pr;
+static bool  s_granite_ready = false;
+static constexpr float kGranitePatchSize = 300.f;
+static TerrainPatchRenderer::Instance s_granite_insts[TerrainPatchRenderer::kNumTiers][4096];
+static int   s_granite_counts[TerrainPatchRenderer::kNumTiers] = {};
 
-static void s_build_synth_hmap() {
-    static const float WORLD_SIZE = (float)(EDITOR_TNKN * CHUNK_SIZE); // 29491.2m
-    const int   N1   = SYNTH_N + 1;           // verts per side = 257
-    const float cell = WORLD_SIZE / SYNTH_N;
-
-    TerrainVertex* verts = new TerrainVertex[(size_t)N1 * N1];
-    for (int ty = 0; ty < N1; ++ty) {
-        for (int tx = 0; tx < N1; ++tx) {
-            float wx = tx * cell, wz = ty * cell;
-            float y = TerrainAtlas_SampleWorld(wx, wz);
-            // Finite-difference normal, same fixed-world-step convention as
-            // terrain_gen.cpp's cross-chunk normal stitching (nx=-dhdx,
-            // ny=1, nz=-dhdz after normalizing hL-hR/hD-hU below).
-            float hL = TerrainAtlas_SampleWorld(wx - cell, wz);
-            float hR = TerrainAtlas_SampleWorld(wx + cell, wz);
-            float hD = TerrainAtlas_SampleWorld(wx, wz - cell);
-            float hU = TerrainAtlas_SampleWorld(wx, wz + cell);
-            float nx=(hL-hR)/(2.f*cell), ny=1.f, nz=(hD-hU)/(2.f*cell);
-            float nl=sqrtf(nx*nx+ny*ny+nz*nz); if(nl>0.f){nx/=nl;ny/=nl;nz/=nl;}
-            // Same UV-scale convention as terrain_gen.cpp's per-chunk bake
-            // (world*0.125, wrapped at 2048) — matches terrain_forward.frag's
-            // `vUV * 4.0` tiling density.
-            float su = fmodf(wx * 0.125f, 2048.0f);
-            float sv = fmodf(wz * 0.125f, 2048.0f);
-            verts[ty*N1+tx] = { wx, y, wz,  nx, ny, nz,  su, sv,
-                                 0.5f, 0.5f, 0.f, 0.f,  y };
-        }
+// Builds/rebuilds the static world heightmap from TerrainAtlas's CURRENT
+// contents -- called once at Init() and again whenever s_terrain_dirty's
+// debounce fires (terrain edited) or the R key forces a refresh, mirroring
+// the old s_build_synth_hmap's call sites exactly. Unlike that mesh
+// rebuild (CPU triangulation loop), this re-inits the GPU texture
+// (Shutdown+Init) from scratch -- the whole point of a single static
+// texture is that this is the ONLY rebuild needed, no window/mesh to
+// also re-triangulate.
+// Assumes s_granite_pr.Init() was already called once (see Init()'s loader
+// thread) -- the renderer's pipeline/meshes don't depend on terrain data
+// and never need rebuilding, only the heightmap texture + grid do.
+static void s_rebuild_granite_hmap() {
+    SDL_GPUDevice* dev = md::GpuDevice::Get().SDLDevice();
+    s_granite_hmap.Shutdown(dev);
+    bool hmap_ok = s_granite_hmap.Init(dev);
+    s_granite_ready = hmap_ok && s_granite_pr.IsReady();
+    if (hmap_ok) {
+        s_granite_grid.Init(0.f, 0.f, s_granite_hmap.WorldExtent(),
+                             kGranitePatchSize, TerrainPatchRenderer::kNumTiers - 1);
     }
-    s_synth_vbo.Shutdown();
-    s_synth_vbo.Init(0x8892u, verts, sizeof(TerrainVertex)*(size_t)N1*N1);
-    delete[] verts;
+}
 
-    // Build uint32 IBO (N1² > 65535 → must be uint32)
-    const int idx_n = SYNTH_N * SYNTH_N * 6;
-    uint32_t* idx = new uint32_t[idx_n];
-    int ii = 0;
-    for (int r = 0; r < SYNTH_N; ++r)
-        for (int c = 0; c < SYNTH_N; ++c) {
-            uint32_t bl=(uint32_t)(r*N1+c), br=bl+1, tl=bl+N1, tr=tl+1;
-            idx[ii++]=bl; idx[ii++]=br; idx[ii++]=tl;
-            idx[ii++]=br; idx[ii++]=tr; idx[ii++]=tl;
-        }
-    s_synth_ibo.Shutdown();
-    s_synth_ibo.Init(0x8893u, idx, sizeof(uint32_t)*idx_n);
-    delete[] idx;
-    s_synth_built = true;
+// Computes this frame's visible patches (real frustum, from the already-
+// absolute-space editor camera -- no local-to-absolute conversion needed
+// here, unlike game/src/render/scene_render.cpp's GraniteAbsCam) and
+// uploads their per-tier instance batches. MUST be called BEFORE
+// SDL_BeginGPURenderPass (issues its own SDL_GPU copy passes on cmd).
+static void s_update_granite_terrain(SDL_GPUCommandBuffer* cmd,
+                                      float eye_x, float eye_y, float eye_z,
+                                      const float vp_m[16]) {
+    for (int t = 0; t < TerrainPatchRenderer::kNumTiers; ++t) s_granite_counts[t] = 0;
+    if (!s_granite_ready) return;
+
+    float cam3[3] = { eye_x, eye_y, eye_z };
+    s_granite_grid.UpdateLOD(cam3);
+
+    // Gribb & Hartmann side-plane extraction -- same formula as
+    // MdCamera::FrustumPlanes (md_camera.h) / the old near-tier quadtree's
+    // qfp above, replicated locally since this file uses its own raw M4.
+    float planes[16];
+    planes[ 0]=vp_m[3]+vp_m[0]; planes[ 1]=vp_m[7]+vp_m[4]; planes[ 2]=vp_m[11]+vp_m[ 8]; planes[ 3]=vp_m[15]+vp_m[12];
+    planes[ 4]=vp_m[3]-vp_m[0]; planes[ 5]=vp_m[7]-vp_m[4]; planes[ 6]=vp_m[11]-vp_m[ 8]; planes[ 7]=vp_m[15]-vp_m[12];
+    planes[ 8]=vp_m[3]-vp_m[1]; planes[ 9]=vp_m[7]-vp_m[5]; planes[10]=vp_m[11]-vp_m[ 9]; planes[11]=vp_m[15]-vp_m[13];
+    planes[12]=vp_m[3]+vp_m[1]; planes[13]=vp_m[7]+vp_m[5]; planes[14]=vp_m[11]+vp_m[ 9]; planes[15]=vp_m[15]+vp_m[13];
+
+    static constexpr int kMaxVisible = 4096;
+    static TerrainPatchGrid::VisiblePatch visible[kMaxVisible];
+    int nvis = s_granite_grid.SelectVisible(planes, visible, kMaxVisible);
+
+    auto neighbor_tier_n = [&](int ix, int iz, int dx, int dz) {
+        float nl = s_granite_grid.NeighborLOD(ix, iz, dx, dz);
+        int nt = (int)(nl + 0.5f);
+        if (nt < 0) nt = 0;
+        if (nt > TerrainPatchRenderer::kNumTiers - 1) nt = TerrainPatchRenderer::kNumTiers - 1;
+        return (float)TerrainPatchRenderer::TierN(nt);
+    };
+    static constexpr int kMaxInstPerTier = (int)(sizeof(s_granite_insts[0]) / sizeof(s_granite_insts[0][0]));
+    for (int i = 0; i < nvis; ++i) {
+        const auto& p = visible[i];
+        int tier = (int)(p.lod + 0.5f);
+        if (tier < 0) tier = 0;
+        if (tier > TerrainPatchRenderer::kNumTiers - 1) tier = TerrainPatchRenderer::kNumTiers - 1;
+        int& n = s_granite_counts[tier];
+        if (n >= kMaxInstPerTier) continue;
+        auto& inst = s_granite_insts[tier][n++];
+        inst.origin_x = p.origin_x;
+        inst.origin_z = p.origin_z;
+        inst.lod      = p.lod;
+        inst.neighbor_tier_n[0] = neighbor_tier_n(p.ix, p.iz, -1, 0);
+        inst.neighbor_tier_n[1] = neighbor_tier_n(p.ix, p.iz, 1, 0);
+        inst.neighbor_tier_n[2] = neighbor_tier_n(p.ix, p.iz, 0, -1);
+        inst.neighbor_tier_n[3] = neighbor_tier_n(p.ix, p.iz, 0, 1);
+    }
+
+    const TerrainPatchRenderer::Instance* inst_ptrs[TerrainPatchRenderer::kNumTiers];
+    for (int t = 0; t < TerrainPatchRenderer::kNumTiers; ++t)
+        inst_ptrs[t] = (s_granite_counts[t] > 0) ? s_granite_insts[t] : nullptr;
+    s_granite_pr.UploadInstances(cmd, inst_ptrs, s_granite_counts);
 }
 
 // Per-zone (64x64=4096) ground-layer lookup — fixes the synthesis/compact-LOD2
@@ -171,33 +210,6 @@ static std::thread        s_loader_thread;
 static constexpr int      s_zone_ox_saved = 0;  // whole-world prop scatter, unrelated to s_qt_* window below
 static constexpr int      s_zone_oz_saved = 0;
 
-// ── Near-tier: window-following TerrainQuadtree region ──────────────────────
-// Same engine classes SceneRender::terrain_qt_* (game, Phase 7) uses. Unlike
-// the game, the editor's free-fly camera already lives in ABSOLUTE Kenshi
-// metres (s_cx/s_cy/s_cz, see handle_input's ATLAS_MAX clamp) — no session-
-// local-window translation layer is needed here at all.
-static TerrainQuadtree              s_qt_tree;
-static TerrainQuadtreeAsyncSelector s_qt_async;
-static TerrainQuadtreeRenderer      s_qt;
-static bool  s_qt_ready      = false;
-static float s_qt_height_min = 0.f;
-static float s_qt_height_max = 0.f;
-// 16 zones (~7372.8m) — near TerrainQuadtreeRenderer::UploadHeightmapRegion's
-// kMaxRes=1025 cap (zone_span*64+1 <= 1025 => zone_span <= 16) at native
-// per-zone resolution. Far beyond this window, the always-resident backdrop
-// mesh above (s_build_synth_hmap) takes over — see this file's "Two-tier"
-// doc comment near s_build_synth_hmap.
-static constexpr int kQtZoneSpan  = 16;
-static constexpr int kQtMaxDepth  = 4; // 16 zones wide -> depths 16,8,4,2,1 zone-widths
-static float s_qt_lod_distances[kQtMaxDepth + 1] = {};
-// Zone-space (bottom-left corner) of the region as of the last rebuild —
-// used only to decide whether the camera has moved far enough to justify
-// another rebuild (full CPU resample + GPU texture re-upload); NOT read by
-// the draw call itself (TerrainQuadtreeRenderer tracks its own region
-// origin/size internally). Sentinel -999999 forces the first rebuild.
-static int s_qt_center_zx = -999999;
-static int s_qt_center_zz = -999999;
-
 // Build deterministic rock positions across the 7×7 near-zone viewport.
 // Uses LCG seeded per-chunk so positions are stable across camera moves.
 // Called once after atlas is ready; rebuilt when zone_ox/oz changes.
@@ -225,90 +237,6 @@ static void s_build_prop_positions() {
         }
     }
     s_props_built = true;
-}
-
-// Re-centres the near-tier quadtree window on (cam_x, cam_z) and re-uploads
-// its height texture — mirrors game/src/render/scene_render.cpp's
-// SceneRender::RebuildQuadtreeRegion (Phase 7), simplified since the editor
-// camera is already in absolute Kenshi metres (no tnoff-style translation).
-// First call (s_qt_ready == false) does the one-time pipeline+mesh Init();
-// later calls use the cheaper RebuildRegion (height texture only).
-static void s_rebuild_quadtree_region(float cam_x, float cam_z) {
-    static constexpr int kZoneMax = EDITOR_TNKN - kQtZoneSpan; // valid zx0/zy0 upper bound
-    int zx0 = (int)(cam_x / CHUNK_SIZE) - kQtZoneSpan / 2;
-    int zy0 = (int)(cam_z / CHUNK_SIZE) - kQtZoneSpan / 2;
-    if (zx0 < 0) zx0 = 0; if (zx0 > kZoneMax) zx0 = kZoneMax;
-    if (zy0 < 0) zy0 = 0; if (zy0 > kZoneMax) zy0 = kZoneMax;
-
-    // local_origin_x/z == absolute zx0*CHUNK_SIZE here (no-op translation) —
-    // the editor's camera/tree already live in absolute Kenshi metres, see
-    // TerrainQuadtreeRenderer::Init's doc comment for why this must match
-    // whatever space s_qt_tree.Init() below uses.
-    float local_ox = (float)zx0 * CHUNK_SIZE, local_oz = (float)zy0 * CHUNK_SIZE;
-    bool ok;
-    if (!s_qt_ready) {
-        ok = s_qt.Init(zx0, zy0, kQtZoneSpan, local_ox, local_oz, s_qt_height_min, s_qt_height_max);
-        if (ok) {
-            for (int d = 0; d <= kQtMaxDepth; ++d) {
-                float node_size = ((float)kQtZoneSpan * CHUNK_SIZE) / (float)(1 << d);
-                s_qt_lod_distances[d] = node_size * 2.f;
-            }
-            s_qt_async.Init(&s_qt_tree);
-        }
-    } else {
-        ok = s_qt.RebuildRegion(zx0, zy0, kQtZoneSpan, local_ox, local_oz, s_qt_height_min, s_qt_height_max);
-    }
-    if (!ok) return;
-    s_qt_ready = true;
-    s_qt_center_zx = zx0;
-    s_qt_center_zz = zy0;
-    float region_size = (float)kQtZoneSpan * CHUNK_SIZE;
-    s_qt_tree.Init((float)zx0 * CHUNK_SIZE, (float)zy0 * CHUNK_SIZE, region_size, kQtMaxDepth);
-}
-
-// Async pair for the FREQUENT camera-movement-triggered re-centre (2026-07-26,
-// bug #3 third follow-up: "GPU load >80%" + visible seams during fast F3
-// flythrough) — s_rebuild_quadtree_region above stays synchronous and is
-// still used for the debounced terrain-dirty refresh (a rare, deliberate
-// one-time refresh right after editing; a brief block there is acceptable
-// UX, not a repeated per-movement cost). This pair is for the trigger that
-// fires from ordinary camera movement, which at 559 m/s (this viewport's
-// own documented move speed) can retrigger every ~0.4-3s depending on
-// distance threshold — RebuildRegion's measured 75-90ms synchronous cost
-// (16-zone window, N=2049) at that frequency is exactly the reported load.
-// Kick dispatches the CPU sampling to a JobSystem worker and returns
-// immediately; Poll (called once per frame) applies a completed result
-// (cheap GPU upload) and re-roots s_qt_tree to match — see
-// TerrainQuadtreeRenderer::KickRebuildAsync/PollRebuildApply's own doc
-// comments for the full design (game/src/render/scene_render.cpp's
-// SceneRender::RebuildQuadtreeRegion/PollQuadtreeRebuild mirror this).
-static void s_kick_quadtree_rebuild_async(float cam_x, float cam_z) {
-    if (!s_qt_ready) { s_rebuild_quadtree_region(cam_x, cam_z); return; } // first-time Init stays sync
-    static constexpr int kZoneMax = EDITOR_TNKN - kQtZoneSpan;
-    int zx0 = (int)(cam_x / CHUNK_SIZE) - kQtZoneSpan / 2;
-    int zy0 = (int)(cam_z / CHUNK_SIZE) - kQtZoneSpan / 2;
-    if (zx0 < 0) zx0 = 0; if (zx0 > kZoneMax) zx0 = kZoneMax;
-    if (zy0 < 0) zy0 = 0; if (zy0 > kZoneMax) zy0 = kZoneMax;
-    float local_ox = (float)zx0 * CHUNK_SIZE, local_oz = (float)zy0 * CHUNK_SIZE;
-    s_qt.KickRebuildAsync(zx0, zy0, kQtZoneSpan, local_ox, local_oz);
-    // No s_qt_center_zx/zz or s_qt_tree update here — happens in
-    // s_poll_quadtree_rebuild_async once the async result is actually
-    // applied, so the tree and the height texture it's drawn against never
-    // disagree (see PollRebuildApply's own doc comment for why that pairing
-    // must be atomic from the caller's perspective).
-}
-
-// Returns true if a pending async rebuild was applied this call (caller
-// uses this the same way it used to use s_rebuild_quadtree_region's always-
-// synchronous completion — see qt_rebuilt_this_frame's use at this file's
-// render-frame call site).
-static bool s_poll_quadtree_rebuild_async() {
-    if (!s_qt_ready) return false;
-    if (!s_qt.PollRebuildApply(s_qt_height_min, s_qt_height_max)) return false;
-    s_qt_center_zx = (int)(s_qt.RegionOriginX() / CHUNK_SIZE + 0.5f);
-    s_qt_center_zz = (int)(s_qt.RegionOriginZ() / CHUNK_SIZE + 0.5f);
-    s_qt_tree.Init(s_qt.RegionOriginX(), s_qt.RegionOriginZ(), s_qt.RegionSize(), kQtMaxDepth);
-    return true;
 }
 
 // RTT
@@ -447,43 +375,11 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
         if (!s_terrain.Init()) {
             fprintf(stderr, "[W3D-SDLGPU] TerrainRenderer init failed\n"); return;
         }
-        // Backdrop pipeline: same as terrain_forward but with depth bias so
-        // the backdrop always loses depth test against the near-tier
-        // quadtree at the same world position (no world-Y offset needed).
-        {
-            GpuPipeline::Desc sd;
-            sd.vert_path = "shaders/terrain_forward.vert";
-            sd.frag_path = "shaders/terrain_forward.frag";
-            sd.layout.count      = 4;
-            sd.layout.stride     = 52;
-            sd.layout.attribs[0] = { 0,  0, GpuAttribFmt::F3 };
-            sd.layout.attribs[1] = { 1, 12, GpuAttribFmt::F3 };
-            sd.layout.attribs[2] = { 2, 24, GpuAttribFmt::F2 };
-            sd.layout.attribs[3] = { 3, 32, GpuAttribFmt::F4 };
-            sd.raster.depth_test        = true;
-            sd.raster.depth_write       = true;
-            sd.raster.cull_back         = false;
-            sd.has_depth_target   = true;
-            sd.vert_uniform_bufs  = 1;
-            sd.frag_uniform_bufs  = 1;
-            // terrain_forward.frag samples 4 textures (tex_colour, tex_ground,
-            // tex_overlay_mask, tex_biome_blend — tex_detail removed
-            // 2026-07-25). Must track TerrainRenderer::Init()'s own pipeline
-            // for the same shader exactly (terrain_renderer.cpp) — falling
-            // behind shifts every descriptor slot, producing solid-colour
-            // garbage quads on the backdrop mesh (which always renders, not
-            // just at high altitude). Was wrongly 5 here (stale from before
-            // the 2026-07-25 tex_detail removal — never updated when
-            // terrain_forward.slang and TerrainRenderer's own pipeline both
-            // were), fixed as part of this Phase 8 rewrite.
-            sd.frag_samplers      = 4;
-            // Must also track TerrainRenderer::Init()'s frag_storage_bufs=1
-            // (per-zone ground-layer lookup SSBO, see
-            // TerrainRenderer::UploadZoneGroundLayers/SetBatchZoneLookup) —
-            // same binding-count-sync rule as frag_samplers above.
-            sd.frag_storage_bufs  = 1;
-            s_synth_pipeline.Create(sd);
-        }
+        // Granite terrain migration, Phase 7: one-time pipeline+mesh init
+        // for the instanced patch renderer (replaces the old backdrop
+        // pipeline above) -- doesn't depend on terrain data, never needs
+        // rebuilding, unlike the heightmap texture (s_rebuild_granite_hmap).
+        s_granite_pr.Init(md::GpuDevice::Get().SDLDevice());
         s_props.Init("game/data/props/rock_01.glb", 0.f); // no-op if missing; 0=rock diffuse
         s_terrain.InitKenshiOverlay(op);
         s_terrain.InitGroundTextureArray();
@@ -499,14 +395,14 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
         // mirrors.
         s_terrain.InitOverlayMask("game/data/textures/md_overlay_mask.png");
         s_terrain.InitBiomeBlend("game/data/textures/md_biome_blend.png");
-        // Phase 8: zone-layer LUT + backdrop mesh are now atlas-sourced
+        // Zone-layer LUT + the static world heightmap are atlas-sourced
         // (TerrainAtlas is already loaded by main.cpp before Init() is
-        // called — see this file's header comment) and build synchronously
-        // in a single sweep, no multi-frame chunk-build sweep needed
-        // anymore (see s_build_synth_hmap's doc comment).
+        // called — see this file's header comment) and build
+        // synchronously in a single sweep -- no per-window rebuild needed
+        // at all for the heightmap (see s_rebuild_granite_hmap's doc
+        // comment).
         s_build_zone_ground_layers();
-        s_build_synth_hmap();
-        s_rebuild_quadtree_region(s_cx, s_cz);
+        s_rebuild_granite_hmap();
         s_master_ready = true;
         s_build_prop_positions();
     });
@@ -537,9 +433,7 @@ void Shutdown() {
 // TerrainAtlas's current contents on demand, useful after an external edit
 // to the atlas file between sessions).
 static void s_force_refresh() {
-    s_build_synth_hmap();
-    s_qt_center_zx = -999999; s_qt_center_zz = -999999;  // force next rebuild
-    s_rebuild_quadtree_region(s_cx, s_cz);
+    s_rebuild_granite_hmap();
     if (s_rmb) {
         SDL_SetWindowRelativeMouseMode(SDL_GetMouseFocus(), false);
         s_rmb = false;
@@ -631,61 +525,38 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
     M4 vp   = m4_mul(proj, view);
     float eye_x = s_cx, eye_y = s_cy, eye_z = s_cz;
 
-    // Apply any completed async rebuild BEFORE evaluating the re-centre
-    // trigger below, so a just-applied window's centre is what that check
-    // measures drift against (see s_poll_quadtree_rebuild_async's doc
-    // comment). qt_rebuilt_this_frame now means "the visible texture
-    // actually changed this frame" (an apply), not "a rebuild was
-    // requested" (a kick) — a kick alone changes nothing on screen yet.
-    bool qt_rebuilt_this_frame = s_poll_quadtree_rebuild_async();
-
-    // Re-centre the near-tier quadtree window once the camera has drifted
-    // past 1/4 of the window's width from its last-APPLIED centre — mirrors
-    // game/src/render/scene_render.cpp's RebuildQuadtreeRegion trigger
-    // (Phase 7), continuous-distance here since the editor camera isn't
-    // gated to gameplay's discrete zone-crossing streaming ticks. Async
-    // (2026-07-26, bug #3 third follow-up: "GPU load >80%" during fast F3
-    // flythrough, measured 75-90ms synchronous cost at this window's
-    // N=2049 — see s_kick_quadtree_rebuild_async's doc comment) — kicking
-    // repeatedly while a previous kick is still in flight is harmless
-    // (KickRebuildAsync no-ops internally), so this simply re-evaluates
-    // drift against the stale centre every frame until the next apply
-    // updates it; no queuing, no correctness issue, just a cheap re-check.
-    if (s_qt_ready) {
-        float win_cx = ((float)s_qt_center_zx + (float)kQtZoneSpan * 0.5f) * CHUNK_SIZE;
-        float win_cz = ((float)s_qt_center_zz + (float)kQtZoneSpan * 0.5f) * CHUNK_SIZE;
-        float dx = eye_x - win_cx, dz = eye_z - win_cz;
-        static constexpr float kRebuildR = (float)kQtZoneSpan * CHUNK_SIZE * 0.25f;
-        if (dx*dx + dz*dz > kRebuildR*kRebuildR) {
-            s_kick_quadtree_rebuild_async(eye_x, eye_z);
-        }
-    }
+    // Granite terrain migration, Phase 7: no per-window rebuild/re-centre
+    // trigger needed at all -- the static world heightmap is always fully
+    // resident, so unlike the old near-tier quadtree there is no "camera
+    // drifted past N% of window width" class of check to run every frame
+    // (the whole reason that class existed — and the "GPU load >80%" bug
+    // it caused, bug #3 third follow-up — doesn't apply to a system with
+    // no window at all).
+    bool granite_rebuilt_this_frame = false;
 
     // Debounced terrain-dirty refresh (UploadTerrainHeightmap / R key) —
-    // rebuilds both tiers 0.5s after the last mark.
+    // rebuilds the heightmap texture 0.5s after the last mark.
     if (s_terrain_dirty) {
         s_terrain_dirty_t += dt;
         if (s_terrain_dirty_t >= 0.5f) {
-            s_build_synth_hmap();
-            s_qt_center_zx = -999999; s_qt_center_zz = -999999;
-            s_rebuild_quadtree_region(eye_x, eye_z);
+            s_rebuild_granite_hmap();
             s_terrain_dirty = false;
-            qt_rebuilt_this_frame = true;
+            granite_rebuilt_this_frame = true;
         }
     }
 
     // Idle skip: if camera and scene unchanged, reuse last RTT (LOAD_OP_CLEAR not called
     // → s_color keeps previous content → ImGui image shows last rendered frame).
     // Allow 2 stable frames before skipping so final position is fully rendered.
-    // Must also stay awake the frame a quadtree rebuild happened — its new
-    // height texture needs an actual draw to show up in the RTT.
+    // Must also stay awake the frame a heightmap rebuild happened — its new
+    // texture needs an actual draw to show up in the RTT.
     {
         static float s_pcx=-1e9f,s_pcy=-1e9f,s_pcz=-1e9f,s_pyaw=-1e9f,s_ppit=-1e9f;
         static int   s_idle=0;
         bool cam_same = fabsf(s_cx-s_pcx)<0.5f && fabsf(s_cy-s_pcy)<0.5f &&
                         fabsf(s_cz-s_pcz)<0.5f && fabsf(s_yaw-s_pyaw)<0.001f &&
                         fabsf(s_pitch-s_ppit)<0.001f;
-        if (cam_same && !s_terrain_dirty && !qt_rebuilt_this_frame) {
+        if (cam_same && !s_terrain_dirty && !granite_rebuilt_this_frame) {
             if (++s_idle > 2) return;  // RTT retained → no GPU work needed
         } else {
             s_idle=0;
@@ -703,6 +574,11 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
     // GraphicsSettings::fog_color's default.
     const auto& ls  = LightSystem::Get();
     static constexpr float kSkyR = 0.38f, kSkyG = 0.58f, kSkyB = 0.82f;
+
+    // Granite terrain migration, Phase 7: computes visible patches +
+    // uploads their per-tier instance batches. MUST run before the render
+    // pass below opens (issues its own SDL_GPU copy passes on cmd).
+    s_update_granite_terrain(cmd, eye_x, eye_y, eye_z, vp.m);
 
     // ── Terrain render pass ──────────────────────────────────────────────────
     SDL_GPUColorTargetInfo ct = {};
@@ -743,7 +619,7 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
             SDL_DrawGPUPrimitives(rp, 3, 1, 0, 0);
         }
 
-        if (s_synth_built && s_terrain.IsReady()) {
+        if (s_granite_ready && s_terrain.IsReady()) {
             static constexpr float W2UV = 1.f / (64.f * CHUNK_SIZE);
             static constexpr float WCX  = 32.f * CHUNK_SIZE;
             static constexpr float WCZ  = 32.f * CHUNK_SIZE;
@@ -755,76 +631,24 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
             sun.ambient[1] = kSkyG * 0.2f + 0.23f;
             sun.ambient[2] = kSkyB * 0.2f + 0.26f;
 
-            // ── Far tier: always-resident whole-world backdrop, depth-biased
-            // so it always loses against the near-tier quadtree below.
-            if (s_synth_vbo.SDLBuffer() && s_synth_ibo.SDLBuffer() && s_synth_pipeline.SDLPipeline()) {
-                s_terrain.BeginRawBatch(rp, cmd, vp.m, sun, eye_x, eye_y, eye_z, WCX, WCZ, W2UV, 1); // set uniforms
-                // BeginRawBatch never sets ground_layers (only DrawRawChunk does, per real
-                // chunk) — this manual draw needs its own push or it samples whatever was
-                // left from the last DrawRawChunk call (often all-zero => solid wrong colour).
-                {
-                    // Per-zone ground-layer lookup (see s_build_zone_ground_layers) —
-                    // this whole-world background mesh spans many zones/biomes in one
-                    // draw call, so a single fixed ground_layers push (the old
-                    // ForZone(nullptr) default-biome-everywhere bug) can't show real
-                    // per-zone variety. use_zone_lookup=1 makes terrain_forward.slang's
-                    // fsMain resolve ground_layers per-fragment from world position
-                    // instead (no biome crossfade on this path — hard zone boundary,
-                    // acceptable simplification at this distance, see terrain_forward.slang).
-                    // fog_far tuned for normal ~km-scale gameplay view distance
-                    // (terrain_cr_m) saturates fog_t=1.0 across this whole-world mesh
-                    // from an aerial camera (tens of km away), washing everything to
-                    // solid fog colour — override with a much larger fog_far (linear
-                    // fog, 2026-07-12; this arg was an EXP2 density override before,
-                    // now overrides fog_far directly). 60000m safely exceeds the
-                    // 29.5km×29.5km world's diagonal (~41.7km).
-                    s_terrain.SetBatchZoneLookup(cmd, true, 60000.f);
-                }
-                SDL_BindGPUGraphicsPipeline(rp, s_synth_pipeline.SDLPipeline()); // override: depth bias
-                SDL_GPUBufferBinding sib { s_synth_ibo.SDLBuffer(), 0u };
-                SDL_BindGPUIndexBuffer(rp, &sib, SDL_GPU_INDEXELEMENTSIZE_32BIT);
-                SDL_GPUBufferBinding svb { s_synth_vbo.SDLBuffer(), 0u };
-                SDL_BindGPUVertexBuffers(rp, 0, &svb, 1);
-                SDL_DrawGPUIndexedPrimitives(rp, (uint32_t)(SYNTH_N*SYNTH_N*6), 1, 0, 0, 0);
-            }
-
-            // ── Near tier: window-following quadtree (Phase 8). Traversal
-            // runs on a JobSystem worker (kicked here, consumed next time it
-            // completes — never blocks this thread); draws whatever the most
-            // recently COMPLETED traversal picked, with the matching CDLOD
-            // morph factor — same pattern game/src/render/npc_render.cpp uses.
-            if (s_qt_ready) {
-                float qfp[16];
-                // Gribb & Hartmann side-plane extraction — same formula as
-                // MdCamera::FrustumPlanes (md_camera.h), replicated locally
-                // since this file uses its own raw M4, not MdCamera.
-                const float* m = vp.m;
-                qfp[ 0]=m[3]+m[0]; qfp[ 1]=m[7]+m[4]; qfp[ 2]=m[11]+m[ 8]; qfp[ 3]=m[15]+m[12];
-                qfp[ 4]=m[3]-m[0]; qfp[ 5]=m[7]-m[4]; qfp[ 6]=m[11]-m[ 8]; qfp[ 7]=m[15]-m[12];
-                qfp[ 8]=m[3]-m[1]; qfp[ 9]=m[7]-m[5]; qfp[10]=m[11]-m[ 9]; qfp[11]=m[15]-m[13];
-                qfp[12]=m[3]+m[1]; qfp[13]=m[7]+m[5]; qfp[14]=m[11]+m[ 9]; qfp[15]=m[15]+m[13];
-                float qcam[3] = { eye_x, eye_y, eye_z };
-                s_qt_async.KickAsync(qcam, qfp, s_qt_lod_distances);
-                int qn = 0;
-                const TerrainQuadVisibleNode* qnodes = s_qt_async.ActiveVisible(qn);
-                for (int i = 0; i < qn; ++i) {
-                    float ndx = qcam[0] - (qnodes[i].origin_x + qnodes[i].size * 0.5f);
-                    float ndz = qcam[2] - (qnodes[i].origin_z + qnodes[i].size * 0.5f);
-                    float ndist = sqrtf(ndx * ndx + ndz * ndz);
-                    float morph_t = TerrainQuadtreeRenderer::ComputeMorphT(
-                        ndist, qnodes[i].depth, s_qt_lod_distances);
-                    // fog_far=60000m / fog_near=0: same aerial-altitude fog
-                    // override as the backdrop draw above (see its comment);
-                    // fog_color matches the sky's own horizon colour.
-                    static const float kFogColor[3] = { kSkyR, kSkyG, kSkyB };
-                    s_qt.Draw(rp, cmd, vp.m,
-                        qnodes[i].origin_x, qnodes[i].origin_z, qnodes[i].size, morph_t,
-                        s_qt_height_min, s_qt_height_max,
-                        sun, eye_x, eye_y, eye_z,
-                        WCX, WCZ, W2UV,
-                        60000.f, kFogColor, 0.f,
-                        s_terrain);
-                }
+            // Granite terrain migration, Phase 7: replaces BOTH the old
+            // far-tier backdrop AND near-tier quadtree draw blocks with
+            // one batched instanced draw per LOD tier (instances already
+            // computed+uploaded by s_update_granite_terrain above, before
+            // this render pass opened). fog_far=60000m / fog_near=0: same
+            // aerial-altitude fog override the old tiers used (WCX/WCZ/
+            // W2UV, an absolute-space world-centre convention, is exactly
+            // this file's own kWorldCenter equivalent -- the editor camera
+            // is already absolute, so no COL_OX/COL_OZ-style local
+            // conversion is needed the way game/src/render/npc_render.cpp
+            // needs for its own granite draw).
+            static const float kFogColor[3] = { kSkyR, kSkyG, kSkyB };
+            for (int t = 0; t < TerrainPatchRenderer::kNumTiers; ++t) {
+                s_granite_pr.DrawBatch(rp, cmd, t, vp.m, kGranitePatchSize,
+                    s_granite_hmap, sun, eye_x, eye_y, eye_z,
+                    WCX, WCZ, W2UV,
+                    60000.f, kFogColor, 0.f,
+                    s_terrain);
             }
         }
 
