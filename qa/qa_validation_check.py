@@ -62,15 +62,25 @@ def scan(log_path: Path) -> tuple[list[str], list[str]]:
 def main() -> int:
     ap = argparse.ArgumentParser(description="monkey_dust Vulkan validation-layer log scan")
     ap.add_argument("--capture", help="capture ID (default: latest)")
+    # --log: scan an arbitrary log file directly (e.g. a `--exec` scenario's
+    # captured stdout/stderr) instead of resolving a qa_run.sh capture
+    # directory — added for the Granite-migration verification-methodology
+    # phase (plan at /home/rdga1/.claude/plans/serene-pondering-teapot.md)
+    # so `--exec` runs can reuse this exact scan/regex without faking a
+    # captures/<id>/game_stdout.log directory structure just to invoke it.
+    ap.add_argument("--log", help="scan this log file directly instead of a capture directory")
     args = ap.parse_args()
 
-    capture_id = args.capture or latest_capture()
-    if not capture_id:
-        print("[qa_validation] No captures found under tools/qa/captures/", file=sys.stderr)
-        return 1
-
-    log_path = CAPTURES_DIR / capture_id / "game_stdout.log"
-    errors, warnings = scan(log_path)
+    if args.log:
+        log_path = Path(args.log)
+        errors, warnings = scan(log_path)
+    else:
+        capture_id = args.capture or latest_capture()
+        if not capture_id:
+            print("[qa_validation] No captures found under tools/qa/captures/", file=sys.stderr)
+            return 1
+        log_path = CAPTURES_DIR / capture_id / "game_stdout.log"
+        errors, warnings = scan(log_path)
 
     if warnings:
         print(f"[qa_validation] {len(warnings)} validation WARNING(s) (logged, not failing):")
