@@ -119,6 +119,10 @@ void editor_panels_shutdown(const char* layout_path) {
         // map/world/terrain/world3d are updated live in BuildUI → already in s_lay
         EditorLayout::Save(layout_path, s_lay);
     }
+    // Must join before dlclose() (below, in EditorModule::Shutdown) unloads
+    // this .so out from under the thread's own code — see
+    // WorldEditor3D_SDLGPU::Shutdown()'s doc comment for the race this fixes.
+    WorldEditor3D_SDLGPU::Shutdown();
     EditorCore::Get().Shutdown();
     MD_LOG(MD_LOG_INFO, "[EditorPanels] shutdown complete");
 }
