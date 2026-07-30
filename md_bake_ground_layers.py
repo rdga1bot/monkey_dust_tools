@@ -164,6 +164,38 @@ def load_ground_tex(dds_path):
     return img
 
 
+def _downsample_box2x2(tex):
+    """2x2 box-filter downsample, float32 RGB. Same correct box-filter
+    approach as tools/md_bc3_encode.py's _downsample_box (verified
+    mathematically sound this session while investigating a DIFFERENT
+    hypothesis) -- pads odd dims by edge-replication first."""
+    h, w = tex.shape[0], tex.shape[1]
+    if h % 2: tex = np.concatenate([tex, tex[-1:]], axis=0); h += 1
+    if w % 2: tex = np.concatenate([tex, tex[:, -1:]], axis=1); w += 1
+    return tex.reshape(h // 2, 2, w // 2, 2, -1).mean(axis=(1, 3))
+
+
+def build_mip_chain(tex, min_size=4):
+    """[mip0 (full-res), mip1 (half), mip2, ...] down to >= min_size."""
+    chain = [tex]
+    cur = tex
+    while min(cur.shape[0], cur.shape[1]) > min_size:
+        cur = _downsample_box2x2(cur)
+        chain.append(cur)
+    return chain
+
+
+def pick_prefiltered_mip(mip_chain, target_res):
+    """Nearest mip whose resolution is >= target_res (never sharper than
+    what the bake's own sampling rate can actually resolve)."""
+    best = mip_chain[-1]
+    for m in mip_chain:
+        best = m
+        if m.shape[0] <= target_res:
+            break
+    return best
+
+
 def sample_bilinear_wrap(tex, u, v):
     """tex: (H,W,3) float32. u,v: same-shape float arrays, any range
     (wrapped, GL_REPEAT). Bilinear, matches GPU LINEAR+REPEAT sampling."""
@@ -203,6 +235,20 @@ def sample_bilinear_clamp(tex, u, v):
     return top * (1 - ty) + bot * ty
 
 
+def box_blur_2d(a, r):
+    """Separable box blur, edge-padded, via cumulative sums (O(N), not
+    O(N*r)) -- (2r+1)x(2r+1) window average."""
+    k = 2 * r + 1
+    ap_ = np.pad(a, r, mode="edge")
+    c = np.cumsum(ap_, axis=0)
+    c = np.vstack([np.zeros((1, c.shape[1])), c])
+    s = c[k:] - c[:-k]
+    c2 = np.cumsum(s, axis=1)
+    c2 = np.hstack([np.zeros((c2.shape[0], 1)), c2])
+    s2 = c2[:, k:] - c2[:, :-k]
+    return s2 / (k * k)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out-size", type=int, default=8192)
@@ -216,6 +262,30 @@ def main():
     zone_biome_idx = resolve_zone_biomes(BIOMEMAP_PNG, biomes)
     overlay_mask = np.array(Image.open(OVERLAY_MASK).convert("RGBA"), dtype=np.float32) / 255.0
     height = load_atlas(WORLD_HMAP)  # (FULL_SIZE, FULL_SIZE) metres, FULL_SIZE=8193
+
+    # task terrain-bake-ribbing (2026-07-31): the "vein" ribbing turned out
+    # to live in neither ground texture (both individually clean once
+    # prefiltered -- see get_prefiltered_tex above) but in slope_w ITSELF:
+    # steepness is a per-texel central-difference on the RAW heightmap
+    # (3.6m/sample -- genuine, fine erosion-channel-scale relief in the
+    # real Kenshi data), and this biome's slope threshold is low/narrow
+    # enough (e.g. floodwastes_2's smin=0.08) that almost any small ripple
+    # flips slope_w between ~0 and ~1, tracing that fine relief as sharp
+    # branching bands wherever cBase/cSlope differ in tone. Confirmed
+    # directly: isolating cBase alone (slope_w forced to 0) was completely
+    # clean; the slope_w mask alone reproduced the exact vein pattern.
+    # Real Kenshi's live shader computes its slope weight from a much
+    # coarser PER-VERTEX mesh normal (tens of metres between vertices),
+    # never resolving this fine a signal -- our per-texel heightmap-derived
+    # steepness is higher-frequency than any real mesh could ever be, so it
+    # needs deliberate smoothing to represent the same "generally sloped or
+    # not" classification instead of tracing every small bump. Blur radius
+    # 16 texels (~58m) picked empirically (tmp_/diag_slope_ribbing.py-style
+    # A/B: r=8 still showed the pattern faintly, r=16 removed it while
+    # keeping real ridge/cliff-edge transitions intact). GEOMETRY (the
+    # actual heightmap used elsewhere) is untouched -- this smoothed copy
+    # is used ONLY for the slope_w material-blend classification below.
+    height_smooth = box_blur_2d(height, 16)
 
     out_size = args.out_size
     if args.test_crop > 0:
@@ -239,6 +309,33 @@ def main():
         if idx not in tex_cache:
             tex_cache[idx] = load_ground_tex(tex_paths[idx])
         return tex_cache[idx]
+
+    # task terrain-bake-aliasing (2026-07-31): root-caused the "vertical
+    # ribbing" seen in-game on sloped terrain -- NOT the shader, NOT the
+    # colour overlay (both suspected and ruled out earlier this session) --
+    # to THIS bake sampling raw ground textures with a straight
+    # sample_bilinear_wrap (a 4-texel point sample, no area/mip filtering)
+    # at a tiling frequency far higher than the bake's own output
+    # resolution can resolve. Confirmed directly: isolating the baked
+    # colour alone (fragColor=cFlatBaked in the shader) reproduced the
+    # ribbing exactly, and the desert biome's real "tex_base" asset
+    # (Sand01bc.dds) has genuine fine vertical grain that aliases into
+    # exaggerated Moire bands once undersampled this way. Real Kenshi never
+    # hits this because it samples ground textures live, every frame, with
+    # real GPU mip/anisotropic filtering -- our OFFLINE bake has to build
+    # its own equivalent mip chain and sample from the correctly-filtered
+    # level instead of always the full-res source.
+    meters_per_texel = extent / out_size
+    mip_cache = {}
+    def get_prefiltered_tex(idx, tiling_x):
+        repeat_span_m = 5000.0 / max(tiling_x, 1e-6)
+        samples_per_repeat = repeat_span_m / meters_per_texel
+        target_res = max(4, samples_per_repeat)
+        key = (idx, int(round(np.log2(max(target_res, 1.0)))))
+        if key not in mip_cache:
+            chain = build_mip_chain(get_tex(idx))
+            mip_cache[key] = pick_prefiltered_mip(chain, target_res)
+        return mip_cache[key]
 
     # texel->world coordinate helpers
     def world_to_texel(wx, wz):
@@ -295,12 +392,13 @@ def main():
                 continue
 
             # Heightmap-derived steepness (central difference on the
-            # continuous 8193x8193 world height field).
+            # SMOOTHED height field -- see height_smooth's doc comment
+            # above for why the raw per-texel field aliased into visible
+            # ribbing here).
             hx = np.clip(WX / WORLD_EXTENT * (FULL_SIZE - 1), 1, FULL_SIZE - 2).astype(np.int64)
             hz = np.clip(WZ / WORLD_EXTENT * (FULL_SIZE - 1), 1, FULL_SIZE - 2).astype(np.int64)
-            h_c  = height[hz, hx]
-            h_xp = height[hz, hx + 1]; h_xn = height[hz, hx - 1]
-            h_zp = height[hz + 1, hx]; h_zn = height[hz - 1, hx]
+            h_xp = height_smooth[hz, hx + 1]; h_xn = height_smooth[hz, hx - 1]
+            h_zp = height_smooth[hz + 1, hx]; h_zn = height_smooth[hz - 1, hx]
             step_m = WORLD_EXTENT / (FULL_SIZE - 1) * 2.0
             dhdx = (h_xp - h_xn) / step_m
             dhdz = (h_zp - h_zn) / step_m
@@ -341,11 +439,11 @@ def main():
             u_dirt,  v_dirt  = WX * DDS_UV_SCALE * tl["dirt"][0],  WZ * DDS_UV_SCALE * tl["dirt"][1]
             u_road,  v_road  = WX * DDS_UV_SCALE * tl["road"][0],  WZ * DDS_UV_SCALE * tl["road"][1]
 
-            c_base  = sample_bilinear_wrap(get_tex(b["base"]),  u_base,  v_base)
-            c_slope = sample_bilinear_wrap(get_tex(b["slope"]), u_slope, v_slope)
-            c_grass = sample_bilinear_wrap(get_tex(b["grass"]), u_grass, v_grass)
-            c_dirt  = sample_bilinear_wrap(get_tex(b["dirt"]),  u_dirt,  v_dirt)
-            c_road  = sample_bilinear_wrap(get_tex(b["road"]),  u_road,  v_road)
+            c_base  = sample_bilinear_wrap(get_prefiltered_tex(b["base"],  tl["base"][0]),  u_base,  v_base)
+            c_slope = sample_bilinear_wrap(get_prefiltered_tex(b["slope"], tl["slope"][0]), u_slope, v_slope)
+            c_grass = sample_bilinear_wrap(get_prefiltered_tex(b["grass"], tl["grass"][0]), u_grass, v_grass)
+            c_dirt  = sample_bilinear_wrap(get_prefiltered_tex(b["dirt"],  tl["dirt"][0]),  u_dirt,  v_dirt)
+            c_road  = sample_bilinear_wrap(get_prefiltered_tex(b["road"],  tl["road"][0]),  u_road,  v_road)
 
             # Real Kenshi's flat-ground blend (terrainfp4.hlsl's computeBiome,
             # confirmed against the actual shipped HLSL source, not a
