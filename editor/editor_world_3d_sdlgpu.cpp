@@ -27,6 +27,7 @@
 #include <monkey_dust/world/biome_def.h>
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_gpu.h>
+#include <algorithm>
 #include <atomic>
 #include <thread>
 #include <cstring>
@@ -135,12 +136,16 @@ static void s_update_granite_terrain(SDL_GPUCommandBuffer* cmd,
     static TerrainPatchGrid::VisiblePatch visible[kMaxVisible];
     int nvis = s_granite_grid.SelectVisible(planes, visible, kMaxVisible);
 
-    auto neighbor_tier_n = [&](int ix, int iz, int dx, int dz) {
+    // Neighbor-LOD clamp matches the real Granite reference (see
+    // scene_render.cpp's UpdateGraniteTerrain, same formula) -- whole
+    // patch draws at its coarsest neighbor's tier instead of per-vertex
+    // edge snapping.
+    auto neighbor_tier = [&](int ix, int iz, int dx, int dz) {
         float nl = s_granite_grid.NeighborLOD(ix, iz, dx, dz);
         int nt = (int)(nl + 0.5f);
         if (nt < 0) nt = 0;
         if (nt > TerrainPatchRenderer::kNumTiers - 1) nt = TerrainPatchRenderer::kNumTiers - 1;
-        return (float)TerrainPatchRenderer::TierN(nt);
+        return nt;
     };
     static constexpr int kMaxInstPerTier = (int)(sizeof(s_granite_insts[0]) / sizeof(s_granite_insts[0][0]));
     for (int i = 0; i < nvis; ++i) {
@@ -148,16 +153,16 @@ static void s_update_granite_terrain(SDL_GPUCommandBuffer* cmd,
         int tier = (int)(p.lod + 0.5f);
         if (tier < 0) tier = 0;
         if (tier > TerrainPatchRenderer::kNumTiers - 1) tier = TerrainPatchRenderer::kNumTiers - 1;
+        tier = std::max(tier, neighbor_tier(p.ix, p.iz, -1, 0));
+        tier = std::max(tier, neighbor_tier(p.ix, p.iz,  1, 0));
+        tier = std::max(tier, neighbor_tier(p.ix, p.iz,  0, -1));
+        tier = std::max(tier, neighbor_tier(p.ix, p.iz,  0, 1));
         int& n = s_granite_counts[tier];
         if (n >= kMaxInstPerTier) continue;
         auto& inst = s_granite_insts[tier][n++];
         inst.origin_x = p.origin_x;
         inst.origin_z = p.origin_z;
-        inst.lod      = p.lod;
-        inst.neighbor_tier_n[0] = neighbor_tier_n(p.ix, p.iz, -1, 0);
-        inst.neighbor_tier_n[1] = neighbor_tier_n(p.ix, p.iz, 1, 0);
-        inst.neighbor_tier_n[2] = neighbor_tier_n(p.ix, p.iz, 0, -1);
-        inst.neighbor_tier_n[3] = neighbor_tier_n(p.ix, p.iz, 0, 1);
+        inst.lod      = (float)tier;
     }
 
     const TerrainPatchRenderer::Instance* inst_ptrs[TerrainPatchRenderer::kNumTiers];
@@ -166,30 +171,34 @@ static void s_update_granite_terrain(SDL_GPUCommandBuffer* cmd,
     s_granite_pr.UploadInstances(cmd, inst_ptrs, s_granite_counts);
 }
 
-// Per-zone (64x64=4096) ground-layer lookup — fixes the synthesis/compact-LOD2
-// "one biome for the whole world" bug: those two draw paths cover many zones
-// in a single draw call and previously fell back to
-// BiomeRegistry::Get().ForZone(nullptr) (always biomes_[0]) for the entire
-// mesh. Built once, uploaded to TerrainRenderer's per-zone SSBO; consumed by
-// terrain_forward.slang's fsMain only when use_zone_lookup=1 (see
-// TerrainRenderer::SetBatchZoneLookup). Real per-chunk LOD0/1 draws are
-// unaffected — they already resolve their own biome correctly via
-// s_resolve_biome/TerrainGen_ResolveBiome at chunk-generation time.
+// Per-zone (64x64=4096) ground-layer lookup, built once here and uploaded to
+// TerrainRenderer's zone_layers_ssbo_ (see UploadZoneGroundLayers) --
+// TerrainPatchRenderer/Granite's terrain_patch.frag reads this unconditionally
+// for its live cliff-layer sampling (SampleZoneCliffColor), not gated behind
+// any per-batch flag (the old use_zone_lookup toggle belonged to the now-
+// removed dead draw pipeline, see terrain_renderer.h's class doc comment).
 static void s_build_zone_ground_layers() {
-    static uint32_t s_layers[64 * 64 * 6];
+    // Stride 9 (was 8, task terrain-brightness) -- see scene_render.cpp's
+    // matching loop for slot 8 (brightness_fix) rationale.
+    static uint32_t s_layers[64 * 64 * 9];
     for (int zy = 0; zy < 64; ++zy) {
         for (int zx = 0; zx < 64; ++zx) {
             const BiomeDef& b = TerrainGen_ResolveBiome(zx, zy);
-            int idx = (zy * 64 + zx) * 6;
+            int idx = (zy * 64 + zx) * 9;
             s_layers[idx + 0] = (uint32_t)b.tex_base;
             s_layers[idx + 1] = (uint32_t)b.tex_slope;
             s_layers[idx + 2] = (uint32_t)b.tex_cliff;
             s_layers[idx + 3] = (uint32_t)b.tex_grass;
             s_layers[idx + 4] = (uint32_t)b.tex_dirt;
             s_layers[idx + 5] = (uint32_t)b.tex_road;
+            float ctx = b.cliff_tiling_x, cty = b.cliff_tiling_y;
+            memcpy(&s_layers[idx + 6], &ctx, sizeof(uint32_t));
+            memcpy(&s_layers[idx + 7], &cty, sizeof(uint32_t));
+            float bf = b.brightness_fix;
+            memcpy(&s_layers[idx + 8], &bf, sizeof(uint32_t));
         }
     }
-    s_terrain.UploadZoneGroundLayers(s_layers, 64 * 64 * 6);
+    s_terrain.UploadZoneGroundLayers(s_layers, 64 * 64 * 9);
     // Sanity log — cross-check a few zones by hand against terrain_config.txt.
     fprintf(stdout, "[W3D-SDLGPU] zone ground-layer LUT built (4096 zones); "
                      "zone(0,0)=base%u zone(32,32)=base%u zone(63,63)=base%u\n",
@@ -390,10 +399,10 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
         // for every editor chunk, producing the black/white "прогалини
         // текстур" blotch pattern (task #158, re-confirmed at zone 25,30/
         // 13,15/34,36 this session) — not a POM/altitude bug, a missing
-        // init call. See game/src/render/scene_render.cpp's InitOverlayMask/
+        // init call. See game/src/render/scene_render.cpp's InitGroundBaked/
         // InitBiomeBlend/InitAlbedoBake call sites (~line 264-291) this
         // mirrors.
-        s_terrain.InitOverlayMask("game/data/textures/md_overlay_mask.png");
+        s_terrain.InitGroundBaked("game/data/textures/md_ground_baked.dds");
         s_terrain.InitBiomeBlend("game/data/textures/md_biome_blend.png");
         // Zone-layer LUT + the static world heightmap are atlas-sourced
         // (TerrainAtlas is already loaded by main.cpp before Init() is
