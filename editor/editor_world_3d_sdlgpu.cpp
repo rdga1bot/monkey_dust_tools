@@ -122,6 +122,7 @@ static void s_update_granite_terrain(SDL_GPUCommandBuffer* cmd,
 
     float cam3[3] = { eye_x, eye_y, eye_z };
     s_granite_grid.UpdateLOD(cam3);
+    s_granite_grid.ComputeSnappedTiers(TerrainPatchRenderer::kNumTiers);
 
     // Gribb & Hartmann side-plane extraction -- same formula as
     // MdCamera::FrustumPlanes (md_camera.h) / the old near-tier quadtree's
@@ -136,27 +137,15 @@ static void s_update_granite_terrain(SDL_GPUCommandBuffer* cmd,
     static TerrainPatchGrid::VisiblePatch visible[kMaxVisible];
     int nvis = s_granite_grid.SelectVisible(planes, visible, kMaxVisible);
 
-    // Neighbor-LOD clamp matches the real Granite reference (see
-    // scene_render.cpp's UpdateGraniteTerrain, same formula) -- whole
-    // patch draws at its coarsest neighbor's tier instead of per-vertex
-    // edge snapping.
-    auto neighbor_tier = [&](int ix, int iz, int dx, int dz) {
-        float nl = s_granite_grid.NeighborLOD(ix, iz, dx, dz);
-        int nt = (int)(nl + 0.5f);
-        if (nt < 0) nt = 0;
-        if (nt > TerrainPatchRenderer::kNumTiers - 1) nt = TerrainPatchRenderer::kNumTiers - 1;
-        return nt;
-    };
+    // Neighbor-LOD clamp: TerrainPatchGrid::ComputeSnappedTiers() (called
+    // alongside UpdateLOD above) already ran the fully-relaxed, cascade-
+    // aware snap -- see that function's own doc comment for why the old
+    // single-hop version (which used to live inline here, duplicated from
+    // scene_render.cpp) left real cracks at 2+-tier cliffs.
     static constexpr int kMaxInstPerTier = (int)(sizeof(s_granite_insts[0]) / sizeof(s_granite_insts[0][0]));
     for (int i = 0; i < nvis; ++i) {
         const auto& p = visible[i];
-        int tier = (int)(p.lod + 0.5f);
-        if (tier < 0) tier = 0;
-        if (tier > TerrainPatchRenderer::kNumTiers - 1) tier = TerrainPatchRenderer::kNumTiers - 1;
-        tier = std::max(tier, neighbor_tier(p.ix, p.iz, -1, 0));
-        tier = std::max(tier, neighbor_tier(p.ix, p.iz,  1, 0));
-        tier = std::max(tier, neighbor_tier(p.ix, p.iz,  0, -1));
-        tier = std::max(tier, neighbor_tier(p.ix, p.iz,  0, 1));
+        int tier = s_granite_grid.SnappedTier(p.ix, p.iz);
         int& n = s_granite_counts[tier];
         if (n >= kMaxInstPerTier) continue;
         auto& inst = s_granite_insts[tier][n++];
