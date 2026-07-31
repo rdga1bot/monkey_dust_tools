@@ -122,7 +122,6 @@ static void s_update_granite_terrain(SDL_GPUCommandBuffer* cmd,
 
     float cam3[3] = { eye_x, eye_y, eye_z };
     s_granite_grid.UpdateLOD(cam3);
-    s_granite_grid.ComputeSnappedTiers(TerrainPatchRenderer::kNumTiers);
 
     // Gribb & Hartmann side-plane extraction -- same formula as
     // MdCamera::FrustumPlanes (md_camera.h) / the old near-tier quadtree's
@@ -137,21 +136,23 @@ static void s_update_granite_terrain(SDL_GPUCommandBuffer* cmd,
     static TerrainPatchGrid::VisiblePatch visible[kMaxVisible];
     int nvis = s_granite_grid.SelectVisible(planes, visible, kMaxVisible);
 
-    // Neighbor-LOD clamp: TerrainPatchGrid::ComputeSnappedTiers() (called
-    // alongside UpdateLOD above) already ran the fully-relaxed, cascade-
-    // aware snap -- see that function's own doc comment for why the old
-    // single-hop version (which used to live inline here, duplicated from
-    // scene_render.cpp) left real cracks at 2+-tier cliffs.
+    // task terrain-cdlod-geomorph: same change as scene_render.cpp's
+    // UpdateGraniteTerrain -- see its comment for the A/B test that
+    // dropped the neighbor-tier cascade-snap in favour of a per-patch
+    // CDLOD-style geomorph (terrain_patch.vert). inst.lod is now the raw
+    // continuous per-patch LOD, not a rounded/clamped tier.
     static constexpr int kMaxInstPerTier = (int)(sizeof(s_granite_insts[0]) / sizeof(s_granite_insts[0][0]));
     for (int i = 0; i < nvis; ++i) {
         const auto& p = visible[i];
-        int tier = s_granite_grid.SnappedTier(p.ix, p.iz);
+        int tier = (int)p.lod;
+        if (tier < 0) tier = 0;
+        if (tier > TerrainPatchRenderer::kNumTiers - 1) tier = TerrainPatchRenderer::kNumTiers - 1;
         int& n = s_granite_counts[tier];
         if (n >= kMaxInstPerTier) continue;
         auto& inst = s_granite_insts[tier][n++];
         inst.origin_x = p.origin_x;
         inst.origin_z = p.origin_z;
-        inst.lod      = (float)tier;
+        inst.lod      = p.lod;
     }
 
     const TerrainPatchRenderer::Instance* inst_ptrs[TerrainPatchRenderer::kNumTiers];
