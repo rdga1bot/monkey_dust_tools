@@ -179,8 +179,15 @@ void EditorCore::Update(float dt) {
 
     // min_y: floating title bars must not overlap the tab bar strip.
     const float min_y = toolbar_h + ImGui::GetFrameHeight() + 4.f;
+    // task editor-dock-button-menubar (2026-08-01): Dock used to be a
+    // SmallButton sitting alone on its own full-width content row (a
+    // Separator below it, nothing else sharing the row) -- correctly sized
+    // but wasting an entire empty row's height for a single small control
+    // (confirmed clumsy via user screenshots). MenuBar folds it into the
+    // window's own title-bar strip instead -- zero extra rows.
     static constexpr ImGuiWindowFlags FLOAT_FLAGS =
-        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings;
+        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_MenuBar;
 
     // Helper: track pos/size after every frame and clamp y so the title bar
     // never sits under the tab bar.
@@ -221,8 +228,10 @@ void EditorCore::Update(float dt) {
                 ImGui::SetNextWindowPos(f3_pos_scene, ImGuiCond_Appearing);
                 ImGui::SetNextWindowSize(f3_size_scene, ImGuiCond_Appearing);
                 if (ImGui::Begin("Scene##float", &g_det_scene, FLOAT_FLAGS)) {
-                    if (det_right("Dock##scene")) g_det_scene = false;
-                    ImGui::Separator();
+                    if (ImGui::BeginMenuBar()) {
+                        if (det_right("Dock##scene")) g_det_scene = false;
+                        ImGui::EndMenuBar();
+                    }
                     ImVec2 av = ImGui::GetContentRegionAvail();
                     ImGui::BeginChild("##fh", {av.x * 0.30f, av.y}, false);
                     EditorHierarchy::Get().DrawContent();
@@ -255,8 +264,10 @@ void EditorCore::Update(float dt) {
                 ImGui::SetNextWindowPos(f3_pos_ai, ImGuiCond_Appearing);
                 ImGui::SetNextWindowSize(f3_size_ai, ImGuiCond_Appearing);
                 if (ImGui::Begin("AI##float", &g_det_ai, FLOAT_FLAGS)) {
-                    if (det_right("Dock##ai")) g_det_ai = false;
-                    ImGui::Separator();
+                    if (ImGui::BeginMenuBar()) {
+                        if (det_right("Dock##ai")) g_det_ai = false;
+                        ImGui::EndMenuBar();
+                    }
                     ImVec2 av = ImGui::GetContentRegionAvail();
                     ImGui::BeginChild("##fdir", {av.x * 0.50f, av.y}, false);
                     EditorDirectorPanel::Get().DrawContent();
@@ -286,8 +297,10 @@ void EditorCore::Update(float dt) {
                 ImGui::SetNextWindowPos(f3_pos_anim, ImGuiCond_Appearing);
                 ImGui::SetNextWindowSize(f3_size_anim, ImGuiCond_Appearing);
                 if (ImGui::Begin("Animation##float", &g_det_anim, FLOAT_FLAGS)) {
-                    if (det_right("Dock##anim")) g_det_anim = false;
-                    ImGui::Separator();
+                    if (ImGui::BeginMenuBar()) {
+                        if (det_right("Dock##anim")) g_det_anim = false;
+                        ImGui::EndMenuBar();
+                    }
                     ImVec2 av = ImGui::GetContentRegionAvail();
                     ImGui::BeginChild("##fan", {av.x, 180.f}, false);
                     EditorAnimationPanel::Get().DrawContent();
@@ -310,8 +323,10 @@ void EditorCore::Update(float dt) {
                 ImGui::SetNextWindowPos(f3_pos_flow, ImGuiCond_Appearing);
                 ImGui::SetNextWindowSize(f3_size_flow, ImGuiCond_Appearing);
                 if (ImGui::Begin("FlowGraph##float", &g_det_flow, FLOAT_FLAGS)) {
-                    if (det_right("Dock##flow")) g_det_flow = false;
-                    ImGui::Separator();
+                    if (ImGui::BeginMenuBar()) {
+                        if (det_right("Dock##flow")) g_det_flow = false;
+                        ImGui::EndMenuBar();
+                    }
                     EditorFlowGraphPanel::Get().DrawContent();
                 }
                 f3_end(f3_pos_flow, f3_size_flow);
@@ -335,8 +350,10 @@ void EditorCore::Update(float dt) {
                 ImGui::SetNextWindowPos(f3_pos_debug, ImGuiCond_Appearing);
                 ImGui::SetNextWindowSize(f3_size_debug, ImGuiCond_Appearing);
                 if (ImGui::Begin("Debug##float", &g_det_debug, FLOAT_FLAGS)) {
-                    if (det_right("Dock##debug")) g_det_debug = false;
-                    ImGui::Separator();
+                    if (ImGui::BeginMenuBar()) {
+                        if (det_right("Dock##debug")) g_det_debug = false;
+                        ImGui::EndMenuBar();
+                    }
                     ImVec2 av = ImGui::GetContentRegionAvail();
                     ImGui::BeginChild("##fcon", {av.x * 0.60f, av.y}, false);
                     EditorConsole::Get().DrawContent();
@@ -360,8 +377,10 @@ void EditorCore::Update(float dt) {
                 ImGui::SetNextWindowPos(f3_pos_cam, ImGuiCond_Appearing);
                 ImGui::SetNextWindowSize(f3_size_cam, ImGuiCond_Appearing);
                 if (ImGui::Begin("Camera##float", &g_det_cam, FLOAT_FLAGS)) {
-                    if (det_right("Dock##cam")) g_det_cam = false;
-                    ImGui::Separator();
+                    if (ImGui::BeginMenuBar()) {
+                        if (det_right("Dock##cam")) g_det_cam = false;
+                        ImGui::EndMenuBar();
+                    }
                     EditorCameraPanel::Get().DrawContent();
                 }
                 f3_end(f3_pos_cam, f3_size_cam);
@@ -404,8 +423,10 @@ void EditorCore::Update(float dt) {
                 ImGui::SetNextWindowPos(f3_pos_set,  ImGuiCond_Appearing);
                 ImGui::SetNextWindowSize(f3_size_set, ImGuiCond_Appearing);
                 if (ImGui::Begin("Settings##float", &g_det_set, FLOAT_FLAGS)) {
-                    if (det_right("Dock##set")) g_det_set = false;
-                    ImGui::Separator();
+                    if (ImGui::BeginMenuBar()) {
+                        if (det_right("Dock##set")) g_det_set = false;
+                        ImGui::EndMenuBar();
+                    }
                     draw_settings();
                 }
                 f3_end(f3_pos_set, f3_size_set);
