@@ -394,6 +394,7 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
         // mirrors.
         s_terrain.InitGroundBaked("game/data/textures/md_ground_baked.dds");
         s_terrain.InitBiomeBlend("game/data/textures/md_biome_blend.png");
+        s_terrain.InitOverlayMask("game/data/textures/md_overlay_mask.png");
         // Zone-layer LUT + the static world heightmap are atlas-sourced
         // (TerrainAtlas is already loaded by main.cpp before Init() is
         // called — see this file's header comment) and build
