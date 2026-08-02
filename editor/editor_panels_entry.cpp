@@ -26,11 +26,19 @@
 #include "editor_reflect_bridge.h"
 #include "editor_reflect_inspector.h"
 #include "lua_editor_scenario_api.h"
+#include "editor_command_palette.h"
+#include <monkey_dust/editor/cmd_registry.h>
 #include <monkey_dust/scripting/lua_system.h>
 #include <cstdio>
 #include <cstring>
 
 static constexpr const char* CFG_PATH = "data/editor_config.json";
+
+// EDITOR_AUTOMATION_PLAN_v1.md Phase 0: this module's owner id for
+// EditorCmdRegistry — every command registered from editor_panels_init()
+// must be tagged with this id so editor_panels_shutdown() can purge
+// exactly (and only) this module's commands before dlclose.
+static constexpr uint32_t kPanelsModuleId = 1;
 
 // ecs_world_t*, opaque across the dlopen boundary (see editor_module.h's
 // Config::ecs_world doc comment). Stored so BuildUI can pass it into the
@@ -104,6 +112,14 @@ void editor_panels_init(void* ctx, void* ecs_world, void* /*gpu*/, void* /*windo
         // map/world/terrain/world3d used directly from s_lay in BuildUI
     }
     (void)overlay_top;
+
+    // EDITOR_AUTOMATION_PLAN_v1.md Phase 0 falsification probe: register
+    // this module's ONE migrated command every init (including hot-reload
+    // re-init) — Register() is idempotent (updates in place on repeat name
+    // hash), so this is safe to call unconditionally on every load.
+    EditorCmdRegistry::Get().Register("Delete Selected", DeleteSelectedCmd,
+                                       nullptr, kPanelsModuleId);
+
     MD_LOG(MD_LOG_INFO, "[EditorPanels] init complete");
 }
 
@@ -124,6 +140,14 @@ void editor_panels_shutdown(const char* layout_path) {
     // WorldEditor3D_SDLGPU::Shutdown()'s doc comment for the race this fixes.
     WorldEditor3D_SDLGPU::Shutdown();
     EditorCore::Get().Shutdown();
+
+    // EDITOR_AUTOMATION_PLAN_v1.md Phase 0 falsification probe: purge this
+    // module's commands from the HOST-owned registry before dlclose, else
+    // DeleteSelectedCmd's function pointer (a symbol inside THIS .so) goes
+    // dangling the moment the .so is unmapped — the exact hazard the
+    // registry's own header comment (cmd_registry.h) warns about.
+    EditorCmdRegistry::Get().UnregisterModule(kPanelsModuleId);
+
     MD_LOG(MD_LOG_INFO, "[EditorPanels] shutdown complete");
 }
 

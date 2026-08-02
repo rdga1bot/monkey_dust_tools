@@ -3,6 +3,7 @@
 #include "editor_toolbar.h"
 #include <monkey_dust/ecs/registry.h>
 #include <monkey_dust/ecs/md_registry.h>
+#include <monkey_dust/editor/cmd_registry.h>
 #include <monkey_dust/world/world_transform.h>
 #include <monkey_dust/world/transform_soa.h>
 #include <monkey_dust/components/ai_agent.h>
@@ -16,6 +17,26 @@
 #endif
 #include <monkey_dust/platform/md_log.h>
 #include <cstring>
+
+// EDITOR_AUTOMATION_PLAN_v1.md Phase 0 falsification probe: the ONE command
+// migrated to EditorCmdRegistry to prove a host-owned registry survives a
+// libeditor_panels.so hot-reload cycle with no stale pointers. Body moved
+// verbatim from the old inline "Delete Selected" palette lambda below.
+// Registered from editor_panels_init()/unregistered from
+// editor_panels_shutdown() (editor_panels_entry.cpp) — NOT from this TU,
+// since registry storage/registration lifetime must track the .so's own
+// load/unload cycle, not this static array's lifetime.
+void DeleteSelectedCmd() {
+    auto& ec = EditorCore::Get();
+    auto& reg = MdRegistry::Get();
+    for (int i = ec.selected_count - 1; i >= 0; --i) {
+        MdEntity e = ec.selected[i];
+        if (!reg.Valid(e)) continue;
+        if (reg.Handle(e).has<WorldTransform>()) TransformSoA::Get().Free(e);
+        reg.Destroy(e);
+    }
+    ec.DeselectAll();
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 namespace {
@@ -47,15 +68,12 @@ static const PaletteCmd kCommands[] = {
         });
     }},
     { "Deselect All",            "",          []{ EditorCore::Get().DeselectAll(); } },
+    // Phase 0 falsification probe (EDITOR_AUTOMATION_PLAN_v1.md): dispatched
+    // through EditorCmdRegistry instead of an inline lambda — the ONE
+    // migrated command this phase needs. Registered by
+    // editor_panels_init()/DeleteSelectedCmd (this file, above).
     { "Delete Selected",         "Del",       []{
-        auto& ec = EditorCore::Get(); auto& reg = MdRegistry::Get();
-        for (int i = ec.selected_count - 1; i >= 0; --i) {
-            MdEntity e = ec.selected[i];
-            if (!reg.Valid(e)) continue;
-            if ((reg.Handle(e).has<WorldTransform>())) TransformSoA::Get().Free(e);
-            reg.Destroy(e);
-        }
-        ec.DeselectAll();
+        EditorCmdRegistry::Get().Dispatch("Delete Selected");
     }},
     // Edit
     { "Edit: Undo",              "Ctrl+Z",    []{ EditorCore::Get().Undo(); } },
