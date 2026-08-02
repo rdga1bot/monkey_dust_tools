@@ -113,12 +113,16 @@ void editor_panels_init(void* ctx, void* ecs_world, void* /*gpu*/, void* /*windo
     }
     (void)overlay_top;
 
-    // EDITOR_AUTOMATION_PLAN_v1.md Phase 0 falsification probe: register
-    // this module's ONE migrated command every init (including hot-reload
-    // re-init) — Register() is idempotent (updates in place on repeat name
-    // hash), so this is safe to call unconditionally on every load.
+    // EDITOR_AUTOMATION_PLAN_v1.md Phase 0/1.1-1.2: register this module's
+    // ONE migrated command every init (including hot-reload re-init) —
+    // Register() is idempotent (updates in place on repeat name hash), so
+    // this is safe to call unconditionally on every load. NO_UNDO for now
+    // (see DeleteSelectedCmd's doc comment, editor_command_palette.cpp) —
+    // no undo/redo fn pointers registered.
+    static CmdSchema kDeleteSelectedSchema{ {}, /*count=*/0, /*no_undo=*/true };
     EditorCmdRegistry::Get().Register("Delete Selected", DeleteSelectedCmd,
-                                       nullptr, kPanelsModuleId);
+                                       nullptr, nullptr, kDeleteSelectedSchema,
+                                       kPanelsModuleId);
 
     MD_LOG(MD_LOG_INFO, "[EditorPanels] init complete");
 }

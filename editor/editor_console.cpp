@@ -78,14 +78,17 @@ void EditorConsole::ExecCommand(const char* raw) {
     // Strip leading '/'
     const char* cmd = (raw[0] == '/') ? raw + 1 : raw;
 
-    // EDITOR_AUTOMATION_PLAN_v1.md Phase 0 falsification probe: temporary
-    // passthrough to EditorCmdRegistry — remove once Phase 1.3.3's real
-    // schema-driven `exec <name> [args...]` parser replaces this.
+    // EDITOR_AUTOMATION_PLAN_v1.md Phase 0/1.1-1.2: temporary passthrough to
+    // EditorCmdRegistry with an empty CmdArgs (no arg-string parsing yet) —
+    // remove once Phase 1.3.3's real schema-driven `exec <name> [args...]`
+    // parser replaces this.
     if (strncmp(cmd, "exec ", 5) == 0) {
         const char* name = cmd + 5;
         while (*name == ' ') ++name;
-        if (!EditorCmdRegistry::Get().Dispatch(name)) {
-            char out[96]; snprintf(out, sizeof(out), "[Console] Unknown command: %s", name);
+        CmdArgs args;
+        DispatchOutcome outcome = EditorCmdRegistry::Get().Dispatch(name, args, MdRegistry::Get());
+        if (!outcome.result.ok) {
+            char out[160]; snprintf(out, sizeof(out), "[Console] %s", outcome.result.msg);
             Log(MD_LOG_WARNING, out);
         }
         return;

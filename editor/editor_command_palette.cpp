@@ -26,16 +26,26 @@
 // editor_panels_shutdown() (editor_panels_entry.cpp) — NOT from this TU,
 // since registry storage/registration lifetime must track the .so's own
 // load/unload cycle, not this static array's lifetime.
-void DeleteSelectedCmd() {
+//
+// Phase 1.1-1.2: signature updated to the real CmdExecuteFn shape. Marked
+// NO_UNDO in its schema (editor_panels_entry.cpp) for now — real undo would
+// need to capture full entity+component state into the 64-byte undo_data
+// blob, which is a per-command-body concern for Phase 1.3's client
+// migration, not this phase's registry-mechanism work.
+CmdResult DeleteSelectedCmd(const CmdArgs& /*args*/, MdRegistry& reg, uint8_t /*undo_data*/[64]) {
     auto& ec = EditorCore::Get();
-    auto& reg = MdRegistry::Get();
+    int deleted = 0;
     for (int i = ec.selected_count - 1; i >= 0; --i) {
         MdEntity e = ec.selected[i];
         if (!reg.Valid(e)) continue;
         if (reg.Handle(e).has<WorldTransform>()) TransformSoA::Get().Free(e);
         reg.Destroy(e);
+        ++deleted;
     }
     ec.DeselectAll();
+    CmdResult r;
+    snprintf(r.msg, sizeof(r.msg), "Deleted %d entities", deleted);
+    return r;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -73,7 +83,8 @@ static const PaletteCmd kCommands[] = {
     // migrated command this phase needs. Registered by
     // editor_panels_init()/DeleteSelectedCmd (this file, above).
     { "Delete Selected",         "Del",       []{
-        EditorCmdRegistry::Get().Dispatch("Delete Selected");
+        CmdArgs args;
+        EditorCmdRegistry::Get().Dispatch("Delete Selected", args, MdRegistry::Get());
     }},
     // Edit
     { "Edit: Undo",              "Ctrl+Z",    []{ EditorCore::Get().Undo(); } },
