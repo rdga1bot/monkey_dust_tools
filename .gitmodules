@@ -16,3 +16,6 @@
 [submodule "third_party/imgui"]
 	path = third_party/imgui
 	url = https://github.com/ocornut/imgui.git
+[submodule "third_party/imgui_test_engine"]
+	path = third_party/imgui_test_engine
+	url = https://github.com/ocornut/imgui_test_engine.git
