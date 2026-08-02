@@ -654,14 +654,20 @@ def run_tests(binary: Path, timeout_s: int = 120) -> TestResults:
         res.ran = True
         out = proc.stdout + proc.stderr
         for line in out.splitlines():
+            # "[  PASSED  ] 1605 tests." -- split() tokenizes "]" as its own
+            # element (whitespace on both sides), so the count is index [3],
+            # not [2] ("[", "PASSED", "]", "1605", "tests."). Diagnosed live
+            # 2026-08-02: a real qa_run.sh run against 1605 known-passing
+            # tests reported "0 passed, 0 failed" despite the binary
+            # actually running (duration matched a real test run).
             if line.startswith("[  PASSED  ]"):
                 try:
-                    res.passed = int(line.split()[2])
+                    res.passed = int(line.split()[3])
                 except Exception:
                     pass
             if line.startswith("[  FAILED  ]"):
                 try:
-                    res.failed = int(line.split()[2])
+                    res.failed = int(line.split()[3])
                 except Exception:
                     pass
             if line.startswith("[ RUN      ]"):
