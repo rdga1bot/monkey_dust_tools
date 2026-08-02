@@ -35,6 +35,8 @@ CmdResult KillEntityCmd(const CmdArgs& args, MdRegistry& reg, uint8_t undo_data[
 CmdResult SetFactionRelationCmd(const CmdArgs& args, MdRegistry& reg, uint8_t undo_data[64]);
 CmdResult FpsQueryCmd(const CmdArgs& args, MdRegistry& reg, uint8_t undo_data[64]);
 CmdResult AddComponentCmd(const CmdArgs& args, MdRegistry& reg, uint8_t undo_data[64]);
+CmdResult SaveCameraBookmarkCmd(const CmdArgs& args, MdRegistry& reg, uint8_t undo_data[64]);
+CmdResult GotoCameraBookmarkCmd(const CmdArgs& args, MdRegistry& reg, uint8_t undo_data[64]);
 
 // Registers every command above (plus DeleteSelectedCmd, editor_command_
 // palette.cpp) under owner_module_id. Factored out so the two independent

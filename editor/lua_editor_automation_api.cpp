@@ -12,6 +12,7 @@
 #include <flecs.h>
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
 
 extern "C" {
 #include <lua5.4/lua.h>
@@ -198,6 +199,48 @@ int l_md_editor_dump(lua_State* L) {
 
     fclose(f);
     return 0;
+}
+
+// ── md.editor.load_script ────────────────────────────────────────────────────
+// Phase 3 (agent authoring layer): the sandboxed alternative to Lua's own
+// dofile/loadfile (blocked — see lua_system.h's doc comment). Found while
+// wiring scripts/authoring/authoring.lua as a reusable module: a plain
+// `dofile("scripts/authoring/authoring.lua")` call fails with "attempt to
+// call a nil value (global 'dofile')" — the sandbox blocks it exactly as
+// documented, including for --exec scenario scripts, since they run in the
+// SAME Lua state as everything else. This reads the (CmdPathValidate'd)
+// file in C++ — Lua's io/os restrictions don't apply to the host's own
+// file access — then loads and calls it in the CURRENT Lua state via
+// luaL_loadbuffer + lua_call, so a module written as `return M` (the
+// authoring library's own convention) comes back as this function's
+// single return value, same shape dofile() would have produced.
+int l_md_editor_load_script(lua_State* L) {
+    const char* path = luaL_checkstring(L, 1);
+    if (!CmdPathValidate(path)) {
+        return luaL_error(L, "load_script: path rejected (must be under data/, game/data/, automation_out/, or scripts/): %s", path);
+    }
+    FILE* f = fopen(path, "rb");
+    if (!f) return luaL_error(L, "load_script: cannot open %s", path);
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (size < 0) {
+        fclose(f);
+        return luaL_error(L, "load_script: ftell failed for %s", path);
+    }
+    char* buf = static_cast<char*>(malloc(static_cast<size_t>(size) + 1));
+    size_t n = fread(buf, 1, static_cast<size_t>(size), f);
+    fclose(f);
+    buf[n] = '\0';
+
+    int load_err = luaL_loadbuffer(L, buf, n, path);
+    free(buf);
+    if (load_err != LUA_OK) {
+        const char* msg = lua_tostring(L, -1);
+        return luaL_error(L, "load_script: parse error in %s: %s", path, msg ? msg : "(no message)");
+    }
+    lua_call(L, 0, 1); // module is expected to `return M`
+    return 1;
 }
 
 // ── md.editor.begin_batch/end_batch ─────────────────────────────────────────
@@ -434,6 +477,7 @@ void RegisterLuaEditorAutomationAPI(LuaSystem& sys) {
     sys.RegisterSubNamespaceFunction("editor", "status",      l_md_editor_status);
     sys.RegisterSubNamespaceFunction("editor", "capture",     l_md_editor_capture);
     sys.RegisterSubNamespaceFunction("editor", "dump",        l_md_editor_dump);
+    sys.RegisterSubNamespaceFunction("editor", "load_script", l_md_editor_load_script);
     sys.RegisterSubNamespaceFunction("editor", "begin_batch", l_md_editor_begin_batch);
     sys.RegisterSubNamespaceFunction("editor", "end_batch",   l_md_editor_end_batch);
 
