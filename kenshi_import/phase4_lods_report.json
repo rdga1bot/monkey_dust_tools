@@ -1,0 +1,5207 @@
+{
+  "ok": 200,
+  "failed": 0,
+  "total": 200,
+  "entries": [
+    {
+      "name": "bunkerhouse_moorhouse02-floor0",
+      "src_bytes": 1680,
+      "lods": {
+        "lod0": {
+          "triangles": 5,
+          "bytes": 1376,
+          "seconds": 0.33
+        },
+        "lod1": {
+          "triangles": 5,
+          "bytes": 1376,
+          "seconds": 0.15
+        },
+        "lod2": {
+          "triangles": 5,
+          "bytes": 1376,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 5,
+          "bytes": 1376,
+          "seconds": 0.15
+        }
+      }
+    },
+    {
+      "name": "bunkerhouse_moorhouse04-rails",
+      "src_bytes": 67680,
+      "lods": {
+        "lod0": {
+          "triangles": 1216,
+          "bytes": 27224,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 792,
+          "bytes": 19588,
+          "seconds": 0.12
+        },
+        "lod2": {
+          "triangles": 792,
+          "bytes": 19588,
+          "seconds": 0.16
+        },
+        "lod3": {
+          "triangles": 792,
+          "bytes": 19588,
+          "seconds": 0.17
+        }
+      }
+    },
+    {
+      "name": "furniture_moorhouse02-floor0",
+      "src_bytes": 1680,
+      "lods": {
+        "lod0": {
+          "triangles": 5,
+          "bytes": 1376,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 5,
+          "bytes": 1376,
+          "seconds": 0.08
+        },
+        "lod2": {
+          "triangles": 5,
+          "bytes": 1376,
+          "seconds": 0.11
+        },
+        "lod3": {
+          "triangles": 5,
+          "bytes": 1376,
+          "seconds": 0.09
+        }
+      }
+    },
+    {
+      "name": "furniture_moorhouse04-rails",
+      "src_bytes": 67680,
+      "lods": {
+        "lod0": {
+          "triangles": 1216,
+          "bytes": 27224,
+          "seconds": 0.08
+        },
+        "lod1": {
+          "triangles": 792,
+          "bytes": 19588,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 792,
+          "bytes": 19588,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 792,
+          "bytes": 19588,
+          "seconds": 0.17
+        }
+      }
+    },
+    {
+      "name": "moor-71-0",
+      "src_bytes": 132420,
+      "lods": {
+        "lod0": {
+          "triangles": 2008,
+          "bytes": 56060,
+          "seconds": 0.1
+        },
+        "lod1": {
+          "triangles": 1573,
+          "bytes": 48328,
+          "seconds": 0.15
+        },
+        "lod2": {
+          "triangles": 1573,
+          "bytes": 48328,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 1573,
+          "bytes": 48328,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moor01-door",
+      "src_bytes": 943140,
+      "lods": {
+        "lod0": {
+          "triangles": 1856,
+          "bytes": 881472,
+          "seconds": 0.14
+        },
+        "lod1": {
+          "triangles": 1790,
+          "bytes": 880020,
+          "seconds": 0.14
+        },
+        "lod2": {
+          "triangles": 1790,
+          "bytes": 880020,
+          "seconds": 0.16
+        },
+        "lod3": {
+          "triangles": 1790,
+          "bytes": 880020,
+          "seconds": 0.14
+        }
+      }
+    },
+    {
+      "name": "moor01-doorrunners",
+      "src_bytes": 813220,
+      "lods": {
+        "lod0": {
+          "triangles": 64,
+          "bytes": 811208,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 64,
+          "bytes": 811208,
+          "seconds": 0.09
+        },
+        "lod2": {
+          "triangles": 64,
+          "bytes": 811208,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 64,
+          "bytes": 811208,
+          "seconds": 0.1
+        }
+      }
+    },
+    {
+      "name": "moor02-door",
+      "src_bytes": 943204,
+      "lods": {
+        "lod0": {
+          "triangles": 1856,
+          "bytes": 881552,
+          "seconds": 0.14
+        },
+        "lod1": {
+          "triangles": 1792,
+          "bytes": 880144,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 1792,
+          "bytes": 880144,
+          "seconds": 0.15
+        },
+        "lod3": {
+          "triangles": 1792,
+          "bytes": 880144,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moor02-doorrunners",
+      "src_bytes": 812968,
+      "lods": {
+        "lod0": {
+          "triangles": 64,
+          "bytes": 811080,
+          "seconds": 0.1
+        },
+        "lod1": {
+          "triangles": 64,
+          "bytes": 811080,
+          "seconds": 0.12
+        },
+        "lod2": {
+          "triangles": 64,
+          "bytes": 811080,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 64,
+          "bytes": 811080,
+          "seconds": 0.09
+        }
+      }
+    },
+    {
+      "name": "moor02-from01",
+      "src_bytes": 10412,
+      "lods": {
+        "lod0": {
+          "triangles": 149,
+          "bytes": 5104,
+          "seconds": 0.08
+        },
+        "lod1": {
+          "triangles": 111,
+          "bytes": 4468,
+          "seconds": 0.09
+        },
+        "lod2": {
+          "triangles": 111,
+          "bytes": 4468,
+          "seconds": 0.08
+        },
+        "lod3": {
+          "triangles": 111,
+          "bytes": 4468,
+          "seconds": 0.09
+        }
+      }
+    },
+    {
+      "name": "moor03-base",
+      "src_bytes": 13324,
+      "lods": {
+        "lod0": {
+          "triangles": 240,
+          "bytes": 6072,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 119,
+          "bytes": 4012,
+          "seconds": 0.1
+        },
+        "lod2": {
+          "triangles": 76,
+          "bytes": 3188,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 76,
+          "bytes": 3188,
+          "seconds": 0.11
+        }
+      }
+    },
+    {
+      "name": "moor03-dome",
+      "src_bytes": 19344,
+      "lods": {
+        "lod0": {
+          "triangles": 736,
+          "bytes": 10236,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 368,
+          "bytes": 5820,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 146,
+          "bytes": 3148,
+          "seconds": 0.15
+        },
+        "lod3": {
+          "triangles": 106,
+          "bytes": 2668,
+          "seconds": 0.12
+        }
+      }
+    },
+    {
+      "name": "moor03-floor",
+      "src_bytes": 1424,
+      "lods": {
+        "lod0": {
+          "triangles": 4,
+          "bytes": 1280,
+          "seconds": 0.15
+        },
+        "lod1": {
+          "triangles": 4,
+          "bytes": 1280,
+          "seconds": 0.14
+        },
+        "lod2": {
+          "triangles": 4,
+          "bytes": 1280,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 4,
+          "bytes": 1280,
+          "seconds": 0.09
+        }
+      }
+    },
+    {
+      "name": "moor03-interior",
+      "src_bytes": 14288,
+      "lods": {
+        "lod0": {
+          "triangles": 330,
+          "bytes": 6936,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 165,
+          "bytes": 4528,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 73,
+          "bytes": 3112,
+          "seconds": 0.17
+        },
+        "lod3": {
+          "triangles": 74,
+          "bytes": 3128,
+          "seconds": 0.15
+        }
+      }
+    },
+    {
+      "name": "moor03-spikes1",
+      "src_bytes": 12152,
+      "lods": {
+        "lod0": {
+          "triangles": 252,
+          "bytes": 6068,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 252,
+          "bytes": 6068,
+          "seconds": 0.11
+        },
+        "lod2": {
+          "triangles": 252,
+          "bytes": 6068,
+          "seconds": 0.11
+        },
+        "lod3": {
+          "triangles": 252,
+          "bytes": 6068,
+          "seconds": 0.08
+        }
+      }
+    },
+    {
+      "name": "moor03-stairs",
+      "src_bytes": 27712,
+      "lods": {
+        "lod0": {
+          "triangles": 594,
+          "bytes": 12692,
+          "seconds": 0.1
+        },
+        "lod1": {
+          "triangles": 348,
+          "bytes": 8644,
+          "seconds": 0.19
+        },
+        "lod2": {
+          "triangles": 348,
+          "bytes": 8644,
+          "seconds": 0.15
+        },
+        "lod3": {
+          "triangles": 348,
+          "bytes": 8644,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moor03-upper",
+      "src_bytes": 18836,
+      "lods": {
+        "lod0": {
+          "triangles": 315,
+          "bytes": 8604,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 187,
+          "bytes": 6480,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 187,
+          "bytes": 6480,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 187,
+          "bytes": 6480,
+          "seconds": 0.09
+        }
+      }
+    },
+    {
+      "name": "moor04-base-stairs",
+      "src_bytes": 68864,
+      "lods": {
+        "lod0": {
+          "triangles": 1072,
+          "bytes": 30096,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 1036,
+          "bytes": 29448,
+          "seconds": 0.12
+        },
+        "lod2": {
+          "triangles": 1036,
+          "bytes": 29448,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 1036,
+          "bytes": 29448,
+          "seconds": 0.12
+        }
+      }
+    },
+    {
+      "name": "moor04-base",
+      "src_bytes": 8252,
+      "lods": {
+        "lod0": {
+          "triangles": 174,
+          "bytes": 4288,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 107,
+          "bytes": 3092,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 107,
+          "bytes": 3092,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 107,
+          "bytes": 3092,
+          "seconds": 0.11
+        }
+      }
+    },
+    {
+      "name": "moor04-basextra-stairs",
+      "src_bytes": 12988,
+      "lods": {
+        "lod0": {
+          "triangles": 260,
+          "bytes": 6448,
+          "seconds": 0.12
+        },
+        "lod1": {
+          "triangles": 164,
+          "bytes": 4744,
+          "seconds": 0.08
+        },
+        "lod2": {
+          "triangles": 164,
+          "bytes": 4744,
+          "seconds": 0.08
+        },
+        "lod3": {
+          "triangles": 164,
+          "bytes": 4744,
+          "seconds": 0.1
+        }
+      }
+    },
+    {
+      "name": "moor04-basextra-stairs02",
+      "src_bytes": 13664,
+      "lods": {
+        "lod0": {
+          "triangles": 297,
+          "bytes": 6948,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 185,
+          "bytes": 5100,
+          "seconds": 0.09
+        },
+        "lod2": {
+          "triangles": 185,
+          "bytes": 5100,
+          "seconds": 0.14
+        },
+        "lod3": {
+          "triangles": 185,
+          "bytes": 5100,
+          "seconds": 0.12
+        }
+      }
+    },
+    {
+      "name": "moor04-door",
+      "src_bytes": 943204,
+      "lods": {
+        "lod0": {
+          "triangles": 1856,
+          "bytes": 881504,
+          "seconds": 0.11
+        },
+        "lod1": {
+          "triangles": 1792,
+          "bytes": 880096,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 1792,
+          "bytes": 880096,
+          "seconds": 0.14
+        },
+        "lod3": {
+          "triangles": 1792,
+          "bytes": 880096,
+          "seconds": 2.12
+        }
+      }
+    },
+    {
+      "name": "moor04-doorrunners",
+      "src_bytes": 813224,
+      "lods": {
+        "lod0": {
+          "triangles": 64,
+          "bytes": 811212,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 64,
+          "bytes": 811212,
+          "seconds": 0.15
+        },
+        "lod2": {
+          "triangles": 64,
+          "bytes": 811212,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 64,
+          "bytes": 811212,
+          "seconds": 0.1
+        }
+      }
+    },
+    {
+      "name": "moor04-essentials0",
+      "src_bytes": 2420,
+      "lods": {
+        "lod0": {
+          "triangles": 18,
+          "bytes": 1708,
+          "seconds": 0.08
+        },
+        "lod1": {
+          "triangles": 17,
+          "bytes": 1668,
+          "seconds": 0.12
+        },
+        "lod2": {
+          "triangles": 17,
+          "bytes": 1668,
+          "seconds": 0.08
+        },
+        "lod3": {
+          "triangles": 17,
+          "bytes": 1668,
+          "seconds": 0.1
+        }
+      }
+    },
+    {
+      "name": "moor04-floor",
+      "src_bytes": 1464,
+      "lods": {
+        "lod0": {
+          "triangles": 5,
+          "bytes": 1300,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 3,
+          "bytes": 1260,
+          "seconds": 0.09
+        },
+        "lod2": {
+          "triangles": 3,
+          "bytes": 1260,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 3,
+          "bytes": 1260,
+          "seconds": 0.12
+        }
+      }
+    },
+    {
+      "name": "moor04-interior",
+      "src_bytes": 11624,
+      "lods": {
+        "lod0": {
+          "triangles": 249,
+          "bytes": 5600,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 138,
+          "bytes": 3876,
+          "seconds": 0.09
+        },
+        "lod2": {
+          "triangles": 139,
+          "bytes": 3884,
+          "seconds": 0.11
+        },
+        "lod3": {
+          "triangles": 139,
+          "bytes": 3884,
+          "seconds": 0.09
+        }
+      }
+    },
+    {
+      "name": "moor04-interiorMASK",
+      "src_bytes": 12204,
+      "lods": {
+        "lod0": {
+          "triangles": 251,
+          "bytes": 5468,
+          "seconds": 0.12
+        },
+        "lod1": {
+          "triangles": 138,
+          "bytes": 3756,
+          "seconds": 0.09
+        },
+        "lod2": {
+          "triangles": 140,
+          "bytes": 3780,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 140,
+          "bytes": 3780,
+          "seconds": 0.09
+        }
+      }
+    },
+    {
+      "name": "moor04-rails",
+      "src_bytes": 68212,
+      "lods": {
+        "lod0": {
+          "triangles": 1216,
+          "bytes": 27224,
+          "seconds": 0.1
+        },
+        "lod1": {
+          "triangles": 792,
+          "bytes": 19592,
+          "seconds": 0.12
+        },
+        "lod2": {
+          "triangles": 792,
+          "bytes": 19592,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 792,
+          "bytes": 19592,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moor04-spikes",
+      "src_bytes": 10592,
+      "lods": {
+        "lod0": {
+          "triangles": 216,
+          "bytes": 5372,
+          "seconds": 0.1
+        },
+        "lod1": {
+          "triangles": 216,
+          "bytes": 5372,
+          "seconds": 0.1
+        },
+        "lod2": {
+          "triangles": 216,
+          "bytes": 5372,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 216,
+          "bytes": 5372,
+          "seconds": 0.12
+        }
+      }
+    },
+    {
+      "name": "moor04-spikes01",
+      "src_bytes": 36744,
+      "lods": {
+        "lod0": {
+          "triangles": 616,
+          "bytes": 16444,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 508,
+          "bytes": 14524,
+          "seconds": 0.16
+        },
+        "lod2": {
+          "triangles": 508,
+          "bytes": 14524,
+          "seconds": 0.11
+        },
+        "lod3": {
+          "triangles": 508,
+          "bytes": 14524,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moor04-upperxtra-stairs",
+      "src_bytes": 14984,
+      "lods": {
+        "lod0": {
+          "triangles": 310,
+          "bytes": 7372,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 215,
+          "bytes": 5664,
+          "seconds": 0.12
+        },
+        "lod2": {
+          "triangles": 215,
+          "bytes": 5664,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 215,
+          "bytes": 5664,
+          "seconds": 0.12
+        }
+      }
+    },
+    {
+      "name": "moor05-base0",
+      "src_bytes": 24976,
+      "lods": {
+        "lod0": {
+          "triangles": 412,
+          "bytes": 8740,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 206,
+          "bytes": 5008,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 144,
+          "bytes": 3892,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 142,
+          "bytes": 3856,
+          "seconds": 0.16
+        }
+      }
+    },
+    {
+      "name": "moor05-black1",
+      "src_bytes": 15384,
+      "lods": {
+        "lod0": {
+          "triangles": 460,
+          "bytes": 8160,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 229,
+          "bytes": 4940,
+          "seconds": 0.12
+        },
+        "lod2": {
+          "triangles": 128,
+          "bytes": 3440,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 130,
+          "bytes": 3476,
+          "seconds": 0.12
+        }
+      }
+    },
+    {
+      "name": "moor05-black2",
+      "src_bytes": 6532,
+      "lods": {
+        "lod0": {
+          "triangles": 137,
+          "bytes": 3668,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 90,
+          "bytes": 2816,
+          "seconds": 0.1
+        },
+        "lod2": {
+          "triangles": 90,
+          "bytes": 2816,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 90,
+          "bytes": 2816,
+          "seconds": 0.1
+        }
+      }
+    },
+    {
+      "name": "moor05-black3",
+      "src_bytes": 5804,
+      "lods": {
+        "lod0": {
+          "triangles": 117,
+          "bytes": 3320,
+          "seconds": 0.1
+        },
+        "lod1": {
+          "triangles": 81,
+          "bytes": 2656,
+          "seconds": 0.09
+        },
+        "lod2": {
+          "triangles": 81,
+          "bytes": 2656,
+          "seconds": 0.08
+        },
+        "lod3": {
+          "triangles": 81,
+          "bytes": 2656,
+          "seconds": 0.12
+        }
+      }
+    },
+    {
+      "name": "moor05-dome-copper",
+      "src_bytes": 19356,
+      "lods": {
+        "lod0": {
+          "triangles": 736,
+          "bytes": 10240,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 368,
+          "bytes": 5824,
+          "seconds": 0.14
+        },
+        "lod2": {
+          "triangles": 146,
+          "bytes": 3152,
+          "seconds": 0.15
+        },
+        "lod3": {
+          "triangles": 104,
+          "bytes": 2648,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moor05-door",
+      "src_bytes": 943204,
+      "lods": {
+        "lod0": {
+          "triangles": 1856,
+          "bytes": 881520,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 1792,
+          "bytes": 880112,
+          "seconds": 0.14
+        },
+        "lod2": {
+          "triangles": 1792,
+          "bytes": 880112,
+          "seconds": 0.17
+        },
+        "lod3": {
+          "triangles": 1792,
+          "bytes": 880112,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moor05-doorrunners",
+      "src_bytes": 812972,
+      "lods": {
+        "lod0": {
+          "triangles": 64,
+          "bytes": 811080,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 64,
+          "bytes": 811080,
+          "seconds": 0.1
+        },
+        "lod2": {
+          "triangles": 64,
+          "bytes": 811080,
+          "seconds": 0.1
+        },
+        "lod3": {
+          "triangles": 64,
+          "bytes": 811080,
+          "seconds": 0.09
+        }
+      }
+    },
+    {
+      "name": "moor05-essentials0",
+      "src_bytes": 12140,
+      "lods": {
+        "lod0": {
+          "triangles": 243,
+          "bytes": 5676,
+          "seconds": 0.08
+        },
+        "lod1": {
+          "triangles": 121,
+          "bytes": 3452,
+          "seconds": 0.08
+        },
+        "lod2": {
+          "triangles": 84,
+          "bytes": 2780,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 85,
+          "bytes": 2800,
+          "seconds": 0.08
+        }
+      }
+    },
+    {
+      "name": "moor05-floor",
+      "src_bytes": 5540,
+      "lods": {
+        "lod0": {
+          "triangles": 48,
+          "bytes": 2176,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 35,
+          "bytes": 1896,
+          "seconds": 0.08
+        },
+        "lod2": {
+          "triangles": 35,
+          "bytes": 1896,
+          "seconds": 0.1
+        },
+        "lod3": {
+          "triangles": 35,
+          "bytes": 1896,
+          "seconds": 0.12
+        }
+      }
+    },
+    {
+      "name": "moor05-floor0",
+      "src_bytes": 3264,
+      "lods": {
+        "lod0": {
+          "triangles": 26,
+          "bytes": 1760,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 25,
+          "bytes": 1716,
+          "seconds": 0.09
+        },
+        "lod2": {
+          "triangles": 25,
+          "bytes": 1716,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 25,
+          "bytes": 1716,
+          "seconds": 0.12
+        }
+      }
+    },
+    {
+      "name": "moor05-floor0_1",
+      "src_bytes": 3232,
+      "lods": {
+        "lod0": {
+          "triangles": 52,
+          "bytes": 2140,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 26,
+          "bytes": 1672,
+          "seconds": 0.1
+        },
+        "lod2": {
+          "triangles": 24,
+          "bytes": 1636,
+          "seconds": 0.11
+        },
+        "lod3": {
+          "triangles": 24,
+          "bytes": 1636,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moor05-floor1",
+      "src_bytes": 3024,
+      "lods": {
+        "lod0": {
+          "triangles": 44,
+          "bytes": 2032,
+          "seconds": 0.11
+        },
+        "lod1": {
+          "triangles": 44,
+          "bytes": 2032,
+          "seconds": 0.1
+        },
+        "lod2": {
+          "triangles": 44,
+          "bytes": 2032,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 44,
+          "bytes": 2032,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moor05-floor2",
+      "src_bytes": 3020,
+      "lods": {
+        "lod0": {
+          "triangles": 44,
+          "bytes": 2028,
+          "seconds": 0.08
+        },
+        "lod1": {
+          "triangles": 44,
+          "bytes": 2028,
+          "seconds": 0.09
+        },
+        "lod2": {
+          "triangles": 44,
+          "bytes": 2028,
+          "seconds": 0.1
+        },
+        "lod3": {
+          "triangles": 44,
+          "bytes": 2028,
+          "seconds": 0.09
+        }
+      }
+    },
+    {
+      "name": "moor05-interior",
+      "src_bytes": 21888,
+      "lods": {
+        "lod0": {
+          "triangles": 693,
+          "bytes": 11120,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 346,
+          "bytes": 6264,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 168,
+          "bytes": 3788,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 173,
+          "bytes": 3856,
+          "seconds": 0.15
+        }
+      }
+    },
+    {
+      "name": "moor05-interiorMASK",
+      "src_bytes": 25808,
+      "lods": {
+        "lod0": {
+          "triangles": 819,
+          "bytes": 11636,
+          "seconds": 0.12
+        },
+        "lod1": {
+          "triangles": 408,
+          "bytes": 6432,
+          "seconds": 0.12
+        },
+        "lod2": {
+          "triangles": 302,
+          "bytes": 5132,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 302,
+          "bytes": 5132,
+          "seconds": 0.16
+        }
+      }
+    },
+    {
+      "name": "moor05-mask",
+      "src_bytes": 4216,
+      "lods": {
+        "lod0": {
+          "triangles": 76,
+          "bytes": 2552,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 72,
+          "bytes": 2504,
+          "seconds": 0.09
+        },
+        "lod2": {
+          "triangles": 72,
+          "bytes": 2504,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 72,
+          "bytes": 2504,
+          "seconds": 0.12
+        }
+      }
+    },
+    {
+      "name": "moor05-spikes",
+      "src_bytes": 9028,
+      "lods": {
+        "lod0": {
+          "triangles": 180,
+          "bytes": 4680,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 180,
+          "bytes": 4680,
+          "seconds": 0.09
+        },
+        "lod2": {
+          "triangles": 180,
+          "bytes": 4680,
+          "seconds": 0.1
+        },
+        "lod3": {
+          "triangles": 180,
+          "bytes": 4680,
+          "seconds": 0.08
+        }
+      }
+    },
+    {
+      "name": "moor05-stairs",
+      "src_bytes": 136924,
+      "lods": {
+        "lod0": {
+          "triangles": 2144,
+          "bytes": 59168,
+          "seconds": 0.1
+        },
+        "lod1": {
+          "triangles": 2088,
+          "bytes": 58160,
+          "seconds": 2.1
+        },
+        "lod2": {
+          "triangles": 2088,
+          "bytes": 58160,
+          "seconds": 0.17
+        },
+        "lod3": {
+          "triangles": 2088,
+          "bytes": 58160,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moor05-upper1",
+      "src_bytes": 17956,
+      "lods": {
+        "lod0": {
+          "triangles": 324,
+          "bytes": 7348,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 162,
+          "bytes": 4428,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 159,
+          "bytes": 4376,
+          "seconds": 0.08
+        },
+        "lod3": {
+          "triangles": 159,
+          "bytes": 4376,
+          "seconds": 0.12
+        }
+      }
+    },
+    {
+      "name": "moor05-upper2",
+      "src_bytes": 14940,
+      "lods": {
+        "lod0": {
+          "triangles": 248,
+          "bytes": 6000,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 134,
+          "bytes": 3948,
+          "seconds": 0.09
+        },
+        "lod2": {
+          "triangles": 134,
+          "bytes": 3948,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 134,
+          "bytes": 3948,
+          "seconds": 0.1
+        }
+      }
+    },
+    {
+      "name": "moor05-upper3",
+      "src_bytes": 43072,
+      "lods": {
+        "lod0": {
+          "triangles": 1682,
+          "bytes": 22688,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 841,
+          "bytes": 12360,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 439,
+          "bytes": 7344,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 439,
+          "bytes": 7344,
+          "seconds": 0.14
+        }
+      }
+    },
+    {
+      "name": "moor05-windows1",
+      "src_bytes": 40460,
+      "lods": {
+        "lod0": {
+          "triangles": 600,
+          "bytes": 17816,
+          "seconds": 0.11
+        },
+        "lod1": {
+          "triangles": 438,
+          "bytes": 14932,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 438,
+          "bytes": 14932,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 438,
+          "bytes": 14932,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moor05-windows2",
+      "src_bytes": 27384,
+      "lods": {
+        "lod0": {
+          "triangles": 400,
+          "bytes": 12288,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 292,
+          "bytes": 10368,
+          "seconds": 0.12
+        },
+        "lod2": {
+          "triangles": 292,
+          "bytes": 10368,
+          "seconds": 0.15
+        },
+        "lod3": {
+          "triangles": 292,
+          "bytes": 10368,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moor05-windows3",
+      "src_bytes": 40460,
+      "lods": {
+        "lod0": {
+          "triangles": 600,
+          "bytes": 17848,
+          "seconds": 0.08
+        },
+        "lod1": {
+          "triangles": 438,
+          "bytes": 14968,
+          "seconds": 0.15
+        },
+        "lod2": {
+          "triangles": 438,
+          "bytes": 14968,
+          "seconds": 0.17
+        },
+        "lod3": {
+          "triangles": 438,
+          "bytes": 14968,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moor06-floor",
+      "src_bytes": 1352,
+      "lods": {
+        "lod0": {
+          "triangles": 2,
+          "bytes": 1244,
+          "seconds": 0.12
+        },
+        "lod1": {
+          "triangles": 2,
+          "bytes": 1244,
+          "seconds": 0.08
+        },
+        "lod2": {
+          "triangles": 2,
+          "bytes": 1244,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 2,
+          "bytes": 1244,
+          "seconds": 0.1
+        }
+      }
+    },
+    {
+      "name": "moor06-interior",
+      "src_bytes": 4396,
+      "lods": {
+        "lod0": {
+          "triangles": 85,
+          "bytes": 2664,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 42,
+          "bytes": 2104,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 29,
+          "bytes": 1884,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 29,
+          "bytes": 1884,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moor07-base",
+      "src_bytes": 17856,
+      "lods": {
+        "lod0": {
+          "triangles": 307,
+          "bytes": 8484,
+          "seconds": 0.1
+        },
+        "lod1": {
+          "triangles": 188,
+          "bytes": 6328,
+          "seconds": 0.08
+        },
+        "lod2": {
+          "triangles": 188,
+          "bytes": 6328,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 188,
+          "bytes": 6328,
+          "seconds": 0.08
+        }
+      }
+    },
+    {
+      "name": "moor07-black1",
+      "src_bytes": 6160,
+      "lods": {
+        "lod0": {
+          "triangles": 91,
+          "bytes": 3344,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 64,
+          "bytes": 2856,
+          "seconds": 0.1
+        },
+        "lod2": {
+          "triangles": 64,
+          "bytes": 2856,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 64,
+          "bytes": 2856,
+          "seconds": 0.12
+        }
+      }
+    },
+    {
+      "name": "moor07-black2",
+      "src_bytes": 3592,
+      "lods": {
+        "lod0": {
+          "triangles": 54,
+          "bytes": 2288,
+          "seconds": 0.11
+        },
+        "lod1": {
+          "triangles": 27,
+          "bytes": 1800,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 24,
+          "bytes": 1744,
+          "seconds": 0.1
+        },
+        "lod3": {
+          "triangles": 24,
+          "bytes": 1744,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moor07-dome",
+      "src_bytes": 19340,
+      "lods": {
+        "lod0": {
+          "triangles": 736,
+          "bytes": 10240,
+          "seconds": 0.1
+        },
+        "lod1": {
+          "triangles": 368,
+          "bytes": 5824,
+          "seconds": 0.15
+        },
+        "lod2": {
+          "triangles": 146,
+          "bytes": 3152,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 110,
+          "bytes": 2720,
+          "seconds": 0.15
+        }
+      }
+    },
+    {
+      "name": "moor07-door",
+      "src_bytes": 943204,
+      "lods": {
+        "lod0": {
+          "triangles": 1856,
+          "bytes": 881488,
+          "seconds": 0.1
+        },
+        "lod1": {
+          "triangles": 1792,
+          "bytes": 880080,
+          "seconds": 0.12
+        },
+        "lod2": {
+          "triangles": 1792,
+          "bytes": 880080,
+          "seconds": 0.16
+        },
+        "lod3": {
+          "triangles": 1792,
+          "bytes": 880080,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moor07-doorrunners",
+      "src_bytes": 813224,
+      "lods": {
+        "lod0": {
+          "triangles": 64,
+          "bytes": 811212,
+          "seconds": 0.1
+        },
+        "lod1": {
+          "triangles": 64,
+          "bytes": 811212,
+          "seconds": 0.09
+        },
+        "lod2": {
+          "triangles": 64,
+          "bytes": 811212,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 64,
+          "bytes": 811212,
+          "seconds": 0.1
+        }
+      }
+    },
+    {
+      "name": "moor07-essentials0",
+      "src_bytes": 174532,
+      "lods": {
+        "lod0": {
+          "triangles": 2538,
+          "bytes": 74136,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 1895,
+          "bytes": 59204,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 1895,
+          "bytes": 59204,
+          "seconds": 0.14
+        },
+        "lod3": {
+          "triangles": 1895,
+          "bytes": 59204,
+          "seconds": 0.14
+        }
+      }
+    },
+    {
+      "name": "moor07-essentials2",
+      "src_bytes": 10596,
+      "lods": {
+        "lod0": {
+          "triangles": 216,
+          "bytes": 5376,
+          "seconds": 0.1
+        },
+        "lod1": {
+          "triangles": 216,
+          "bytes": 5376,
+          "seconds": 0.09
+        },
+        "lod2": {
+          "triangles": 216,
+          "bytes": 5376,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 216,
+          "bytes": 5376,
+          "seconds": 0.1
+        }
+      }
+    },
+    {
+      "name": "moor07-essentials3",
+      "src_bytes": 167480,
+      "lods": {
+        "lod0": {
+          "triangles": 2616,
+          "bytes": 71916,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 1968,
+          "bytes": 60396,
+          "seconds": 0.17
+        },
+        "lod2": {
+          "triangles": 1968,
+          "bytes": 60396,
+          "seconds": 0.17
+        },
+        "lod3": {
+          "triangles": 1968,
+          "bytes": 60396,
+          "seconds": 0.15
+        }
+      }
+    },
+    {
+      "name": "moor07-floor",
+      "src_bytes": 1728,
+      "lods": {
+        "lod0": {
+          "triangles": 5,
+          "bytes": 1380,
+          "seconds": 0.12
+        },
+        "lod1": {
+          "triangles": 4,
+          "bytes": 1332,
+          "seconds": 0.12
+        },
+        "lod2": {
+          "triangles": 4,
+          "bytes": 1332,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 4,
+          "bytes": 1332,
+          "seconds": 0.08
+        }
+      }
+    },
+    {
+      "name": "moor07-floor1",
+      "src_bytes": 2172,
+      "lods": {
+        "lod0": {
+          "triangles": 10,
+          "bytes": 1564,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 8,
+          "bytes": 1480,
+          "seconds": 0.1
+        },
+        "lod2": {
+          "triangles": 8,
+          "bytes": 1480,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 8,
+          "bytes": 1480,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moor07-floor2",
+      "src_bytes": 2172,
+      "lods": {
+        "lod0": {
+          "triangles": 10,
+          "bytes": 1584,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 8,
+          "bytes": 1500,
+          "seconds": 0.09
+        },
+        "lod2": {
+          "triangles": 8,
+          "bytes": 1500,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 8,
+          "bytes": 1500,
+          "seconds": 0.12
+        }
+      }
+    },
+    {
+      "name": "moor07-interior",
+      "src_bytes": 6188,
+      "lods": {
+        "lod0": {
+          "triangles": 95,
+          "bytes": 3360,
+          "seconds": 0.12
+        },
+        "lod1": {
+          "triangles": 68,
+          "bytes": 2868,
+          "seconds": 0.11
+        },
+        "lod2": {
+          "triangles": 68,
+          "bytes": 2868,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 68,
+          "bytes": 2868,
+          "seconds": 0.12
+        }
+      }
+    },
+    {
+      "name": "moor07-interiorMASK",
+      "src_bytes": 6368,
+      "lods": {
+        "lod0": {
+          "triangles": 92,
+          "bytes": 3384,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 73,
+          "bytes": 3068,
+          "seconds": 0.09
+        },
+        "lod2": {
+          "triangles": 73,
+          "bytes": 3068,
+          "seconds": 0.1
+        },
+        "lod3": {
+          "triangles": 73,
+          "bytes": 3068,
+          "seconds": 0.08
+        }
+      }
+    },
+    {
+      "name": "moor07-spikes",
+      "src_bytes": 10588,
+      "lods": {
+        "lod0": {
+          "triangles": 216,
+          "bytes": 5376,
+          "seconds": 0.08
+        },
+        "lod1": {
+          "triangles": 216,
+          "bytes": 5376,
+          "seconds": 0.09
+        },
+        "lod2": {
+          "triangles": 216,
+          "bytes": 5376,
+          "seconds": 0.14
+        },
+        "lod3": {
+          "triangles": 216,
+          "bytes": 5376,
+          "seconds": 0.09
+        }
+      }
+    },
+    {
+      "name": "moor07-stairs",
+      "src_bytes": 14472,
+      "lods": {
+        "lod0": {
+          "triangles": 297,
+          "bytes": 6948,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 189,
+          "bytes": 5156,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 189,
+          "bytes": 5156,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 189,
+          "bytes": 5156,
+          "seconds": 0.11
+        }
+      }
+    },
+    {
+      "name": "moor07-upper",
+      "src_bytes": 25264,
+      "lods": {
+        "lod0": {
+          "triangles": 453,
+          "bytes": 11484,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 225,
+          "bytes": 7352,
+          "seconds": 0.15
+        },
+        "lod2": {
+          "triangles": 180,
+          "bytes": 6468,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 180,
+          "bytes": 6468,
+          "seconds": 0.12
+        }
+      }
+    },
+    {
+      "name": "moor07-upper2",
+      "src_bytes": 23516,
+      "lods": {
+        "lod0": {
+          "triangles": 455,
+          "bytes": 10620,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 227,
+          "bytes": 6516,
+          "seconds": 0.15
+        },
+        "lod2": {
+          "triangles": 163,
+          "bytes": 5360,
+          "seconds": 0.16
+        },
+        "lod3": {
+          "triangles": 163,
+          "bytes": 5360,
+          "seconds": 0.14
+        }
+      }
+    },
+    {
+      "name": "moor07-upper3",
+      "src_bytes": 189316,
+      "lods": {
+        "lod0": {
+          "triangles": 2417,
+          "bytes": 79796,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 2190,
+          "bytes": 75864,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 2190,
+          "bytes": 75864,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 2190,
+          "bytes": 75864,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moor08-base",
+      "src_bytes": 17664,
+      "lods": {
+        "lod0": {
+          "triangles": 307,
+          "bytes": 8364,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 182,
+          "bytes": 6112,
+          "seconds": 0.19
+        },
+        "lod2": {
+          "triangles": 181,
+          "bytes": 6096,
+          "seconds": 0.19
+        },
+        "lod3": {
+          "triangles": 181,
+          "bytes": 6096,
+          "seconds": 0.15
+        }
+      }
+    },
+    {
+      "name": "moor08-door",
+      "src_bytes": 943140,
+      "lods": {
+        "lod0": {
+          "triangles": 1856,
+          "bytes": 881472,
+          "seconds": 0.1
+        },
+        "lod1": {
+          "triangles": 1790,
+          "bytes": 880020,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 1790,
+          "bytes": 880020,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 1790,
+          "bytes": 880020,
+          "seconds": 0.17
+        }
+      }
+    },
+    {
+      "name": "moor08-doorrunners",
+      "src_bytes": 813224,
+      "lods": {
+        "lod0": {
+          "triangles": 64,
+          "bytes": 811212,
+          "seconds": 0.1
+        },
+        "lod1": {
+          "triangles": 64,
+          "bytes": 811212,
+          "seconds": 0.11
+        },
+        "lod2": {
+          "triangles": 64,
+          "bytes": 811212,
+          "seconds": 0.14
+        },
+        "lod3": {
+          "triangles": 64,
+          "bytes": 811212,
+          "seconds": 0.1
+        }
+      }
+    },
+    {
+      "name": "moor08-esentials1",
+      "src_bytes": 180384,
+      "lods": {
+        "lod0": {
+          "triangles": 2538,
+          "bytes": 77244,
+          "seconds": 0.1
+        },
+        "lod1": {
+          "triangles": 2392,
+          "bytes": 74568,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 2392,
+          "bytes": 74568,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 2392,
+          "bytes": 74568,
+          "seconds": 0.12
+        }
+      }
+    },
+    {
+      "name": "moor08-essentials0",
+      "src_bytes": 160112,
+      "lods": {
+        "lod0": {
+          "triangles": 2359,
+          "bytes": 68984,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 1752,
+          "bytes": 54720,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 1752,
+          "bytes": 54720,
+          "seconds": 0.16
+        },
+        "lod3": {
+          "triangles": 1752,
+          "bytes": 54720,
+          "seconds": 0.12
+        }
+      }
+    },
+    {
+      "name": "moor08-essentials1",
+      "src_bytes": 180104,
+      "lods": {
+        "lod0": {
+          "triangles": 2534,
+          "bytes": 77124,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 2388,
+          "bytes": 74448,
+          "seconds": 0.15
+        },
+        "lod2": {
+          "triangles": 2388,
+          "bytes": 74448,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 2388,
+          "bytes": 74448,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moor08-floor",
+      "src_bytes": 1664,
+      "lods": {
+        "lod0": {
+          "triangles": 5,
+          "bytes": 1376,
+          "seconds": 0.12
+        },
+        "lod1": {
+          "triangles": 4,
+          "bytes": 1328,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 4,
+          "bytes": 1328,
+          "seconds": 0.11
+        },
+        "lod3": {
+          "triangles": 4,
+          "bytes": 1328,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moor08-interior-MASK",
+      "src_bytes": 6544,
+      "lods": {
+        "lod0": {
+          "triangles": 96,
+          "bytes": 3072,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 63,
+          "bytes": 2524,
+          "seconds": 0.1
+        },
+        "lod2": {
+          "triangles": 64,
+          "bytes": 2540,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 64,
+          "bytes": 2540,
+          "seconds": 0.09
+        }
+      }
+    },
+    {
+      "name": "moor08-interior",
+      "src_bytes": 5824,
+      "lods": {
+        "lod0": {
+          "triangles": 109,
+          "bytes": 3308,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 66,
+          "bytes": 2552,
+          "seconds": 0.14
+        },
+        "lod2": {
+          "triangles": 66,
+          "bytes": 2552,
+          "seconds": 0.14
+        },
+        "lod3": {
+          "triangles": 66,
+          "bytes": 2552,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moor08-stairs",
+      "src_bytes": 64944,
+      "lods": {
+        "lod0": {
+          "triangles": 814,
+          "bytes": 27872,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 791,
+          "bytes": 27460,
+          "seconds": 0.12
+        },
+        "lod2": {
+          "triangles": 791,
+          "bytes": 27460,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 791,
+          "bytes": 27460,
+          "seconds": 0.16
+        }
+      }
+    },
+    {
+      "name": "moor08",
+      "src_bytes": 179492,
+      "lods": {
+        "lod0": {
+          "triangles": 2254,
+          "bytes": 76020,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 2110,
+          "bytes": 73200,
+          "seconds": 0.16
+        },
+        "lod2": {
+          "triangles": 2110,
+          "bytes": 73200,
+          "seconds": 0.14
+        },
+        "lod3": {
+          "triangles": 2110,
+          "bytes": 73200,
+          "seconds": 0.15
+        }
+      }
+    },
+    {
+      "name": "moor09-base",
+      "src_bytes": 25776,
+      "lods": {
+        "lod0": {
+          "triangles": 374,
+          "bytes": 11416,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 314,
+          "bytes": 10336,
+          "seconds": 0.09
+        },
+        "lod2": {
+          "triangles": 314,
+          "bytes": 10336,
+          "seconds": 0.1
+        },
+        "lod3": {
+          "triangles": 314,
+          "bytes": 10336,
+          "seconds": 0.09
+        }
+      }
+    },
+    {
+      "name": "moor09-door",
+      "src_bytes": 942824,
+      "lods": {
+        "lod0": {
+          "triangles": 1856,
+          "bytes": 881328,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 1784,
+          "bytes": 879744,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 1784,
+          "bytes": 879744,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 1784,
+          "bytes": 879744,
+          "seconds": 0.14
+        }
+      }
+    },
+    {
+      "name": "moor09-essentials0",
+      "src_bytes": 162280,
+      "lods": {
+        "lod0": {
+          "triangles": 2272,
+          "bytes": 69288,
+          "seconds": 0.1
+        },
+        "lod1": {
+          "triangles": 1329,
+          "bytes": 41012,
+          "seconds": 0.16
+        },
+        "lod2": {
+          "triangles": 1329,
+          "bytes": 41012,
+          "seconds": 0.16
+        },
+        "lod3": {
+          "triangles": 1329,
+          "bytes": 41012,
+          "seconds": 0.14
+        }
+      }
+    },
+    {
+      "name": "moor09-essentials1",
+      "src_bytes": 2848,
+      "lods": {
+        "lod0": {
+          "triangles": 29,
+          "bytes": 1896,
+          "seconds": 0.12
+        },
+        "lod1": {
+          "triangles": 14,
+          "bytes": 1648,
+          "seconds": 0.08
+        },
+        "lod2": {
+          "triangles": 14,
+          "bytes": 1648,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 14,
+          "bytes": 1648,
+          "seconds": 0.1
+        }
+      }
+    },
+    {
+      "name": "moor09-floor",
+      "src_bytes": 1352,
+      "lods": {
+        "lod0": {
+          "triangles": 2,
+          "bytes": 1244,
+          "seconds": 0.1
+        },
+        "lod1": {
+          "triangles": 2,
+          "bytes": 1244,
+          "seconds": 0.09
+        },
+        "lod2": {
+          "triangles": 2,
+          "bytes": 1244,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 2,
+          "bytes": 1244,
+          "seconds": 0.09
+        }
+      }
+    },
+    {
+      "name": "moor09-interior",
+      "src_bytes": 4620,
+      "lods": {
+        "lod0": {
+          "triangles": 85,
+          "bytes": 2752,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 41,
+          "bytes": 2128,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 30,
+          "bytes": 1904,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 30,
+          "bytes": 1904,
+          "seconds": 0.12
+        }
+      }
+    },
+    {
+      "name": "moor09-interiorMASK",
+      "src_bytes": 5248,
+      "lods": {
+        "lod0": {
+          "triangles": 63,
+          "bytes": 2440,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 31,
+          "bytes": 1968,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 28,
+          "bytes": 1912,
+          "seconds": 0.1
+        },
+        "lod3": {
+          "triangles": 28,
+          "bytes": 1912,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moor09-rampA",
+      "src_bytes": 5844,
+      "lods": {
+        "lod0": {
+          "triangles": 108,
+          "bytes": 3332,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 54,
+          "bytes": 2488,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 48,
+          "bytes": 2408,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 50,
+          "bytes": 2444,
+          "seconds": 0.1
+        }
+      }
+    },
+    {
+      "name": "moor09-rampB",
+      "src_bytes": 4116,
+      "lods": {
+        "lod0": {
+          "triangles": 82,
+          "bytes": 2528,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 64,
+          "bytes": 2276,
+          "seconds": 0.1
+        },
+        "lod2": {
+          "triangles": 64,
+          "bytes": 2276,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 64,
+          "bytes": 2276,
+          "seconds": 0.11
+        }
+      }
+    },
+    {
+      "name": "moor09-windows",
+      "src_bytes": 40456,
+      "lods": {
+        "lod0": {
+          "triangles": 600,
+          "bytes": 17804,
+          "seconds": 0.14
+        },
+        "lod1": {
+          "triangles": 438,
+          "bytes": 14920,
+          "seconds": 0.16
+        },
+        "lod2": {
+          "triangles": 438,
+          "bytes": 14920,
+          "seconds": 0.14
+        },
+        "lod3": {
+          "triangles": 438,
+          "bytes": 14920,
+          "seconds": 0.15
+        }
+      }
+    },
+    {
+      "name": "moor09",
+      "src_bytes": 200508,
+      "lods": {
+        "lod0": {
+          "triangles": 2498,
+          "bytes": 84624,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 2373,
+          "bytes": 82412,
+          "seconds": 0.14
+        },
+        "lod2": {
+          "triangles": 2373,
+          "bytes": 82412,
+          "seconds": 0.17
+        },
+        "lod3": {
+          "triangles": 2373,
+          "bytes": 82412,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moor27-0",
+      "src_bytes": 163764,
+      "lods": {
+        "lod0": {
+          "triangles": 2339,
+          "bytes": 69556,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 1958,
+          "bytes": 62600,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 1958,
+          "bytes": 62600,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 1958,
+          "bytes": 62600,
+          "seconds": 0.12
+        }
+      }
+    },
+    {
+      "name": "moor27-1",
+      "src_bytes": 126336,
+      "lods": {
+        "lod0": {
+          "triangles": 1713,
+          "bytes": 53192,
+          "seconds": 0.08
+        },
+        "lod1": {
+          "triangles": 1342,
+          "bytes": 46112,
+          "seconds": 0.14
+        },
+        "lod2": {
+          "triangles": 1342,
+          "bytes": 46112,
+          "seconds": 0.14
+        },
+        "lod3": {
+          "triangles": 1342,
+          "bytes": 46112,
+          "seconds": 0.16
+        }
+      }
+    },
+    {
+      "name": "moor27-2",
+      "src_bytes": 209540,
+      "lods": {
+        "lod0": {
+          "triangles": 2776,
+          "bytes": 88060,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 2463,
+          "bytes": 82392,
+          "seconds": 0.14
+        },
+        "lod2": {
+          "triangles": 2463,
+          "bytes": 82392,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 2463,
+          "bytes": 82392,
+          "seconds": 0.16
+        }
+      }
+    },
+    {
+      "name": "moor27-black1",
+      "src_bytes": 8264,
+      "lods": {
+        "lod0": {
+          "triangles": 111,
+          "bytes": 3980,
+          "seconds": 0.14
+        },
+        "lod1": {
+          "triangles": 55,
+          "bytes": 3016,
+          "seconds": 0.09
+        },
+        "lod2": {
+          "triangles": 50,
+          "bytes": 2900,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 50,
+          "bytes": 2900,
+          "seconds": 0.09
+        }
+      }
+    },
+    {
+      "name": "moor27-door1",
+      "src_bytes": 943208,
+      "lods": {
+        "lod0": {
+          "triangles": 1856,
+          "bytes": 881504,
+          "seconds": 0.11
+        },
+        "lod1": {
+          "triangles": 1792,
+          "bytes": 880096,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 1792,
+          "bytes": 880096,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 1792,
+          "bytes": 880096,
+          "seconds": 0.18
+        }
+      }
+    },
+    {
+      "name": "moor27-door2",
+      "src_bytes": 943208,
+      "lods": {
+        "lod0": {
+          "triangles": 1856,
+          "bytes": 881524,
+          "seconds": 0.15
+        },
+        "lod1": {
+          "triangles": 1792,
+          "bytes": 880116,
+          "seconds": 0.14
+        },
+        "lod2": {
+          "triangles": 1792,
+          "bytes": 880116,
+          "seconds": 0.15
+        },
+        "lod3": {
+          "triangles": 1792,
+          "bytes": 880116,
+          "seconds": 0.16
+        }
+      }
+    },
+    {
+      "name": "moor27-doorrunners",
+      "src_bytes": 823724,
+      "lods": {
+        "lod0": {
+          "triangles": 192,
+          "bytes": 816844,
+          "seconds": 0.14
+        },
+        "lod1": {
+          "triangles": 192,
+          "bytes": 816844,
+          "seconds": 0.1
+        },
+        "lod2": {
+          "triangles": 192,
+          "bytes": 816844,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 192,
+          "bytes": 816844,
+          "seconds": 0.1
+        }
+      }
+    },
+    {
+      "name": "moor27-essentials0",
+      "src_bytes": 360540,
+      "lods": {
+        "lod0": {
+          "triangles": 5442,
+          "bytes": 154276,
+          "seconds": 0.11
+        },
+        "lod1": {
+          "triangles": 4272,
+          "bytes": 129432,
+          "seconds": 0.18
+        },
+        "lod2": {
+          "triangles": 4272,
+          "bytes": 129432,
+          "seconds": 0.17
+        },
+        "lod3": {
+          "triangles": 4272,
+          "bytes": 129432,
+          "seconds": 0.15
+        }
+      }
+    },
+    {
+      "name": "moor27-essentials1",
+      "src_bytes": 172084,
+      "lods": {
+        "lod0": {
+          "triangles": 2354,
+          "bytes": 73644,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 2208,
+          "bytes": 70968,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 2208,
+          "bytes": 70968,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 2208,
+          "bytes": 70968,
+          "seconds": 0.17
+        }
+      }
+    },
+    {
+      "name": "moor27-essentials2",
+      "src_bytes": 108532,
+      "lods": {
+        "lod0": {
+          "triangles": 1614,
+          "bytes": 47120,
+          "seconds": 0.15
+        },
+        "lod1": {
+          "triangles": 1432,
+          "bytes": 43412,
+          "seconds": 0.14
+        },
+        "lod2": {
+          "triangles": 1432,
+          "bytes": 43412,
+          "seconds": 0.14
+        },
+        "lod3": {
+          "triangles": 1432,
+          "bytes": 43412,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moor27-floor0",
+      "src_bytes": 2644,
+      "lods": {
+        "lod0": {
+          "triangles": 18,
+          "bytes": 1772,
+          "seconds": 0.12
+        },
+        "lod1": {
+          "triangles": 17,
+          "bytes": 1732,
+          "seconds": 0.1
+        },
+        "lod2": {
+          "triangles": 17,
+          "bytes": 1732,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 17,
+          "bytes": 1732,
+          "seconds": 0.09
+        }
+      }
+    },
+    {
+      "name": "moor27-floor0bits",
+      "src_bytes": 6520,
+      "lods": {
+        "lod0": {
+          "triangles": 68,
+          "bytes": 3060,
+          "seconds": 0.08
+        },
+        "lod1": {
+          "triangles": 67,
+          "bytes": 3044,
+          "seconds": 0.09
+        },
+        "lod2": {
+          "triangles": 67,
+          "bytes": 3044,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 67,
+          "bytes": 3044,
+          "seconds": 0.09
+        }
+      }
+    },
+    {
+      "name": "moor27-floor1",
+      "src_bytes": 2172,
+      "lods": {
+        "lod0": {
+          "triangles": 10,
+          "bytes": 1584,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 10,
+          "bytes": 1584,
+          "seconds": 0.12
+        },
+        "lod2": {
+          "triangles": 10,
+          "bytes": 1584,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 10,
+          "bytes": 1584,
+          "seconds": 0.09
+        }
+      }
+    },
+    {
+      "name": "moor27-interior",
+      "src_bytes": 17896,
+      "lods": {
+        "lod0": {
+          "triangles": 397,
+          "bytes": 8660,
+          "seconds": 0.12
+        },
+        "lod1": {
+          "triangles": 197,
+          "bytes": 5780,
+          "seconds": 0.14
+        },
+        "lod2": {
+          "triangles": 158,
+          "bytes": 5052,
+          "seconds": 0.16
+        },
+        "lod3": {
+          "triangles": 160,
+          "bytes": 5076,
+          "seconds": 0.11
+        }
+      }
+    },
+    {
+      "name": "moor27-interiorMASK",
+      "src_bytes": 18492,
+      "lods": {
+        "lod0": {
+          "triangles": 363,
+          "bytes": 8276,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 181,
+          "bytes": 5576,
+          "seconds": 0.15
+        },
+        "lod2": {
+          "triangles": 157,
+          "bytes": 5132,
+          "seconds": 0.15
+        },
+        "lod3": {
+          "triangles": 157,
+          "bytes": 5132,
+          "seconds": 0.12
+        }
+      }
+    },
+    {
+      "name": "moor27-xta-black2",
+      "src_bytes": 4820,
+      "lods": {
+        "lod0": {
+          "triangles": 64,
+          "bytes": 2756,
+          "seconds": 0.11
+        },
+        "lod1": {
+          "triangles": 32,
+          "bytes": 2128,
+          "seconds": 0.1
+        },
+        "lod2": {
+          "triangles": 29,
+          "bytes": 2076,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 29,
+          "bytes": 2076,
+          "seconds": 0.12
+        }
+      }
+    },
+    {
+      "name": "moor27-xta-dome3",
+      "src_bytes": 19352,
+      "lods": {
+        "lod0": {
+          "triangles": 736,
+          "bytes": 10240,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 368,
+          "bytes": 5824,
+          "seconds": 0.16
+        },
+        "lod2": {
+          "triangles": 146,
+          "bytes": 3152,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 106,
+          "bytes": 2672,
+          "seconds": 0.12
+        }
+      }
+    },
+    {
+      "name": "moor27-xta-essentials2",
+      "src_bytes": 25168,
+      "lods": {
+        "lod0": {
+          "triangles": 354,
+          "bytes": 11344,
+          "seconds": 0.08
+        },
+        "lod1": {
+          "triangles": 287,
+          "bytes": 10176,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 287,
+          "bytes": 10176,
+          "seconds": 0.15
+        },
+        "lod3": {
+          "triangles": 287,
+          "bytes": 10176,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moor27-xta-essentials3",
+      "src_bytes": 154412,
+      "lods": {
+        "lod0": {
+          "triangles": 2416,
+          "bytes": 66372,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 1822,
+          "bytes": 55812,
+          "seconds": 0.16
+        },
+        "lod2": {
+          "triangles": 1822,
+          "bytes": 55812,
+          "seconds": 0.18
+        },
+        "lod3": {
+          "triangles": 1822,
+          "bytes": 55812,
+          "seconds": 0.16
+        }
+      }
+    },
+    {
+      "name": "moor27-xta-floor2",
+      "src_bytes": 1736,
+      "lods": {
+        "lod0": {
+          "triangles": 5,
+          "bytes": 1400,
+          "seconds": 0.11
+        },
+        "lod1": {
+          "triangles": 4,
+          "bytes": 1356,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 4,
+          "bytes": 1356,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 4,
+          "bytes": 1356,
+          "seconds": 0.08
+        }
+      }
+    },
+    {
+      "name": "moor27-xta-interior2",
+      "src_bytes": 3220,
+      "lods": {
+        "lod0": {
+          "triangles": 48,
+          "bytes": 2120,
+          "seconds": 0.08
+        },
+        "lod1": {
+          "triangles": 32,
+          "bytes": 1856,
+          "seconds": 0.1
+        },
+        "lod2": {
+          "triangles": 32,
+          "bytes": 1856,
+          "seconds": 0.1
+        },
+        "lod3": {
+          "triangles": 32,
+          "bytes": 1856,
+          "seconds": 0.1
+        }
+      }
+    },
+    {
+      "name": "moor27-xtra2",
+      "src_bytes": 18276,
+      "lods": {
+        "lod0": {
+          "triangles": 324,
+          "bytes": 8352,
+          "seconds": 0.08
+        },
+        "lod1": {
+          "triangles": 166,
+          "bytes": 5484,
+          "seconds": 0.12
+        },
+        "lod2": {
+          "triangles": 166,
+          "bytes": 5484,
+          "seconds": 0.14
+        },
+        "lod3": {
+          "triangles": 166,
+          "bytes": 5484,
+          "seconds": 0.15
+        }
+      }
+    },
+    {
+      "name": "moor27-xtra3",
+      "src_bytes": 185048,
+      "lods": {
+        "lod0": {
+          "triangles": 2341,
+          "bytes": 78464,
+          "seconds": 0.1
+        },
+        "lod1": {
+          "triangles": 2155,
+          "bytes": 75184,
+          "seconds": 0.15
+        },
+        "lod2": {
+          "triangles": 2155,
+          "bytes": 75184,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 2155,
+          "bytes": 75184,
+          "seconds": 0.16
+        }
+      }
+    },
+    {
+      "name": "moor3-essentials0",
+      "src_bytes": 6632,
+      "lods": {
+        "lod0": {
+          "triangles": 125,
+          "bytes": 3628,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 62,
+          "bytes": 2596,
+          "seconds": 0.08
+        },
+        "lod2": {
+          "triangles": 35,
+          "bytes": 2148,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 35,
+          "bytes": 2148,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moor4-upper",
+      "src_bytes": 18060,
+      "lods": {
+        "lod0": {
+          "triangles": 405,
+          "bytes": 8568,
+          "seconds": 0.12
+        },
+        "lod1": {
+          "triangles": 264,
+          "bytes": 6444,
+          "seconds": 0.12
+        },
+        "lod2": {
+          "triangles": 263,
+          "bytes": 6428,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 263,
+          "bytes": 6428,
+          "seconds": 0.14
+        }
+      }
+    },
+    {
+      "name": "moor71-1",
+      "src_bytes": 207736,
+      "lods": {
+        "lod0": {
+          "triangles": 2566,
+          "bytes": 86792,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 2290,
+          "bytes": 81608,
+          "seconds": 0.14
+        },
+        "lod2": {
+          "triangles": 2290,
+          "bytes": 81608,
+          "seconds": 2.11
+        },
+        "lod3": {
+          "triangles": 2290,
+          "bytes": 81608,
+          "seconds": 0.16
+        }
+      }
+    },
+    {
+      "name": "moor71-2",
+      "src_bytes": 115804,
+      "lods": {
+        "lod0": {
+          "triangles": 1394,
+          "bytes": 49100,
+          "seconds": 0.14
+        },
+        "lod1": {
+          "triangles": 1299,
+          "bytes": 47404,
+          "seconds": 0.12
+        },
+        "lod2": {
+          "triangles": 1299,
+          "bytes": 47404,
+          "seconds": 0.17
+        },
+        "lod3": {
+          "triangles": 1299,
+          "bytes": 47404,
+          "seconds": 0.14
+        }
+      }
+    },
+    {
+      "name": "moor71-black1",
+      "src_bytes": 8768,
+      "lods": {
+        "lod0": {
+          "triangles": 147,
+          "bytes": 4516,
+          "seconds": 0.08
+        },
+        "lod1": {
+          "triangles": 73,
+          "bytes": 3268,
+          "seconds": 0.08
+        },
+        "lod2": {
+          "triangles": 59,
+          "bytes": 2968,
+          "seconds": 0.14
+        },
+        "lod3": {
+          "triangles": 59,
+          "bytes": 2968,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moor71-door01",
+      "src_bytes": 943208,
+      "lods": {
+        "lod0": {
+          "triangles": 1856,
+          "bytes": 881496,
+          "seconds": 0.15
+        },
+        "lod1": {
+          "triangles": 1792,
+          "bytes": 880088,
+          "seconds": 0.17
+        },
+        "lod2": {
+          "triangles": 1792,
+          "bytes": 880088,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 1792,
+          "bytes": 880088,
+          "seconds": 0.15
+        }
+      }
+    },
+    {
+      "name": "moor71-door02",
+      "src_bytes": 943144,
+      "lods": {
+        "lod0": {
+          "triangles": 1856,
+          "bytes": 881472,
+          "seconds": 0.1
+        },
+        "lod1": {
+          "triangles": 1790,
+          "bytes": 880020,
+          "seconds": 0.19
+        },
+        "lod2": {
+          "triangles": 1790,
+          "bytes": 880020,
+          "seconds": 0.16
+        },
+        "lod3": {
+          "triangles": 1790,
+          "bytes": 880020,
+          "seconds": 0.16
+        }
+      }
+    },
+    {
+      "name": "moor71-doorrunners",
+      "src_bytes": 813224,
+      "lods": {
+        "lod0": {
+          "triangles": 64,
+          "bytes": 811208,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 64,
+          "bytes": 811208,
+          "seconds": 0.14
+        },
+        "lod2": {
+          "triangles": 64,
+          "bytes": 811208,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 64,
+          "bytes": 811208,
+          "seconds": 0.09
+        }
+      }
+    },
+    {
+      "name": "moor71-essentials0",
+      "src_bytes": 439816,
+      "lods": {
+        "lod0": {
+          "triangles": 6730,
+          "bytes": 188160,
+          "seconds": 0.15
+        },
+        "lod1": {
+          "triangles": 4127,
+          "bytes": 125432,
+          "seconds": 0.15
+        },
+        "lod2": {
+          "triangles": 4127,
+          "bytes": 125432,
+          "seconds": 0.16
+        },
+        "lod3": {
+          "triangles": 4127,
+          "bytes": 125432,
+          "seconds": 0.19
+        }
+      }
+    },
+    {
+      "name": "moor71-essentials1",
+      "src_bytes": 306092,
+      "lods": {
+        "lod0": {
+          "triangles": 4298,
+          "bytes": 130244,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 3751,
+          "bytes": 120288,
+          "seconds": 0.14
+        },
+        "lod2": {
+          "triangles": 3751,
+          "bytes": 120288,
+          "seconds": 0.18
+        },
+        "lod3": {
+          "triangles": 3751,
+          "bytes": 120288,
+          "seconds": 0.16
+        }
+      }
+    },
+    {
+      "name": "moor71-essentials2",
+      "src_bytes": 87288,
+      "lods": {
+        "lod0": {
+          "triangles": 1566,
+          "bytes": 39064,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 1034,
+          "bytes": 30808,
+          "seconds": 0.14
+        },
+        "lod2": {
+          "triangles": 1034,
+          "bytes": 30808,
+          "seconds": 0.17
+        },
+        "lod3": {
+          "triangles": 1034,
+          "bytes": 30808,
+          "seconds": 0.15
+        }
+      }
+    },
+    {
+      "name": "moor71-floor0",
+      "src_bytes": 2056,
+      "lods": {
+        "lod0": {
+          "triangles": 17,
+          "bytes": 1568,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 12,
+          "bytes": 1472,
+          "seconds": 0.1
+        },
+        "lod2": {
+          "triangles": 12,
+          "bytes": 1472,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 12,
+          "bytes": 1472,
+          "seconds": 0.09
+        }
+      }
+    },
+    {
+      "name": "moor71-floor1",
+      "src_bytes": 1492,
+      "lods": {
+        "lod0": {
+          "triangles": 4,
+          "bytes": 1296,
+          "seconds": 0.1
+        },
+        "lod1": {
+          "triangles": 4,
+          "bytes": 1296,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 4,
+          "bytes": 1296,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 4,
+          "bytes": 1296,
+          "seconds": 0.09
+        }
+      }
+    },
+    {
+      "name": "moor71-floor1edge",
+      "src_bytes": 1928,
+      "lods": {
+        "lod0": {
+          "triangles": 10,
+          "bytes": 1488,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 6,
+          "bytes": 1364,
+          "seconds": 0.1
+        },
+        "lod2": {
+          "triangles": 6,
+          "bytes": 1364,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 6,
+          "bytes": 1364,
+          "seconds": 0.14
+        }
+      }
+    },
+    {
+      "name": "moor71-interior",
+      "src_bytes": 14376,
+      "lods": {
+        "lod0": {
+          "triangles": 296,
+          "bytes": 7108,
+          "seconds": 0.12
+        },
+        "lod1": {
+          "triangles": 156,
+          "bytes": 4848,
+          "seconds": 0.17
+        },
+        "lod2": {
+          "triangles": 156,
+          "bytes": 4848,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 155,
+          "bytes": 4832,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moor71-interiorMASK",
+      "src_bytes": 12036,
+      "lods": {
+        "lod0": {
+          "triangles": 202,
+          "bytes": 5424,
+          "seconds": 0.08
+        },
+        "lod1": {
+          "triangles": 120,
+          "bytes": 4184,
+          "seconds": 0.09
+        },
+        "lod2": {
+          "triangles": 119,
+          "bytes": 4168,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 119,
+          "bytes": 4168,
+          "seconds": 0.1
+        }
+      }
+    },
+    {
+      "name": "moor71-x-0",
+      "src_bytes": 13460,
+      "lods": {
+        "lod0": {
+          "triangles": 284,
+          "bytes": 6768,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 142,
+          "bytes": 4292,
+          "seconds": 0.09
+        },
+        "lod2": {
+          "triangles": 82,
+          "bytes": 3248,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 82,
+          "bytes": 3248,
+          "seconds": 0.09
+        }
+      }
+    },
+    {
+      "name": "moor71-x-2",
+      "src_bytes": 42016,
+      "lods": {
+        "lod0": {
+          "triangles": 789,
+          "bytes": 17388,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 472,
+          "bytes": 12052,
+          "seconds": 0.16
+        },
+        "lod2": {
+          "triangles": 472,
+          "bytes": 12052,
+          "seconds": 0.14
+        },
+        "lod3": {
+          "triangles": 472,
+          "bytes": 12052,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moor71-x-e0",
+      "src_bytes": 4408,
+      "lods": {
+        "lod0": {
+          "triangles": 67,
+          "bytes": 2608,
+          "seconds": 0.08
+        },
+        "lod1": {
+          "triangles": 33,
+          "bytes": 1992,
+          "seconds": 0.09
+        },
+        "lod2": {
+          "triangles": 17,
+          "bytes": 1704,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 18,
+          "bytes": 1720,
+          "seconds": 0.09
+        }
+      }
+    },
+    {
+      "name": "moor71-x-e2",
+      "src_bytes": 51776,
+      "lods": {
+        "lod0": {
+          "triangles": 1276,
+          "bytes": 23876,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 638,
+          "bytes": 16216,
+          "seconds": 0.12
+        },
+        "lod2": {
+          "triangles": 597,
+          "bytes": 15612,
+          "seconds": 0.16
+        },
+        "lod3": {
+          "triangles": 597,
+          "bytes": 15612,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-base-needed",
+      "src_bytes": 170196,
+      "lods": {
+        "lod0": {
+          "triangles": 2534,
+          "bytes": 72776,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 1850,
+          "bytes": 57116,
+          "seconds": 0.16
+        },
+        "lod2": {
+          "triangles": 1850,
+          "bytes": 57116,
+          "seconds": 0.15
+        },
+        "lod3": {
+          "triangles": 1850,
+          "bytes": 57116,
+          "seconds": 0.15
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-base",
+      "src_bytes": 81396,
+      "lods": {
+        "lod0": {
+          "triangles": 1114,
+          "bytes": 34772,
+          "seconds": 0.1
+        },
+        "lod1": {
+          "triangles": 963,
+          "bytes": 32008,
+          "seconds": 0.12
+        },
+        "lod2": {
+          "triangles": 963,
+          "bytes": 32008,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 963,
+          "bytes": 32008,
+          "seconds": 0.15
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-base01",
+      "src_bytes": 190856,
+      "lods": {
+        "lod0": {
+          "triangles": 2843,
+          "bytes": 79868,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 2116,
+          "bytes": 63492,
+          "seconds": 0.17
+        },
+        "lod2": {
+          "triangles": 2116,
+          "bytes": 63492,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 2116,
+          "bytes": 63492,
+          "seconds": 0.15
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-base03",
+      "src_bytes": 193928,
+      "lods": {
+        "lod0": {
+          "triangles": 2843,
+          "bytes": 80432,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 2138,
+          "bytes": 64428,
+          "seconds": 0.16
+        },
+        "lod2": {
+          "triangles": 2138,
+          "bytes": 64428,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 2138,
+          "bytes": 64428,
+          "seconds": 0.15
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-base04",
+      "src_bytes": 148764,
+      "lods": {
+        "lod0": {
+          "triangles": 2227,
+          "bytes": 63976,
+          "seconds": 0.14
+        },
+        "lod1": {
+          "triangles": 1639,
+          "bytes": 50056,
+          "seconds": 0.18
+        },
+        "lod2": {
+          "triangles": 1639,
+          "bytes": 50056,
+          "seconds": 0.16
+        },
+        "lod3": {
+          "triangles": 1639,
+          "bytes": 50056,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-black1",
+      "src_bytes": 4520,
+      "lods": {
+        "lod0": {
+          "triangles": 67,
+          "bytes": 2628,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 33,
+          "bytes": 2024,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 33,
+          "bytes": 2024,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 33,
+          "bytes": 2024,
+          "seconds": 0.09
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-black2",
+      "src_bytes": 4500,
+      "lods": {
+        "lod0": {
+          "triangles": 80,
+          "bytes": 2716,
+          "seconds": 0.12
+        },
+        "lod1": {
+          "triangles": 40,
+          "bytes": 2020,
+          "seconds": 0.09
+        },
+        "lod2": {
+          "triangles": 28,
+          "bytes": 1816,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 28,
+          "bytes": 1816,
+          "seconds": 0.14
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-floor",
+      "src_bytes": 1736,
+      "lods": {
+        "lod0": {
+          "triangles": 5,
+          "bytes": 1376,
+          "seconds": 0.08
+        },
+        "lod1": {
+          "triangles": 4,
+          "bytes": 1328,
+          "seconds": 0.1
+        },
+        "lod2": {
+          "triangles": 4,
+          "bytes": 1328,
+          "seconds": 0.08
+        },
+        "lod3": {
+          "triangles": 4,
+          "bytes": 1328,
+          "seconds": 0.11
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-floor01",
+      "src_bytes": 1740,
+      "lods": {
+        "lod0": {
+          "triangles": 5,
+          "bytes": 1380,
+          "seconds": 0.08
+        },
+        "lod1": {
+          "triangles": 4,
+          "bytes": 1332,
+          "seconds": 0.11
+        },
+        "lod2": {
+          "triangles": 4,
+          "bytes": 1332,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 4,
+          "bytes": 1332,
+          "seconds": 0.12
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-floor03",
+      "src_bytes": 1740,
+      "lods": {
+        "lod0": {
+          "triangles": 5,
+          "bytes": 1376,
+          "seconds": 0.08
+        },
+        "lod1": {
+          "triangles": 4,
+          "bytes": 1328,
+          "seconds": 0.12
+        },
+        "lod2": {
+          "triangles": 4,
+          "bytes": 1328,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 4,
+          "bytes": 1328,
+          "seconds": 0.09
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-floor04",
+      "src_bytes": 1740,
+      "lods": {
+        "lod0": {
+          "triangles": 5,
+          "bytes": 1380,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 4,
+          "bytes": 1332,
+          "seconds": 0.09
+        },
+        "lod2": {
+          "triangles": 4,
+          "bytes": 1332,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 4,
+          "bytes": 1332,
+          "seconds": 0.09
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-floor1",
+      "src_bytes": 2180,
+      "lods": {
+        "lod0": {
+          "triangles": 10,
+          "bytes": 1560,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 8,
+          "bytes": 1476,
+          "seconds": 0.09
+        },
+        "lod2": {
+          "triangles": 8,
+          "bytes": 1476,
+          "seconds": 0.1
+        },
+        "lod3": {
+          "triangles": 8,
+          "bytes": 1476,
+          "seconds": 0.12
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-floor2",
+      "src_bytes": 2184,
+      "lods": {
+        "lod0": {
+          "triangles": 10,
+          "bytes": 1556,
+          "seconds": 0.08
+        },
+        "lod1": {
+          "triangles": 8,
+          "bytes": 1472,
+          "seconds": 0.11
+        },
+        "lod2": {
+          "triangles": 8,
+          "bytes": 1472,
+          "seconds": 0.1
+        },
+        "lod3": {
+          "triangles": 8,
+          "bytes": 1472,
+          "seconds": 0.08
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-floor3",
+      "src_bytes": 2184,
+      "lods": {
+        "lod0": {
+          "triangles": 10,
+          "bytes": 1556,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 8,
+          "bytes": 1472,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 8,
+          "bytes": 1472,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 8,
+          "bytes": 1472,
+          "seconds": 0.12
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-girderspikes",
+      "src_bytes": 52960,
+      "lods": {
+        "lod0": {
+          "triangles": 936,
+          "bytes": 24100,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 828,
+          "bytes": 22156,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 828,
+          "bytes": 22156,
+          "seconds": 0.16
+        },
+        "lod3": {
+          "triangles": 828,
+          "bytes": 22156,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-interior",
+      "src_bytes": 15056,
+      "lods": {
+        "lod0": {
+          "triangles": 264,
+          "bytes": 7000,
+          "seconds": 0.08
+        },
+        "lod1": {
+          "triangles": 211,
+          "bytes": 6120,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 211,
+          "bytes": 6120,
+          "seconds": 0.1
+        },
+        "lod3": {
+          "triangles": 211,
+          "bytes": 6120,
+          "seconds": 0.09
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-interior01",
+      "src_bytes": 6188,
+      "lods": {
+        "lod0": {
+          "triangles": 109,
+          "bytes": 3416,
+          "seconds": 0.08
+        },
+        "lod1": {
+          "triangles": 72,
+          "bytes": 2768,
+          "seconds": 0.12
+        },
+        "lod2": {
+          "triangles": 72,
+          "bytes": 2768,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 72,
+          "bytes": 2768,
+          "seconds": 0.12
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-interior03",
+      "src_bytes": 6744,
+      "lods": {
+        "lod0": {
+          "triangles": 100,
+          "bytes": 3584,
+          "seconds": 0.08
+        },
+        "lod1": {
+          "triangles": 61,
+          "bytes": 2908,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 61,
+          "bytes": 2908,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 61,
+          "bytes": 2908,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-interior04",
+      "src_bytes": 6836,
+      "lods": {
+        "lod0": {
+          "triangles": 100,
+          "bytes": 3600,
+          "seconds": 0.12
+        },
+        "lod1": {
+          "triangles": 67,
+          "bytes": 3020,
+          "seconds": 0.09
+        },
+        "lod2": {
+          "triangles": 67,
+          "bytes": 3020,
+          "seconds": 0.08
+        },
+        "lod3": {
+          "triangles": 67,
+          "bytes": 3020,
+          "seconds": 0.09
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-interiorMASK",
+      "src_bytes": 6856,
+      "lods": {
+        "lod0": {
+          "triangles": 113,
+          "bytes": 3352,
+          "seconds": 0.12
+        },
+        "lod1": {
+          "triangles": 71,
+          "bytes": 2680,
+          "seconds": 0.09
+        },
+        "lod2": {
+          "triangles": 71,
+          "bytes": 2680,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 71,
+          "bytes": 2680,
+          "seconds": 0.1
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-needed0",
+      "src_bytes": 159168,
+      "lods": {
+        "lod0": {
+          "triangles": 2336,
+          "bytes": 67652,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 1741,
+          "bytes": 54148,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 1741,
+          "bytes": 54148,
+          "seconds": 0.14
+        },
+        "lod3": {
+          "triangles": 1741,
+          "bytes": 54148,
+          "seconds": 0.14
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-needed1",
+      "src_bytes": 28240,
+      "lods": {
+        "lod0": {
+          "triangles": 760,
+          "bytes": 13896,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 380,
+          "bytes": 8472,
+          "seconds": 0.15
+        },
+        "lod2": {
+          "triangles": 264,
+          "bytes": 6380,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 262,
+          "bytes": 6344,
+          "seconds": 0.14
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-needed2",
+      "src_bytes": 168860,
+      "lods": {
+        "lod0": {
+          "triangles": 2270,
+          "bytes": 72496,
+          "seconds": 0.1
+        },
+        "lod1": {
+          "triangles": 2125,
+          "bytes": 69792,
+          "seconds": 0.15
+        },
+        "lod2": {
+          "triangles": 2125,
+          "bytes": 69792,
+          "seconds": 0.14
+        },
+        "lod3": {
+          "triangles": 2125,
+          "bytes": 69792,
+          "seconds": 0.14
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-needed3",
+      "src_bytes": 87288,
+      "lods": {
+        "lod0": {
+          "triangles": 1566,
+          "bytes": 39064,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 1034,
+          "bytes": 30808,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 1034,
+          "bytes": 30808,
+          "seconds": 0.14
+        },
+        "lod3": {
+          "triangles": 1034,
+          "bytes": 30808,
+          "seconds": 0.18
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-spikes",
+      "src_bytes": 55236,
+      "lods": {
+        "lod0": {
+          "triangles": 1520,
+          "bytes": 26596,
+          "seconds": 0.1
+        },
+        "lod1": {
+          "triangles": 760,
+          "bytes": 15744,
+          "seconds": 0.15
+        },
+        "lod2": {
+          "triangles": 528,
+          "bytes": 11568,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 534,
+          "bytes": 11676,
+          "seconds": 0.15
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-stairs",
+      "src_bytes": 65016,
+      "lods": {
+        "lod0": {
+          "triangles": 814,
+          "bytes": 27872,
+          "seconds": 0.08
+        },
+        "lod1": {
+          "triangles": 791,
+          "bytes": 27460,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 791,
+          "bytes": 27460,
+          "seconds": 0.14
+        },
+        "lod3": {
+          "triangles": 791,
+          "bytes": 27460,
+          "seconds": 0.16
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-upper-needed",
+      "src_bytes": 228268,
+      "lods": {
+        "lod0": {
+          "triangles": 3092,
+          "bytes": 97856,
+          "seconds": 0.14
+        },
+        "lod1": {
+          "triangles": 2893,
+          "bytes": 94180,
+          "seconds": 0.14
+        },
+        "lod2": {
+          "triangles": 2893,
+          "bytes": 94180,
+          "seconds": 0.16
+        },
+        "lod3": {
+          "triangles": 2893,
+          "bytes": 94180,
+          "seconds": 0.16
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-upper",
+      "src_bytes": 13896,
+      "lods": {
+        "lod0": {
+          "triangles": 221,
+          "bytes": 6448,
+          "seconds": 0.1
+        },
+        "lod1": {
+          "triangles": 145,
+          "bytes": 5052,
+          "seconds": 0.09
+        },
+        "lod2": {
+          "triangles": 145,
+          "bytes": 5052,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 145,
+          "bytes": 5052,
+          "seconds": 0.09
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-upper01",
+      "src_bytes": 344200,
+      "lods": {
+        "lod0": {
+          "triangles": 4484,
+          "bytes": 145896,
+          "seconds": 0.1
+        },
+        "lod1": {
+          "triangles": 4217,
+          "bytes": 140956,
+          "seconds": 0.16
+        },
+        "lod2": {
+          "triangles": 4217,
+          "bytes": 140956,
+          "seconds": 0.14
+        },
+        "lod3": {
+          "triangles": 4217,
+          "bytes": 140956,
+          "seconds": 0.15
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-upper03",
+      "src_bytes": 215736,
+      "lods": {
+        "lod0": {
+          "triangles": 3010,
+          "bytes": 92216,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 2376,
+          "bytes": 81464,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 2376,
+          "bytes": 81464,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 2376,
+          "bytes": 81464,
+          "seconds": 0.17
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-upper04",
+      "src_bytes": 177484,
+      "lods": {
+        "lod0": {
+          "triangles": 2203,
+          "bytes": 75408,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 2089,
+          "bytes": 73308,
+          "seconds": 0.14
+        },
+        "lod2": {
+          "triangles": 2089,
+          "bytes": 73308,
+          "seconds": 0.14
+        },
+        "lod3": {
+          "triangles": 2089,
+          "bytes": 73308,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-upper2",
+      "src_bytes": 23240,
+      "lods": {
+        "lod0": {
+          "triangles": 392,
+          "bytes": 10440,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 223,
+          "bytes": 7400,
+          "seconds": 0.12
+        },
+        "lod2": {
+          "triangles": 223,
+          "bytes": 7400,
+          "seconds": 0.11
+        },
+        "lod3": {
+          "triangles": 223,
+          "bytes": 7400,
+          "seconds": 0.12
+        }
+      }
+    },
+    {
+      "name": "moorhouse01-upper3",
+      "src_bytes": 116104,
+      "lods": {
+        "lod0": {
+          "triangles": 1403,
+          "bytes": 49288,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 1300,
+          "bytes": 47444,
+          "seconds": 0.16
+        },
+        "lod2": {
+          "triangles": 1300,
+          "bytes": 47444,
+          "seconds": 0.15
+        },
+        "lod3": {
+          "triangles": 1300,
+          "bytes": 47444,
+          "seconds": 0.16
+        }
+      }
+    },
+    {
+      "name": "moorhouse01",
+      "src_bytes": 705712,
+      "lods": {
+        "lod0": {
+          "triangles": 9639,
+          "bytes": 298656,
+          "seconds": 0.12
+        },
+        "lod1": {
+          "triangles": 7712,
+          "bytes": 247816,
+          "seconds": 0.17
+        },
+        "lod2": {
+          "triangles": 7712,
+          "bytes": 247816,
+          "seconds": 0.15
+        },
+        "lod3": {
+          "triangles": 7712,
+          "bytes": 247816,
+          "seconds": 0.17
+        }
+      }
+    },
+    {
+      "name": "moorhouse01_Int_-upper-Floor",
+      "src_bytes": 4868,
+      "lods": {
+        "lod0": {
+          "triangles": 64,
+          "bytes": 2780,
+          "seconds": 0.08
+        },
+        "lod1": {
+          "triangles": 50,
+          "bytes": 2524,
+          "seconds": 0.08
+        },
+        "lod2": {
+          "triangles": 50,
+          "bytes": 2524,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 50,
+          "bytes": 2524,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moorhouse01_Int_Staircase",
+      "src_bytes": 8652,
+      "lods": {
+        "lod0": {
+          "triangles": 134,
+          "bytes": 4476,
+          "seconds": 0.12
+        },
+        "lod1": {
+          "triangles": 132,
+          "bytes": 4440,
+          "seconds": 0.11
+        },
+        "lod2": {
+          "triangles": 132,
+          "bytes": 4440,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 132,
+          "bytes": 4440,
+          "seconds": 0.09
+        }
+      }
+    },
+    {
+      "name": "moorhouse02-base-essentials",
+      "src_bytes": 200028,
+      "lods": {
+        "lod0": {
+          "triangles": 3093,
+          "bytes": 86120,
+          "seconds": 0.12
+        },
+        "lod1": {
+          "triangles": 2488,
+          "bytes": 74892,
+          "seconds": 0.14
+        },
+        "lod2": {
+          "triangles": 2488,
+          "bytes": 74892,
+          "seconds": 0.17
+        },
+        "lod3": {
+          "triangles": 2488,
+          "bytes": 74892,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moorhouse02-base",
+      "src_bytes": 24704,
+      "lods": {
+        "lod0": {
+          "triangles": 449,
+          "bytes": 11400,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 224,
+          "bytes": 7344,
+          "seconds": 0.12
+        },
+        "lod2": {
+          "triangles": 215,
+          "bytes": 7136,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 216,
+          "bytes": 7152,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moorhouse02-black1",
+      "src_bytes": 8272,
+      "lods": {
+        "lod0": {
+          "triangles": 111,
+          "bytes": 3980,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 55,
+          "bytes": 3016,
+          "seconds": 0.09
+        },
+        "lod2": {
+          "triangles": 50,
+          "bytes": 2900,
+          "seconds": 0.08
+        },
+        "lod3": {
+          "triangles": 50,
+          "bytes": 2900,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moorhouse02-dome-copper",
+      "src_bytes": 19364,
+      "lods": {
+        "lod0": {
+          "triangles": 736,
+          "bytes": 10240,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 368,
+          "bytes": 5824,
+          "seconds": 0.16
+        },
+        "lod2": {
+          "triangles": 146,
+          "bytes": 3152,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 80,
+          "bytes": 2360,
+          "seconds": 0.15
+        }
+      }
+    },
+    {
+      "name": "moorhouse02-dome-copper05",
+      "src_bytes": 19372,
+      "lods": {
+        "lod0": {
+          "triangles": 736,
+          "bytes": 10236,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 368,
+          "bytes": 5820,
+          "seconds": 0.11
+        },
+        "lod2": {
+          "triangles": 146,
+          "bytes": 3148,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 106,
+          "bytes": 2668,
+          "seconds": 0.15
+        }
+      }
+    },
+    {
+      "name": "moorhouse02-dome-copper06",
+      "src_bytes": 19372,
+      "lods": {
+        "lod0": {
+          "triangles": 736,
+          "bytes": 10236,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 368,
+          "bytes": 5820,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 146,
+          "bytes": 3152,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 110,
+          "bytes": 2716,
+          "seconds": 0.15
+        }
+      }
+    },
+    {
+      "name": "moorhouse02-essentials1",
+      "src_bytes": 108544,
+      "lods": {
+        "lod0": {
+          "triangles": 1614,
+          "bytes": 47120,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 1432,
+          "bytes": 43412,
+          "seconds": 0.16
+        },
+        "lod2": {
+          "triangles": 1432,
+          "bytes": 43412,
+          "seconds": 0.19
+        },
+        "lod3": {
+          "triangles": 1432,
+          "bytes": 43412,
+          "seconds": 0.12
+        }
+      }
+    },
+    {
+      "name": "moorhouse02-floor2",
+      "src_bytes": 2184,
+      "lods": {
+        "lod0": {
+          "triangles": 10,
+          "bytes": 1584,
+          "seconds": 0.12
+        },
+        "lod1": {
+          "triangles": 10,
+          "bytes": 1584,
+          "seconds": 0.1
+        },
+        "lod2": {
+          "triangles": 10,
+          "bytes": 1584,
+          "seconds": 0.09
+        },
+        "lod3": {
+          "triangles": 10,
+          "bytes": 1584,
+          "seconds": 0.12
+        }
+      }
+    },
+    {
+      "name": "moorhouse02-interior",
+      "src_bytes": 13076,
+      "lods": {
+        "lod0": {
+          "triangles": 297,
+          "bytes": 6548,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 148,
+          "bytes": 4512,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 87,
+          "bytes": 3500,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 88,
+          "bytes": 3516,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moorhouse02-interiorMASK",
+      "src_bytes": 14264,
+      "lods": {
+        "lod0": {
+          "triangles": 301,
+          "bytes": 6692,
+          "seconds": 0.08
+        },
+        "lod1": {
+          "triangles": 149,
+          "bytes": 4592,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 92,
+          "bytes": 3636,
+          "seconds": 0.17
+        },
+        "lod3": {
+          "triangles": 92,
+          "bytes": 3636,
+          "seconds": 0.14
+        }
+      }
+    },
+    {
+      "name": "moorhouse02-spikes",
+      "src_bytes": 12160,
+      "lods": {
+        "lod0": {
+          "triangles": 252,
+          "bytes": 6072,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 252,
+          "bytes": 6072,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 252,
+          "bytes": 6072,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 252,
+          "bytes": 6072,
+          "seconds": 0.1
+        }
+      }
+    },
+    {
+      "name": "moorhouse02-steps",
+      "src_bytes": 60792,
+      "lods": {
+        "lod0": {
+          "triangles": 800,
+          "bytes": 25952,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 771,
+          "bytes": 25432,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 771,
+          "bytes": 25432,
+          "seconds": 0.13
+        },
+        "lod3": {
+          "triangles": 771,
+          "bytes": 25432,
+          "seconds": 0.16
+        }
+      }
+    },
+    {
+      "name": "moorhouse02-upper2",
+      "src_bytes": 209560,
+      "lods": {
+        "lod0": {
+          "triangles": 2776,
+          "bytes": 88060,
+          "seconds": 0.11
+        },
+        "lod1": {
+          "triangles": 2463,
+          "bytes": 82392,
+          "seconds": 0.14
+        },
+        "lod2": {
+          "triangles": 2463,
+          "bytes": 82392,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 2463,
+          "bytes": 82392,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moorhouse02",
+      "src_bytes": 36092,
+      "lods": {
+        "lod0": {
+          "triangles": 651,
+          "bytes": 15528,
+          "seconds": 0.11
+        },
+        "lod1": {
+          "triangles": 325,
+          "bytes": 9584,
+          "seconds": 0.16
+        },
+        "lod2": {
+          "triangles": 274,
+          "bytes": 8568,
+          "seconds": 0.14
+        },
+        "lod3": {
+          "triangles": 274,
+          "bytes": 8568,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moorhouse03-spikes",
+      "src_bytes": 32840,
+      "lods": {
+        "lod0": {
+          "triangles": 572,
+          "bytes": 15192,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 506,
+          "bytes": 14004,
+          "seconds": 0.16
+        },
+        "lod2": {
+          "triangles": 506,
+          "bytes": 14004,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 506,
+          "bytes": 14004,
+          "seconds": 0.13
+        }
+      }
+    },
+    {
+      "name": "moorhouse03",
+      "src_bytes": 92212,
+      "lods": {
+        "lod0": {
+          "triangles": 1504,
+          "bytes": 39104,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 1184,
+          "bytes": 34676,
+          "seconds": 0.15
+        },
+        "lod2": {
+          "triangles": 1184,
+          "bytes": 34676,
+          "seconds": 0.19
+        },
+        "lod3": {
+          "triangles": 1184,
+          "bytes": 34676,
+          "seconds": 0.15
+        }
+      }
+    },
+    {
+      "name": "moorhouse04",
+      "src_bytes": 111652,
+      "lods": {
+        "lod0": {
+          "triangles": 2018,
+          "bytes": 48756,
+          "seconds": 0.12
+        },
+        "lod1": {
+          "triangles": 1601,
+          "bytes": 41992,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 1601,
+          "bytes": 41992,
+          "seconds": 0.14
+        },
+        "lod3": {
+          "triangles": 1601,
+          "bytes": 41992,
+          "seconds": 0.15
+        }
+      }
+    },
+    {
+      "name": "moorhouse05tower-spikes",
+      "src_bytes": 35720,
+      "lods": {
+        "lod0": {
+          "triangles": 624,
+          "bytes": 16464,
+          "seconds": 0.1
+        },
+        "lod1": {
+          "triangles": 552,
+          "bytes": 15168,
+          "seconds": 0.17
+        },
+        "lod2": {
+          "triangles": 552,
+          "bytes": 15168,
+          "seconds": 0.15
+        },
+        "lod3": {
+          "triangles": 552,
+          "bytes": 15168,
+          "seconds": 0.17
+        }
+      }
+    },
+    {
+      "name": "moorhouse05tower",
+      "src_bytes": 71548,
+      "lods": {
+        "lod0": {
+          "triangles": 2554,
+          "bytes": 36416,
+          "seconds": 0.13
+        },
+        "lod1": {
+          "triangles": 1276,
+          "bytes": 20076,
+          "seconds": 0.13
+        },
+        "lod2": {
+          "triangles": 630,
+          "bytes": 11360,
+          "seconds": 0.15
+        },
+        "lod3": {
+          "triangles": 622,
+          "bytes": 11264,
+          "seconds": 0.15
+        }
+      }
+    },
+    {
+      "name": "moorhouse06-base",
+      "src_bytes": 43592,
+      "lods": {
+        "lod0": {
+          "triangles": 659,
+          "bytes": 18920,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 538,
+          "bytes": 16800,
+          "seconds": 0.12
+        },
+        "lod2": {
+          "triangles": 538,
+          "bytes": 16800,
+          "seconds": 0.11
+        },
+        "lod3": {
+          "triangles": 538,
+          "bytes": 16800,
+          "seconds": 0.15
+        }
+      }
+    },
+    {
+      "name": "moorhouse06-porch",
+      "src_bytes": 200980,
+      "lods": {
+        "lod0": {
+          "triangles": 3592,
+          "bytes": 76140,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 2524,
+          "bytes": 56916,
+          "seconds": 0.15
+        },
+        "lod2": {
+          "triangles": 2524,
+          "bytes": 56916,
+          "seconds": 0.16
+        },
+        "lod3": {
+          "triangles": 2524,
+          "bytes": 56916,
+          "seconds": 0.14
+        }
+      }
+    },
+    {
+      "name": "moorhouse06",
+      "src_bytes": 481376,
+      "lods": {
+        "lod0": {
+          "triangles": 6341,
+          "bytes": 203856,
+          "seconds": 0.14
+        },
+        "lod1": {
+          "triangles": 4482,
+          "bytes": 147912,
+          "seconds": 0.16
+        },
+        "lod2": {
+          "triangles": 4482,
+          "bytes": 147912,
+          "seconds": 0.18
+        },
+        "lod3": {
+          "triangles": 4482,
+          "bytes": 147912,
+          "seconds": 0.14
+        }
+      }
+    },
+    {
+      "name": "moorstairs",
+      "src_bytes": 14468,
+      "lods": {
+        "lod0": {
+          "triangles": 297,
+          "bytes": 6948,
+          "seconds": 0.09
+        },
+        "lod1": {
+          "triangles": 189,
+          "bytes": 5160,
+          "seconds": 0.08
+        },
+        "lod2": {
+          "triangles": 189,
+          "bytes": 5160,
+          "seconds": 0.12
+        },
+        "lod3": {
+          "triangles": 189,
+          "bytes": 5160,
+          "seconds": 0.11
+        }
+      }
+    }
+  ]
+}
