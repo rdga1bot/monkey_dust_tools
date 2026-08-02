@@ -154,6 +154,15 @@ CmdResult SpawnEntityCmd(const CmdArgs& args, MdRegistry& reg, uint8_t[64]) {
     ai.faction_id = (uint32_t)faction;
     reg.Handle(e).emplace<Health>(Health{100.f, 100.f});
     reg.Handle(e).emplace<Combat>(Combat::MakeBandit());
+    // Phase 3 (EDITOR_AUTOMATION_PLAN_v1.md agent authoring layer): select
+    // the new entity so md.editor.selection()[1] gives its id right after
+    // exec — the authoring library (scripts/authoring/) needs the spawned
+    // id to Add Component onto it (e.g. nav_agent), and there was no other
+    // way to get it back through CmdResult's plain msg string. Matches
+    // DuplicateSelectedCmd's existing ec.Select(dst) precedent — spawning
+    // commands selecting their result is already this codebase's norm, not
+    // a new convention invented for this.
+    EditorCore::Get().Select(e);
     CmdResult r;
     snprintf(r.msg, sizeof(r.msg), "Spawned entity faction=%lld at (%.1f,%.1f)", (long long)faction, cx, cz);
     return r;
@@ -226,6 +235,80 @@ CmdResult FpsQueryCmd(const CmdArgs&, MdRegistry&, uint8_t[64]) {
     return r;
 }
 
+// Phase 3 (EDITOR_AUTOMATION_PLAN_v1.md agent authoring layer): named
+// camera positions so an authoring script can jump to a consistent framing
+// before md.editor.capture() — referenced directly in the plan's own text
+// ("registered camera bookmarks (md.editor.exec('Camera Bookmark', ...)")
+// but that single-command dual-purpose (save-or-goto) design doesn't fit
+// CmdSchema's fixed-required-args shape cleanly, so this is two commands
+// instead: Save/Goto. Fixed, no-heap slot table (MAX_BOOKMARKS), matching
+// this project's array-not-container convention — oldest-name-wins is not
+// implemented (a full slot table is a real, if unlikely, limitation for a
+// script bookmarking more than MAX_BOOKMARKS distinct names).
+namespace {
+constexpr int MAX_BOOKMARKS = 16;
+struct CameraBookmark {
+    char name[32] = {};
+    float x = 0.f, y = 0.f, z = 0.f, yaw = 0.f, pitch = 0.f;
+    bool used = false;
+};
+CameraBookmark s_bookmarks[MAX_BOOKMARKS];
+
+CameraBookmark* FindBookmark(const char* name) {
+    for (int i = 0; i < MAX_BOOKMARKS; ++i) {
+        if (s_bookmarks[i].used && strncmp(s_bookmarks[i].name, name, sizeof(s_bookmarks[i].name)) == 0) {
+            return &s_bookmarks[i];
+        }
+    }
+    return nullptr;
+}
+} // namespace
+
+// args: [0]=name(str)
+CmdResult SaveCameraBookmarkCmd(const CmdArgs& args, MdRegistry&, uint8_t[64]) {
+    const char* name = args.values[0].str;
+    CameraBookmark* bm = FindBookmark(name);
+    if (!bm) {
+        for (int i = 0; i < MAX_BOOKMARKS; ++i) {
+            if (!s_bookmarks[i].used) { bm = &s_bookmarks[i]; break; }
+        }
+    }
+    CmdResult r;
+    if (!bm) {
+        r.ok = false;
+        snprintf(r.msg, sizeof(r.msg), "No free bookmark slots (max %d)", MAX_BOOKMARKS);
+        return r;
+    }
+    auto& ec = EditorCore::Get();
+    strncpy(bm->name, name, sizeof(bm->name) - 1);
+    bm->name[sizeof(bm->name) - 1] = '\0';
+    bm->x = ec.cam_target.x; bm->y = ec.cam_target.y; bm->z = ec.cam_target.z;
+    bm->yaw = ec.cam_yaw; bm->pitch = ec.cam_pitch;
+    bm->used = true;
+    snprintf(r.msg, sizeof(r.msg), "Saved camera bookmark '%s'", name);
+    return r;
+}
+
+// args: [0]=name(str)
+CmdResult GotoCameraBookmarkCmd(const CmdArgs& args, MdRegistry&, uint8_t[64]) {
+    const char* name = args.values[0].str;
+    CameraBookmark* bm = FindBookmark(name);
+    CmdResult r;
+    if (!bm) {
+        r.ok = false;
+        snprintf(r.msg, sizeof(r.msg), "Unknown camera bookmark: %s", name);
+        return r;
+    }
+    auto& ec = EditorCore::Get();
+    ec.cam_target.x = bm->x;
+    ec.cam_target.y = bm->y;
+    ec.cam_target.z = bm->z;
+    ec.cam_yaw = bm->yaw;
+    ec.cam_pitch = bm->pitch;
+    snprintf(r.msg, sizeof(r.msg), "Moved camera to bookmark '%s'", name);
+    return r;
+}
+
 // args: [0]=entity_id(entity), [1]=component_name(str) — matches
 // EcsReflectBridge::Desc(i).name (snake_case reflect name, not the
 // PascalCase flecs type name used internally for ecs_lookup()).
@@ -293,6 +376,10 @@ void RegisterStdEditorCommands(uint32_t owner_module_id) {
     static CmdSchema kAddComponentSchema{
         { {"entity_id", CmdArgType::Entity}, {"component_name", CmdArgType::Str} }, 2, true };
     cmds.Register("Add Component", AddComponentCmd, nullptr, nullptr, kAddComponentSchema, owner_module_id);
+
+    static CmdSchema kCameraBookmarkSchema{ { {"name", CmdArgType::Str} }, 1, true };
+    cmds.Register("Save Camera Bookmark", SaveCameraBookmarkCmd, nullptr, nullptr, kCameraBookmarkSchema, owner_module_id);
+    cmds.Register("Goto Camera Bookmark", GotoCameraBookmarkCmd, nullptr, nullptr, kCameraBookmarkSchema, owner_module_id);
 }
 
 CmdResult DispatchEditorCmd(const char* name, const CmdArgs& args) {
