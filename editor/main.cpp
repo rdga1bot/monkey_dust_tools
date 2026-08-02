@@ -42,7 +42,11 @@
 #endif
 #include "editor_layout.h"
 #include "bug_capture.h"
+#ifdef MD_UI_TESTS
+#include "ui_smoke_tests.h"
+#endif
 #include <cstdio>
+#include <cstring>
 
 // ── Hot-reload: called by /reload-shaders console command ─────────────────────
 void EditorReloadAllShaderPipelines() {
@@ -79,6 +83,13 @@ float s_overlay_top = 0.f;
 int main(int argc, char** argv) {
     EditorScenarioConfig scenario_cfg;
     if (!ParseEditorScenarioArgs(argc, argv, scenario_cfg)) return 1;
+
+#ifdef MD_UI_TESTS
+    bool ui_tests_requested = false;
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--ui-tests") == 0) { ui_tests_requested = true; break; }
+    }
+#endif
 
     const char* ov = getenv("MD_OVERLAY_TOP_OFFSET");
     if (ov) s_overlay_top = (float)atof(ov);
@@ -182,6 +193,18 @@ int main(int argc, char** argv) {
     // both the panels .so and the game binary.
     static constexpr uint32_t kNonHotReloadModuleId = 3;
     RegisterStdEditorCommands(kNonHotReloadModuleId);
+#endif
+
+#ifdef MD_UI_TESTS
+    // Phase 5: bypasses EditorModule/dlopen entirely — calls
+    // editor_panels_init/build_ui/render/shutdown directly (see
+    // ui_smoke_tests.h's doc comment for why). Assumes
+    // MONKEY_DUST_EDITOR_HOT_RELOAD is also on (the default) so this is
+    // the ONLY thing that calls editor_panels_init this run; MD_UI_TESTS
+    // is not supported combined with a non-hot-reload build.
+    if (ui_tests_requested) {
+        return RunUiSmokeTests(gpu, sc_fmt, s_overlay_top, LAYOUT_PATH);
+    }
 #endif
 
 #ifdef MONKEY_DUST_EDITOR_HOT_RELOAD
