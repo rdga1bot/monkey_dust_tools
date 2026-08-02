@@ -1,0 +1,1809 @@
+{
+  "ok": 200,
+  "skipped": 0,
+  "failed": 0,
+  "total": 200,
+  "pct_ok": 100.0,
+  "entries": [
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\71\\moor-71-0.mesh",
+      "name": "moor-71-0",
+      "seconds": 1.21,
+      "src_bytes": 289846,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 132420
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\71\\moor71-1.mesh",
+      "name": "moor71-1",
+      "seconds": 1.51,
+      "src_bytes": 368662,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 207736
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\71\\moor71-2.mesh",
+      "name": "moor71-2",
+      "seconds": 1.07,
+      "src_bytes": 200668,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 115804
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\71\\moor71-black1.mesh",
+      "name": "moor71-black1",
+      "seconds": 0.2,
+      "src_bytes": 21364,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 8768
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\71\\moor71-essentials0.mesh",
+      "name": "moor71-essentials0",
+      "seconds": 4.28,
+      "src_bytes": 966244,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 439816
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\71\\moor71-essentials1.mesh",
+      "name": "moor71-essentials1",
+      "seconds": 2.92,
+      "src_bytes": 617338,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 306092
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\71\\moor71-essentials2.mesh",
+      "name": "moor71-essentials2",
+      "seconds": 1.62,
+      "src_bytes": 224974,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 87288
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\71\\moor71-floor0.mesh",
+      "name": "moor71-floor0",
+      "seconds": 0.04,
+      "src_bytes": 2722,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 2056
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\71\\moor71-floor1edge.mesh",
+      "name": "moor71-floor1edge",
+      "seconds": 0.03,
+      "src_bytes": 1726,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 1928
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\71\\moor71-floor1.mesh",
+      "name": "moor71-floor1",
+      "seconds": 0.03,
+      "src_bytes": 856,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 1492
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\71\\moor71-interior.mesh",
+      "name": "moor71-interior",
+      "seconds": 0.18,
+      "src_bytes": 43162,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 14376
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\71\\moor71-x-0.mesh",
+      "name": "moor71-x-0",
+      "seconds": 0.18,
+      "src_bytes": 41374,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 13460
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\71\\moor71-x-2.mesh",
+      "name": "moor71-x-2",
+      "seconds": 0.64,
+      "src_bytes": 114251,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 42016
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\71\\moor71-x-e0.mesh",
+      "name": "moor71-x-e0",
+      "seconds": 0.05,
+      "src_bytes": 10636,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 4408
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\71\\moor71-x-e2.mesh",
+      "name": "moor71-x-e2",
+      "seconds": 0.93,
+      "src_bytes": 182998,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 51776
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\moor27-0.mesh",
+      "name": "moor27-0",
+      "seconds": 1.39,
+      "src_bytes": 336515,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 163764
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\moor27-1.mesh",
+      "name": "moor27-1",
+      "seconds": 1.86,
+      "src_bytes": 247673,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 126336
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\moor27-2.mesh",
+      "name": "moor27-2",
+      "seconds": 1.68,
+      "src_bytes": 398542,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 209540
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\moor27-black1.mesh",
+      "name": "moor27-black1",
+      "seconds": 0.15,
+      "src_bytes": 16258,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 8264
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\moor27-essentials0.mesh",
+      "name": "moor27-essentials0",
+      "seconds": 3.75,
+      "src_bytes": 780430,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 360540
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\moor27-essentials1.mesh",
+      "name": "moor27-essentials1",
+      "seconds": 2.72,
+      "src_bytes": 338326,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 172084
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\moor27-essentials2.mesh",
+      "name": "moor27-essentials2",
+      "seconds": 1.27,
+      "src_bytes": 231784,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 108532
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\moor27-floor0bits.mesh",
+      "name": "moor27-floor0bits",
+      "seconds": 0.05,
+      "src_bytes": 10181,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 6520
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\moor27-floor0.mesh",
+      "name": "moor27-floor0",
+      "seconds": 0.03,
+      "src_bytes": 3010,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 2644
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\moor27-floor1.mesh",
+      "name": "moor27-floor1",
+      "seconds": 0.02,
+      "src_bytes": 1726,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 2172
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\moor27-interiorMASK.mesh",
+      "name": "moor27-interiorMASK",
+      "seconds": 0.19,
+      "src_bytes": 52607,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 18492
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\moor27-interior.mesh",
+      "name": "moor27-interior",
+      "seconds": 0.19,
+      "src_bytes": 57334,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 17896
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\moor27-xta-black2.mesh",
+      "name": "moor27-xta-black2",
+      "seconds": 0.05,
+      "src_bytes": 9484,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 4820
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\moor27-xta-dome3.mesh",
+      "name": "moor27-xta-dome3",
+      "seconds": 0.63,
+      "src_bytes": 106594,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 19352
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\moor27-xta-essentials2.mesh",
+      "name": "moor27-xta-essentials2",
+      "seconds": 0.28,
+      "src_bytes": 51346,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 25168
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\moor27-xta-essentials3.mesh",
+      "name": "moor27-xta-essentials3",
+      "seconds": 1.29,
+      "src_bytes": 347794,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 154412
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\moor27-xta-floor2.mesh",
+      "name": "moor27-xta-floor2",
+      "seconds": 0.03,
+      "src_bytes": 1006,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 1736
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\moor27-xta-interior2.mesh",
+      "name": "moor27-xta-interior2",
+      "seconds": 0.06,
+      "src_bytes": 7222,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 3220
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\moor27-xtra2.mesh",
+      "name": "moor27-xtra2",
+      "seconds": 0.41,
+      "src_bytes": 46840,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 18276
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\moor27-xtra3.mesh",
+      "name": "moor27-xtra3",
+      "seconds": 1.69,
+      "src_bytes": 337246,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 185048
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\combos\\moor71-interiorMASK.mesh",
+      "name": "moor71-interiorMASK",
+      "seconds": 0.41,
+      "src_bytes": 29831,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 12036
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor02-from01.mesh",
+      "name": "moor02-from01",
+      "seconds": 0.08,
+      "src_bytes": 21718,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 10412
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor03-base.mesh",
+      "name": "moor03-base",
+      "seconds": 0.11,
+      "src_bytes": 34858,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 13324
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor03-dome.mesh",
+      "name": "moor03-dome",
+      "seconds": 0.45,
+      "src_bytes": 106384,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 19344
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor03-floor.mesh",
+      "name": "moor03-floor",
+      "seconds": 0.02,
+      "src_bytes": 868,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 1424
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor03-interior.mesh",
+      "name": "moor03-interior",
+      "seconds": 0.16,
+      "src_bytes": 47902,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 14288
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor03-spikes1.mesh",
+      "name": "moor03-spikes1",
+      "seconds": 0.15,
+      "src_bytes": 36520,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 12152
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor03-stairs.mesh",
+      "name": "moor03-stairs",
+      "seconds": 0.44,
+      "src_bytes": 85924,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 27712
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor03-upper.mesh",
+      "name": "moor03-upper",
+      "seconds": 0.16,
+      "src_bytes": 45784,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 18836
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor04-base.mesh",
+      "name": "moor04-base",
+      "seconds": 0.22,
+      "src_bytes": 25276,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 8252
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor04-base-stairs.mesh",
+      "name": "moor04-base-stairs",
+      "seconds": 0.69,
+      "src_bytes": 154486,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 68864
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor04-basextra-stairs02.mesh",
+      "name": "moor04-basextra-stairs02",
+      "seconds": 0.29,
+      "src_bytes": 43114,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 13664
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor04-basextra-stairs.mesh",
+      "name": "moor04-basextra-stairs",
+      "seconds": 0.31,
+      "src_bytes": 37732,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 12988
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor04-essentials0.mesh",
+      "name": "moor04-essentials0",
+      "seconds": 0.03,
+      "src_bytes": 3130,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 2420
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor04-floor.mesh",
+      "name": "moor04-floor",
+      "seconds": 0.03,
+      "src_bytes": 1006,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 1464
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor04-interiorMASK.mesh",
+      "name": "moor04-interiorMASK",
+      "seconds": 0.35,
+      "src_bytes": 37157,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 12204
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor04-interior.mesh",
+      "name": "moor04-interior",
+      "seconds": 0.14,
+      "src_bytes": 37192,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 11624
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor04-rails.mesh",
+      "name": "moor04-rails",
+      "seconds": 0.77,
+      "src_bytes": 175180,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 68212
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor04-spikes01.mesh",
+      "name": "moor04-spikes01",
+      "seconds": 0.43,
+      "src_bytes": 89008,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 36744
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor04-spikes.mesh",
+      "name": "moor04-spikes",
+      "seconds": 0.28,
+      "src_bytes": 31294,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 10592
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor04-upperxtra-stairs.mesh",
+      "name": "moor04-upperxtra-stairs",
+      "seconds": 0.48,
+      "src_bytes": 45268,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 14984
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor05-base0.mesh",
+      "name": "moor05-base0",
+      "seconds": 0.21,
+      "src_bytes": 60029,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 24976
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor05-black1.mesh",
+      "name": "moor05-black1",
+      "seconds": 0.22,
+      "src_bytes": 66706,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 15384
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor05-black2.mesh",
+      "name": "moor05-black2",
+      "seconds": 0.26,
+      "src_bytes": 20110,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 6532
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor05-black3.mesh",
+      "name": "moor05-black3",
+      "seconds": 0.06,
+      "src_bytes": 17200,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 5804
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor05-dome-copper.mesh",
+      "name": "moor05-dome-copper",
+      "seconds": 0.33,
+      "src_bytes": 106396,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 19356
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor05-essentials0.mesh",
+      "name": "moor05-essentials0",
+      "seconds": 0.25,
+      "src_bytes": 35266,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 12140
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor05-floor0_1.mesh",
+      "name": "moor05-floor0_1",
+      "seconds": 0.05,
+      "src_bytes": 7798,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 3232
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor05-floor0.mesh",
+      "name": "moor05-floor0",
+      "seconds": 0.04,
+      "src_bytes": 4223,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 3264
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor05-floor1.mesh",
+      "name": "moor05-floor1",
+      "seconds": 0.05,
+      "src_bytes": 6640,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 3024
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor05-floor2.mesh",
+      "name": "moor05-floor2",
+      "seconds": 0.08,
+      "src_bytes": 6640,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 3020
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor05-floor.mesh",
+      "name": "moor05-floor",
+      "seconds": 0.05,
+      "src_bytes": 7403,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 5540
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor05-interiorMASK.mesh",
+      "name": "moor05-interiorMASK",
+      "seconds": 0.51,
+      "src_bytes": 118180,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 25808
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor05-interior.mesh",
+      "name": "moor05-interior",
+      "seconds": 0.31,
+      "src_bytes": 100607,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 21888
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor05-mask.mesh",
+      "name": "moor05-mask",
+      "seconds": 0.06,
+      "src_bytes": 11248,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 4216
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor05-spikes.mesh",
+      "name": "moor05-spikes",
+      "seconds": 0.33,
+      "src_bytes": 26140,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 9028
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor05-stairs.mesh",
+      "name": "moor05-stairs",
+      "seconds": 1.15,
+      "src_bytes": 308776,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 136924
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor05-upper1.mesh",
+      "name": "moor05-upper1",
+      "seconds": 0.17,
+      "src_bytes": 47104,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 17956
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor05-upper2.mesh",
+      "name": "moor05-upper2",
+      "seconds": 0.32,
+      "src_bytes": 36016,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 14940
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor05-upper3.mesh",
+      "name": "moor05-upper3",
+      "seconds": 1.24,
+      "src_bytes": 242530,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 43072
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor05-windows1.mesh",
+      "name": "moor05-windows1",
+      "seconds": 0.3,
+      "src_bytes": 86500,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 40460
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor05-windows2.mesh",
+      "name": "moor05-windows2",
+      "seconds": 0.49,
+      "src_bytes": 57826,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 27384
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor05-windows3.mesh",
+      "name": "moor05-windows3",
+      "seconds": 0.26,
+      "src_bytes": 86656,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 40460
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor06-floor.mesh",
+      "name": "moor06-floor",
+      "seconds": 0.02,
+      "src_bytes": 574,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 1352
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor06-interior.mesh",
+      "name": "moor06-interior",
+      "seconds": 0.12,
+      "src_bytes": 12604,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 4396
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor07-base.mesh",
+      "name": "moor07-base",
+      "seconds": 0.32,
+      "src_bytes": 44608,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 17856
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor07-black1.mesh",
+      "name": "moor07-black1",
+      "seconds": 0.08,
+      "src_bytes": 13444,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 6160
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor07-black2.mesh",
+      "name": "moor07-black2",
+      "seconds": 0.04,
+      "src_bytes": 8062,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 3592
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor07-dome.mesh",
+      "name": "moor07-dome",
+      "seconds": 0.44,
+      "src_bytes": 106594,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 19340
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor07-essentials0.mesh",
+      "name": "moor07-essentials0",
+      "seconds": 1.59,
+      "src_bytes": 364774,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 174532
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor07-essentials2.mesh",
+      "name": "moor07-essentials2",
+      "seconds": 0.11,
+      "src_bytes": 31306,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 10596
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor07-essentials3.mesh",
+      "name": "moor07-essentials3",
+      "seconds": 1.99,
+      "src_bytes": 376582,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 167480
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor07-floor1.mesh",
+      "name": "moor07-floor1",
+      "seconds": 0.02,
+      "src_bytes": 1714,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 2172
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor07-floor2.mesh",
+      "name": "moor07-floor2",
+      "seconds": 0.02,
+      "src_bytes": 1714,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 2172
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor07-floor.mesh",
+      "name": "moor07-floor",
+      "seconds": 0.02,
+      "src_bytes": 1006,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 1728
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor07-interiorMASK.mesh",
+      "name": "moor07-interiorMASK",
+      "seconds": 0.06,
+      "src_bytes": 13846,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 6368
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor07-interior.mesh",
+      "name": "moor07-interior",
+      "seconds": 0.06,
+      "src_bytes": 14026,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 6188
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor07-spikes.mesh",
+      "name": "moor07-spikes",
+      "seconds": 0.12,
+      "src_bytes": 31378,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 10588
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor07-stairs.mesh",
+      "name": "moor07-stairs",
+      "seconds": 0.17,
+      "src_bytes": 43108,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 14472
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor07-upper2.mesh",
+      "name": "moor07-upper2",
+      "seconds": 0.61,
+      "src_bytes": 66550,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 23516
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor07-upper3.mesh",
+      "name": "moor07-upper3",
+      "seconds": 1.27,
+      "src_bytes": 348220,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 189316
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor07-upper.mesh",
+      "name": "moor07-upper",
+      "seconds": 0.54,
+      "src_bytes": 65938,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 25264
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor08-base.mesh",
+      "name": "moor08-base",
+      "seconds": 0.37,
+      "src_bytes": 44566,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 17664
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor08-esentials1.mesh",
+      "name": "moor08-esentials1",
+      "seconds": 1.35,
+      "src_bytes": 364348,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 180384
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor08-essentials0.mesh",
+      "name": "moor08-essentials0",
+      "seconds": 1.54,
+      "src_bytes": 338992,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 160112
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor08-essentials1.mesh",
+      "name": "moor08-essentials1",
+      "seconds": 1.57,
+      "src_bytes": 363766,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 180104
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor08-floor.mesh",
+      "name": "moor08-floor",
+      "seconds": 0.02,
+      "src_bytes": 1006,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 1664
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor08-interior-MASK.mesh",
+      "name": "moor08-interior-MASK",
+      "seconds": 0.06,
+      "src_bytes": 14297,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 6544
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor08-interior.mesh",
+      "name": "moor08-interior",
+      "seconds": 0.07,
+      "src_bytes": 16006,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 5824
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor08.mesh",
+      "name": "moor08",
+      "seconds": 1.45,
+      "src_bytes": 324394,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 179492
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor08-stairs.mesh",
+      "name": "moor08-stairs",
+      "seconds": 0.64,
+      "src_bytes": 117340,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 64944
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor09-base.mesh",
+      "name": "moor09-base",
+      "seconds": 0.18,
+      "src_bytes": 55948,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 25776
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor09-essentials0.mesh",
+      "name": "moor09-essentials0",
+      "seconds": 2.42,
+      "src_bytes": 327016,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 162280
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor09-essentials1.mesh",
+      "name": "moor09-essentials1",
+      "seconds": 0.03,
+      "src_bytes": 4456,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 2848
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor09-floor.mesh",
+      "name": "moor09-floor",
+      "seconds": 0.02,
+      "src_bytes": 574,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 1352
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor09-interiorMASK.mesh",
+      "name": "moor09-interiorMASK",
+      "seconds": 0.12,
+      "src_bytes": 9683,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 5248
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor09-interior.mesh",
+      "name": "moor09-interior",
+      "seconds": 0.06,
+      "src_bytes": 12628,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 4620
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor09.mesh",
+      "name": "moor09",
+      "seconds": 1.65,
+      "src_bytes": 359518,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 200508
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor09-rampA.mesh",
+      "name": "moor09-rampA",
+      "seconds": 0.06,
+      "src_bytes": 15862,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 5844
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor09-rampB.mesh",
+      "name": "moor09-rampB",
+      "seconds": 0.05,
+      "src_bytes": 12064,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 4116
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor09-windows.mesh",
+      "name": "moor09-windows",
+      "seconds": 0.65,
+      "src_bytes": 86734,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 40456
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor3-essentials0.mesh",
+      "name": "moor3-essentials0",
+      "seconds": 0.07,
+      "src_bytes": 18304,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 6632
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moor4-upper.mesh",
+      "name": "moor4-upper",
+      "seconds": 0.19,
+      "src_bytes": 59248,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 18060
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-base01.mesh",
+      "name": "moorhouse01-base01",
+      "seconds": 1.62,
+      "src_bytes": 408658,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 190856
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-base03.mesh",
+      "name": "moorhouse01-base03",
+      "seconds": 2.29,
+      "src_bytes": 408670,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 193928
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-base04.mesh",
+      "name": "moorhouse01-base04",
+      "seconds": 1.42,
+      "src_bytes": 319864,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 148764
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-base.mesh",
+      "name": "moorhouse01-base",
+      "seconds": 0.87,
+      "src_bytes": 200755,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 81396
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-base-needed.mesh",
+      "name": "moorhouse01-base-needed",
+      "seconds": 3.14,
+      "src_bytes": 364264,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 170196
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-black1.mesh",
+      "name": "moorhouse01-black1",
+      "seconds": 0.05,
+      "src_bytes": 9928,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 4520
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-black2.mesh",
+      "name": "moorhouse01-black2",
+      "seconds": 0.12,
+      "src_bytes": 11812,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 4500
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-floor01.mesh",
+      "name": "moorhouse01-floor01",
+      "seconds": 0.02,
+      "src_bytes": 1006,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 1740
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-floor03.mesh",
+      "name": "moorhouse01-floor03",
+      "seconds": 0.02,
+      "src_bytes": 1006,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 1740
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-floor04.mesh",
+      "name": "moorhouse01-floor04",
+      "seconds": 0.02,
+      "src_bytes": 1006,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 1740
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-floor1.mesh",
+      "name": "moorhouse01-floor1",
+      "seconds": 0.02,
+      "src_bytes": 1714,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 2180
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-floor2.mesh",
+      "name": "moorhouse01-floor2",
+      "seconds": 0.02,
+      "src_bytes": 1714,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 2184
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-floor3.mesh",
+      "name": "moorhouse01-floor3",
+      "seconds": 0.02,
+      "src_bytes": 1714,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 2184
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-floor.mesh",
+      "name": "moorhouse01-floor",
+      "seconds": 0.02,
+      "src_bytes": 1202,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 1736
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-girderspikes.mesh",
+      "name": "moorhouse01-girderspikes",
+      "seconds": 1.59,
+      "src_bytes": 134824,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 52960
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-interior01.mesh",
+      "name": "moorhouse01-interior01",
+      "seconds": 0.07,
+      "src_bytes": 15976,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 6188
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-interior03.mesh",
+      "name": "moorhouse01-interior03",
+      "seconds": 0.15,
+      "src_bytes": 14722,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 6744
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-interior04.mesh",
+      "name": "moorhouse01-interior04",
+      "seconds": 0.15,
+      "src_bytes": 14722,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 6836
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-interiorMASK.mesh",
+      "name": "moorhouse01-interiorMASK",
+      "seconds": 0.1,
+      "src_bytes": 16745,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 6856
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-interior.mesh",
+      "name": "moorhouse01-interior",
+      "seconds": 0.15,
+      "src_bytes": 48031,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 15056
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01_Int_Staircase.mesh",
+      "name": "moorhouse01_Int_Staircase",
+      "seconds": 0.5,
+      "src_bytes": 24386,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 8652
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01_Int_-upper-Floor.mesh",
+      "name": "moorhouse01_Int_-upper-Floor",
+      "seconds": 0.06,
+      "src_bytes": 11792,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 4868
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01.mesh",
+      "name": "moorhouse01",
+      "seconds": 5.72,
+      "src_bytes": 1385434,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 705712
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-needed0.mesh",
+      "name": "moorhouse01-needed0",
+      "seconds": 3.51,
+      "src_bytes": 420259,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 159168
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-needed1.mesh",
+      "name": "moorhouse01-needed1",
+      "seconds": 0.69,
+      "src_bytes": 109630,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 28240
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-needed2.mesh",
+      "name": "moorhouse01-needed2",
+      "seconds": 1.35,
+      "src_bytes": 326512,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 168860
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-needed3.mesh",
+      "name": "moorhouse01-needed3",
+      "seconds": 2.43,
+      "src_bytes": 224974,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 87288
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-spikes.mesh",
+      "name": "moorhouse01-spikes",
+      "seconds": 2.14,
+      "src_bytes": 219076,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 55236
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-stairs.mesh",
+      "name": "moorhouse01-stairs",
+      "seconds": 1.26,
+      "src_bytes": 117340,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 65016
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-upper01.mesh",
+      "name": "moorhouse01-upper01",
+      "seconds": 4.84,
+      "src_bytes": 645094,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 344200
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-upper03.mesh",
+      "name": "moorhouse01-upper03",
+      "seconds": 2.08,
+      "src_bytes": 433780,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 215736
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-upper04.mesh",
+      "name": "moorhouse01-upper04",
+      "seconds": 1.54,
+      "src_bytes": 317290,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 177484
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-upper2.mesh",
+      "name": "moorhouse01-upper2",
+      "seconds": 0.19,
+      "src_bytes": 56668,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 23240
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-upper3.mesh",
+      "name": "moorhouse01-upper3",
+      "seconds": 1.01,
+      "src_bytes": 201898,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 116104
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-upper.mesh",
+      "name": "moorhouse01-upper",
+      "seconds": 0.11,
+      "src_bytes": 31990,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 13896
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse01-upper-needed.mesh",
+      "name": "moorhouse01-upper-needed",
+      "seconds": 1.82,
+      "src_bytes": 445078,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 228268
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse02-base-essentials.mesh",
+      "name": "moorhouse02-base-essentials",
+      "seconds": 2.02,
+      "src_bytes": 443392,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 200028
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse02-base.mesh",
+      "name": "moorhouse02-base",
+      "seconds": 0.53,
+      "src_bytes": 64582,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 24704
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse02-black1.mesh",
+      "name": "moorhouse02-black1",
+      "seconds": 0.07,
+      "src_bytes": 16258,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 8272
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse02-dome-copper05.mesh",
+      "name": "moorhouse02-dome-copper05",
+      "seconds": 0.8,
+      "src_bytes": 106384,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 19372
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse02-dome-copper06.mesh",
+      "name": "moorhouse02-dome-copper06",
+      "seconds": 1.03,
+      "src_bytes": 106618,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 19372
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse02-dome-copper.mesh",
+      "name": "moorhouse02-dome-copper",
+      "seconds": 0.38,
+      "src_bytes": 106384,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 19364
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse02-essentials1.mesh",
+      "name": "moorhouse02-essentials1",
+      "seconds": 1.64,
+      "src_bytes": 231784,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 108544
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse02-floor0.mesh",
+      "name": "bunkerhouse_moorhouse02-floor0",
+      "seconds": 0.03,
+      "src_bytes": 1012,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 1680
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse02-floor2.mesh",
+      "name": "moorhouse02-floor2",
+      "seconds": 0.03,
+      "src_bytes": 1726,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 2184
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse02-interiorMASK.mesh",
+      "name": "moorhouse02-interiorMASK",
+      "seconds": 0.37,
+      "src_bytes": 43769,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 14264
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse02-interior.mesh",
+      "name": "moorhouse02-interior",
+      "seconds": 0.42,
+      "src_bytes": 43030,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 13076
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse02.mesh",
+      "name": "moorhouse02",
+      "seconds": 0.32,
+      "src_bytes": 96479,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 36092
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse02-spikes.mesh",
+      "name": "moorhouse02-spikes",
+      "seconds": 0.12,
+      "src_bytes": 36466,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 12160
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse02-steps.mesh",
+      "name": "moorhouse02-steps",
+      "seconds": 0.59,
+      "src_bytes": 115481,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 60792
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse02-upper2.mesh",
+      "name": "moorhouse02-upper2",
+      "seconds": 1.53,
+      "src_bytes": 398542,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 209560
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse03.mesh",
+      "name": "moorhouse03",
+      "seconds": 1.04,
+      "src_bytes": 216784,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 92212
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse03-spikes.mesh",
+      "name": "moorhouse03-spikes",
+      "seconds": 0.48,
+      "src_bytes": 82516,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 32840
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse04.mesh",
+      "name": "moorhouse04",
+      "seconds": 1.15,
+      "src_bytes": 291160,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 111652
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse04-rails.mesh",
+      "name": "bunkerhouse_moorhouse04-rails",
+      "seconds": 0.83,
+      "src_bytes": 175150,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 67680
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse05tower.mesh",
+      "name": "moorhouse05tower",
+      "seconds": 2.47,
+      "src_bytes": 367882,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 71548
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse05tower-spikes.mesh",
+      "name": "moorhouse05tower-spikes",
+      "seconds": 0.65,
+      "src_bytes": 89962,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 35720
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse06-base.mesh",
+      "name": "moorhouse06-base",
+      "seconds": 0.46,
+      "src_bytes": 98123,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 43592
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse06.mesh",
+      "name": "moorhouse06",
+      "seconds": 3.73,
+      "src_bytes": 911020,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 481376
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorhouse06-porch.mesh",
+      "name": "moorhouse06-porch",
+      "seconds": 2.71,
+      "src_bytes": 520048,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 200980
+    },
+    {
+      "mesh": ".\\data\\buildings\\bunkerhouse\\moorstairs.mesh",
+      "name": "moorstairs",
+      "seconds": 0.15,
+      "src_bytes": 43108,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 14468
+    },
+    {
+      "mesh": ".\\data\\buildings\\doors\\moor01-door.mesh",
+      "name": "moor01-door",
+      "seconds": 1.62,
+      "src_bytes": 266950,
+      "status": "ok",
+      "info": "diffuse=Door_Texture.dds normal=door_n.dds",
+      "glb_bytes": 943140
+    },
+    {
+      "mesh": ".\\data\\buildings\\doors\\moor01-doorrunners.mesh",
+      "name": "moor01-doorrunners",
+      "seconds": 0.22,
+      "src_bytes": 9466,
+      "status": "ok",
+      "info": "diffuse=Door_Texture.dds normal=door_n.dds",
+      "glb_bytes": 813220
+    },
+    {
+      "mesh": ".\\data\\buildings\\doors\\moor02-door.mesh",
+      "name": "moor02-door",
+      "seconds": 2.77,
+      "src_bytes": 266950,
+      "status": "ok",
+      "info": "diffuse=Door_Texture.dds normal=door_n.dds",
+      "glb_bytes": 943204
+    },
+    {
+      "mesh": ".\\data\\buildings\\doors\\moor02-doorrunners.mesh",
+      "name": "moor02-doorrunners",
+      "seconds": 0.16,
+      "src_bytes": 9466,
+      "status": "ok",
+      "info": "diffuse=Door_Texture.dds normal=door_n.dds",
+      "glb_bytes": 812968
+    },
+    {
+      "mesh": ".\\data\\buildings\\doors\\moor04-door.mesh",
+      "name": "moor04-door",
+      "seconds": 1.41,
+      "src_bytes": 266950,
+      "status": "ok",
+      "info": "diffuse=Door_Texture.dds normal=door_n.dds",
+      "glb_bytes": 943204
+    },
+    {
+      "mesh": ".\\data\\buildings\\doors\\moor04-doorrunners.mesh",
+      "name": "moor04-doorrunners",
+      "seconds": 0.15,
+      "src_bytes": 9460,
+      "status": "ok",
+      "info": "diffuse=Door_Texture.dds normal=door_n.dds",
+      "glb_bytes": 813224
+    },
+    {
+      "mesh": ".\\data\\buildings\\doors\\moor05-door.mesh",
+      "name": "moor05-door",
+      "seconds": 1.21,
+      "src_bytes": 266950,
+      "status": "ok",
+      "info": "diffuse=Door_Texture.dds normal=door_n.dds",
+      "glb_bytes": 943204
+    },
+    {
+      "mesh": ".\\data\\buildings\\doors\\moor05-doorrunners.mesh",
+      "name": "moor05-doorrunners",
+      "seconds": 0.15,
+      "src_bytes": 9460,
+      "status": "ok",
+      "info": "diffuse=Door_Texture.dds normal=door_n.dds",
+      "glb_bytes": 812972
+    },
+    {
+      "mesh": ".\\data\\buildings\\doors\\moor07-door.mesh",
+      "name": "moor07-door",
+      "seconds": 1.33,
+      "src_bytes": 266950,
+      "status": "ok",
+      "info": "diffuse=Door_Texture.dds normal=door_n.dds",
+      "glb_bytes": 943204
+    },
+    {
+      "mesh": ".\\data\\buildings\\doors\\moor07-doorrunners.mesh",
+      "name": "moor07-doorrunners",
+      "seconds": 0.14,
+      "src_bytes": 9472,
+      "status": "ok",
+      "info": "diffuse=Door_Texture.dds normal=door_n.dds",
+      "glb_bytes": 813224
+    },
+    {
+      "mesh": ".\\data\\buildings\\doors\\moor08-door.mesh",
+      "name": "moor08-door",
+      "seconds": 1.24,
+      "src_bytes": 266950,
+      "status": "ok",
+      "info": "diffuse=Door_Texture.dds normal=door_n.dds",
+      "glb_bytes": 943140
+    },
+    {
+      "mesh": ".\\data\\buildings\\doors\\moor08-doorrunners.mesh",
+      "name": "moor08-doorrunners",
+      "seconds": 0.14,
+      "src_bytes": 9460,
+      "status": "ok",
+      "info": "diffuse=Door_Texture.dds normal=door_n.dds",
+      "glb_bytes": 813224
+    },
+    {
+      "mesh": ".\\data\\buildings\\doors\\moor09-door.mesh",
+      "name": "moor09-door",
+      "seconds": 2.72,
+      "src_bytes": 266956,
+      "status": "ok",
+      "info": "diffuse=Door_Texture.dds normal=door_n.dds",
+      "glb_bytes": 942824
+    },
+    {
+      "mesh": ".\\data\\buildings\\doors\\moor27-door1.mesh",
+      "name": "moor27-door1",
+      "seconds": 2.73,
+      "src_bytes": 266950,
+      "status": "ok",
+      "info": "diffuse=Door_Texture.dds normal=door_n.dds",
+      "glb_bytes": 943208
+    },
+    {
+      "mesh": ".\\data\\buildings\\doors\\moor27-door2.mesh",
+      "name": "moor27-door2",
+      "seconds": 1.27,
+      "src_bytes": 266950,
+      "status": "ok",
+      "info": "diffuse=Door_Texture.dds normal=door_n.dds",
+      "glb_bytes": 943208
+    },
+    {
+      "mesh": ".\\data\\buildings\\doors\\moor27-doorrunners.mesh",
+      "name": "moor27-doorrunners",
+      "seconds": 0.35,
+      "src_bytes": 27802,
+      "status": "ok",
+      "info": "diffuse=Door_Texture.dds normal=door_n.dds",
+      "glb_bytes": 823724
+    },
+    {
+      "mesh": ".\\data\\buildings\\doors\\moor71-door01.mesh",
+      "name": "moor71-door01",
+      "seconds": 1.34,
+      "src_bytes": 266950,
+      "status": "ok",
+      "info": "diffuse=Door_Texture.dds normal=door_n.dds",
+      "glb_bytes": 943208
+    },
+    {
+      "mesh": ".\\data\\buildings\\doors\\moor71-door02.mesh",
+      "name": "moor71-door02",
+      "seconds": 1.21,
+      "src_bytes": 266950,
+      "status": "ok",
+      "info": "diffuse=Door_Texture.dds normal=door_n.dds",
+      "glb_bytes": 943144
+    },
+    {
+      "mesh": ".\\data\\buildings\\doors\\moor71-doorrunners.mesh",
+      "name": "moor71-doorrunners",
+      "seconds": 0.14,
+      "src_bytes": 9460,
+      "status": "ok",
+      "info": "diffuse=Door_Texture.dds normal=door_n.dds",
+      "glb_bytes": 813224
+    },
+    {
+      "mesh": ".\\data\\buildings\\furniture\\moorhouse02-floor0.mesh",
+      "name": "furniture_moorhouse02-floor0",
+      "seconds": 0.03,
+      "src_bytes": 1012,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 1680
+    },
+    {
+      "mesh": ".\\data\\buildings\\furniture\\moorhouse04-rails.mesh",
+      "name": "furniture_moorhouse04-rails",
+      "seconds": 1.74,
+      "src_bytes": 175150,
+      "status": "ok",
+      "info": "diffuse=None normal=None",
+      "glb_bytes": 67680
+    }
+  ]
+}

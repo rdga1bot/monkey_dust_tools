@@ -117,6 +117,9 @@ def convert_one(mesh_path, out_glb, xml_converter):
 
 
 def main():
+    import json
+    import time
+
     argv = sys.argv
     argv = argv[argv.index('--') + 1:] if '--' in argv else []
     ap = argparse.ArgumentParser()
@@ -124,6 +127,8 @@ def main():
     ap.add_argument('--kenshi-dir', default='tmp_/kenshi/data')
     ap.add_argument('--out-dir', required=True)
     ap.add_argument('--xml-converter', default='/usr/bin/OgreXMLConverter')
+    ap.add_argument('--report', default=None,
+                     help='write a JSON summary report to this path')
     args = ap.parse_args(argv)
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -131,28 +136,65 @@ def main():
     with open(args.manifest, encoding='utf-8') as f:
         mesh_lines = [ln.strip() for ln in f if ln.strip() and not ln.startswith('#')]
 
-    ok, failed = 0, 0
-    for mesh_path_kenshi in mesh_lines:
+    # Two different mesh files can share a basename across subfolders (real
+    # collision measured in this dataset: moorhouse02-floor0.mesh appears
+    # under two different combo folders) -- sanitize()-by-basename alone
+    # would silently overwrite one GLB with the other. Disambiguate any
+    # colliding name with its immediate parent directory.
+    base_names = [sanitize(p) for p in mesh_lines]
+    dupe_names = {n for n in base_names if base_names.count(n) > 1}
+
+    entries = []
+    ok, skipped, failed = 0, 0, 0
+    for mesh_path_kenshi, base_name in zip(mesh_lines, base_names):
         rel = mesh_path_kenshi.replace('.\\data\\', '').replace('\\', '/')
         src = os.path.join(args.kenshi_dir, rel)
-        name = sanitize(mesh_path_kenshi)
+        if base_name in dupe_names:
+            parent = os.path.basename(os.path.dirname(rel))
+            name = sanitize(parent) + '_' + base_name
+        else:
+            name = base_name
         out_glb = os.path.join(args.out_dir, name + '.glb')
+
+        entry = {"mesh": mesh_path_kenshi, "name": name}
         if not os.path.isfile(src):
             print(f'[SKIP] source not found: {src}')
-            failed += 1
+            entry.update(status="skipped", reason="source not found")
+            entries.append(entry)
+            skipped += 1
             continue
+
+        t0 = time.monotonic()
         try:
             success, info = convert_one(src, out_glb, args.xml_converter)
         except Exception as e:
             success, info = False, f"{e}\n{traceback.format_exc()}"
+        dt = time.monotonic() - t0
+
+        entry["seconds"] = round(dt, 2)
+        entry["src_bytes"] = os.path.getsize(src)
         if success:
-            print(f'[OK] {name}: {info}')
+            entry.update(status="ok", info=info,
+                          glb_bytes=os.path.getsize(out_glb) if os.path.isfile(out_glb) else 0)
+            print(f'[OK] {name}: {info} ({dt:.1f}s)')
             ok += 1
         else:
+            entry.update(status="failed", reason=info)
             print(f'[FAIL] {name}: {info}')
             failed += 1
+        entries.append(entry)
 
-    print(f'[SUMMARY] ok={ok} failed={failed} total={len(mesh_lines)}')
+    total = len(mesh_lines)
+    pct = 100.0 * ok / total if total else 0.0
+    print(f'[SUMMARY] ok={ok} skipped={skipped} failed={failed} total={total} ({pct:.1f}% ok)')
+
+    if args.report:
+        with open(args.report, 'w', encoding='utf-8') as rf:
+            json.dump({
+                "ok": ok, "skipped": skipped, "failed": failed, "total": total,
+                "pct_ok": round(pct, 1), "entries": entries,
+            }, rf, indent=2)
+        print(f'[REPORT] wrote {args.report}')
 
 
 if __name__ == '__main__':
