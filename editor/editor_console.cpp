@@ -16,6 +16,7 @@
 #include <monkey_dust/platform/cvar_registry.h>
 #include <monkey_dust/tools/graphics_settings.h>
 #include <monkey_dust/core/subsystem_registry.h>
+#include <monkey_dust/editor/cmd_registry.h>
 #include <cstdio>
 #include <cstring>
 
@@ -76,6 +77,19 @@ void EditorConsole::ExecCommand(const char* raw) {
 
     // Strip leading '/'
     const char* cmd = (raw[0] == '/') ? raw + 1 : raw;
+
+    // EDITOR_AUTOMATION_PLAN_v1.md Phase 0 falsification probe: temporary
+    // passthrough to EditorCmdRegistry — remove once Phase 1.3.3's real
+    // schema-driven `exec <name> [args...]` parser replaces this.
+    if (strncmp(cmd, "exec ", 5) == 0) {
+        const char* name = cmd + 5;
+        while (*name == ' ') ++name;
+        if (!EditorCmdRegistry::Get().Dispatch(name)) {
+            char out[96]; snprintf(out, sizeof(out), "[Console] Unknown command: %s", name);
+            Log(MD_LOG_WARNING, out);
+        }
+        return;
+    }
 
     if (strncmp(cmd, "help", 4) == 0) {
         Log(MD_LOG_INFO, "/reload-shaders — hot-reload SPIR-V without restart");
