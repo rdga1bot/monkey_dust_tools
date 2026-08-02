@@ -117,9 +117,18 @@ if [[ $NO_CAPTURE -eq 0 ]] && [[ $FAIL -eq 0 ]]; then
     GAME_PID=$!
     sleep 1
 
+    # --output-dir is the CAPTURE dir, not the frames dir -- game_capture.py
+    # appends its own "frames" subdir internally (out_dir / "frames").
+    # Passing "${CAPTURE_DIR}/frames" here double-nests into
+    # ${CAPTURE_DIR}/frames/frames/*.png, which qa_report.py's non-recursive
+    # `frames_dir.glob("*.png")` then finds nothing in -- diagnosed live
+    # 2026-08-02 (real qa_run.sh run: "0 Кадрів", frames existed one level
+    # deeper). mkdir above already created ${CAPTURE_DIR}/frames for the
+    # same reason, kept for the headless branch below which writes there
+    # directly, but not passed as --output-dir here anymore.
     CAPTURE_OUT=$(python3 scripts/game_capture.py \
         --no-launch --record-fps 10 --frame-fps 1 \
-        --output-dir "${CAPTURE_DIR}/frames" 2>&1) || true
+        --output-dir "${CAPTURE_DIR}" 2>&1) || true
 
     wait $GAME_PID 2>/dev/null || true
     ok "Capture завершено"
