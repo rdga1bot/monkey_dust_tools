@@ -14,6 +14,7 @@
 #include <monkey_dust/save/save_system.h>
 #include <monkey_dust/platform/md_log.h>
 #include "scene_serializer.h"
+#include <monkey_dust/editor/cmd_path_validate.h>
 #include <flecs.h>
 #include <cstdio>
 #include <cstring>
@@ -67,18 +68,34 @@ CmdResult NewSceneCmd(const CmdArgs&, MdRegistry& reg, uint8_t[64]) {
     return r;
 }
 
+// Phase 2.4 retrofit: Import/Export Scene took an unvalidated path
+// straight from Phase 1.3 — found while implementing CmdPathValidate
+// (Phase 2's own path-allowlist requirement), not fixed at the time to
+// keep that migration commit scoped. Closed here, not silently left open.
 CmdResult ImportSceneCmd(const CmdArgs& args, MdRegistry&, uint8_t[64]) {
     const char* path = args.values[0].str;
+    CmdResult r;
+    if (!CmdPathValidate(path)) {
+        r.ok = false;
+        snprintf(r.msg, sizeof(r.msg), "Path rejected (outside data/, game/data/, automation_out/): %s", path);
+        return r;
+    }
     bool ok = SceneSerializer::Import(path);
-    CmdResult r; r.ok = ok;
+    r.ok = ok;
     snprintf(r.msg, sizeof(r.msg), ok ? "Imported %s" : "Import failed: %s", path);
     return r;
 }
 
 CmdResult ExportSceneCmd(const CmdArgs& args, MdRegistry&, uint8_t[64]) {
     const char* path = args.values[0].str;
+    CmdResult r;
+    if (!CmdPathValidate(path)) {
+        r.ok = false;
+        snprintf(r.msg, sizeof(r.msg), "Path rejected (outside data/, game/data/, automation_out/): %s", path);
+        return r;
+    }
     bool ok = SceneSerializer::Export(path);
-    CmdResult r; r.ok = ok;
+    r.ok = ok;
     snprintf(r.msg, sizeof(r.msg), ok ? "Exported %s" : "Export failed: %s", path);
     return r;
 }
@@ -159,13 +176,47 @@ CmdResult KillEntityCmd(const CmdArgs& args, MdRegistry& reg, uint8_t[64]) {
     return r;
 }
 
+// The registry's first genuinely undo-capable command (Phase 2): small,
+// safe payload (2 uint32 ids + 2 int8 values, well under 64 bytes) — proves
+// the mechanism end to end (registry-mediated capture -> tools/'s
+// CommandStack push -> real Ctrl+Z) without the much bigger scope of
+// capturing full entity+component state (Delete/Duplicate/Spawn/Kill stay
+// NO_UNDO; see editor_std_commands.h's file header for why).
+struct FactionRelationUndoData {
+    uint32_t a;
+    uint32_t b;
+    int8_t   prev_v;
+    int8_t   new_v;
+};
+
 // args: [0]=a(i64), [1]=b(i64), [2]=v(i64)
-CmdResult SetFactionRelationCmd(const CmdArgs& args, MdRegistry&, uint8_t[64]) {
-    int64_t a = args.values[0].i64, b = args.values[1].i64, v = args.values[2].i64;
-    FactionSystem::Get().SetRelation((uint32_t)a, (uint32_t)b, (int8_t)v);
+CmdResult SetFactionRelationCmd(const CmdArgs& args, MdRegistry&, uint8_t undo_data[64]) {
+    uint32_t a = (uint32_t)args.values[0].i64;
+    uint32_t b = (uint32_t)args.values[1].i64;
+    int8_t   v = (int8_t)args.values[2].i64;
+
+    FactionRelationUndoData ud;
+    ud.a = a; ud.b = b;
+    ud.prev_v = FactionSystem::Get().GetRelation(a, b);
+    ud.new_v  = v;
+    memcpy(undo_data, &ud, sizeof(ud));
+
+    FactionSystem::Get().SetRelation(a, b, v);
     CmdResult r;
-    snprintf(r.msg, sizeof(r.msg), "Faction %lld->%lld = %lld", (long long)a, (long long)b, (long long)v);
+    snprintf(r.msg, sizeof(r.msg), "Faction %u->%u = %d", a, b, (int)v);
     return r;
+}
+
+void UndoSetFactionRelation(void* data, MdRegistry&) {
+    FactionRelationUndoData ud;
+    memcpy(&ud, data, sizeof(ud));
+    FactionSystem::Get().SetRelation(ud.a, ud.b, ud.prev_v);
+}
+
+void RedoSetFactionRelation(void* data, MdRegistry&) {
+    FactionRelationUndoData ud;
+    memcpy(&ud, data, sizeof(ud));
+    FactionSystem::Get().SetRelation(ud.a, ud.b, ud.new_v);
 }
 
 CmdResult FpsQueryCmd(const CmdArgs&, MdRegistry&, uint8_t[64]) {
@@ -231,13 +282,28 @@ void RegisterStdEditorCommands(uint32_t owner_module_id) {
     static CmdSchema kKillEntitySchema{ { {"entity_id", CmdArgType::Entity} }, 1, true };
     cmds.Register("Kill Entity", KillEntityCmd, nullptr, nullptr, kKillEntitySchema, owner_module_id);
 
+    // no_undo=false: the registry's first real undo-capable command — see
+    // FactionRelationUndoData's doc comment above.
     static CmdSchema kSetFactionRelationSchema{
-        { {"a", CmdArgType::I64}, {"b", CmdArgType::I64}, {"v", CmdArgType::I64} }, 3, true };
-    cmds.Register("Set Faction Relation", SetFactionRelationCmd, nullptr, nullptr,
+        { {"a", CmdArgType::I64}, {"b", CmdArgType::I64}, {"v", CmdArgType::I64} }, 3, false };
+    cmds.Register("Set Faction Relation", SetFactionRelationCmd,
+                  UndoSetFactionRelation, RedoSetFactionRelation,
                   kSetFactionRelationSchema, owner_module_id);
 
     static CmdSchema kAddComponentSchema{
         { {"entity_id", CmdArgType::Entity}, {"component_name", CmdArgType::Str} }, 2, true };
     cmds.Register("Add Component", AddComponentCmd, nullptr, nullptr, kAddComponentSchema, owner_module_id);
+}
+
+CmdResult DispatchEditorCmd(const char* name, const CmdArgs& args) {
+    DispatchOutcome out = EditorCmdRegistry::Get().Dispatch(name, args, MdRegistry::Get());
+    if (out.has_undo) {
+        Command c;
+        c.execute = out.redo;
+        c.undo = out.undo;
+        memcpy(c.data, out.undo_data, sizeof(c.data));
+        EditorCore::Get().history.Push(c);
+    }
+    return out.result;
 }
 #endif

@@ -9,6 +9,8 @@
 #include <monkey_dust/ecs/component_warmup.h>
 #include <monkey_dust/scripting/lua_system.h>
 #include "lua_editor_scenario_api.h"
+#include "lua_editor_automation_api.h"
+#include "editor_std_commands.h"
 #include "editor_scenario_driver.h"
 #include "editor_cmd_file.h"
 #include "editor_screenshot.h"
@@ -169,6 +171,17 @@ int main(int argc, char** argv) {
     // Non-hot-reload: single binary, no dlopen boundary — LuaSystem::Get()
     // here is the same instance the scenario driver resumes against.
     RegisterLuaEditorScenarioAPI(LuaSystem::Get());
+    RegisterLuaEditorAutomationAPI(LuaSystem::Get());
+    // Pre-existing gap, closed in passing while touching this file for the
+    // Lua registrations above: this non-hot-reload build path calls
+    // EditorCore::Get().Init() directly (no dlopen, no editor_panels_init())
+    // and never registered any EditorCmdRegistry command either — every
+    // palette/toolbar/console Dispatch() here would have silently no-op'd,
+    // same class of gap as game/src/main.cpp's (see RegisterStdEditorCommands's
+    // doc comment). Own module id — distinct registration lifetime from
+    // both the panels .so and the game binary.
+    static constexpr uint32_t kNonHotReloadModuleId = 3;
+    RegisterStdEditorCommands(kNonHotReloadModuleId);
 #endif
 
 #ifdef MONKEY_DUST_EDITOR_HOT_RELOAD

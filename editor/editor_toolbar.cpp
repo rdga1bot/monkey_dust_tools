@@ -4,6 +4,7 @@
 #include "editor_command_palette.h"
 #include "editor_map_view.h"
 #include <monkey_dust/editor/cmd_registry.h>
+#include "editor_std_commands.h"
 #include <monkey_dust/ecs/registry.h>
 #include <monkey_dust/ecs/md_registry.h>
 #include <monkey_dust/world/world_transform.h>
@@ -103,28 +104,28 @@ void EditorToolbar::DrawMenuBar() {
         // as their "path" CmdArgs string.
         if (ImGui::MenuItem("New Scene")) {
             CmdArgs args;
-            EditorCmdRegistry::Get().Dispatch("New Scene", args, MdRegistry::Get());
+            DispatchEditorCmd("New Scene", args);
         }
         if (ImGui::MenuItem("Import Scene (.json)...")) {
             CmdArgs args; args.count = 1;
             args.values[0].type = CmdArgType::Str;
             snprintf(args.values[0].str, sizeof(args.values[0].str), "%s", scene_path_);
-            EditorCmdRegistry::Get().Dispatch("Import Scene", args, MdRegistry::Get());
+            DispatchEditorCmd("Import Scene", args);
         }
         if (ImGui::MenuItem("Export Scene (.json)...")) {
             CmdArgs args; args.count = 1;
             args.values[0].type = CmdArgType::Str;
             snprintf(args.values[0].str, sizeof(args.values[0].str), "%s", scene_path_);
-            EditorCmdRegistry::Get().Dispatch("Export Scene", args, MdRegistry::Get());
+            DispatchEditorCmd("Export Scene", args);
         }
         ImGui::Separator();
         if (ImGui::MenuItem(ICON_SAVE " Save Game (F5)")) {
             CmdArgs args;
-            EditorCmdRegistry::Get().Dispatch("Save Game", args, MdRegistry::Get());
+            DispatchEditorCmd("Save Game", args);
         }
         if (ImGui::MenuItem(ICON_LOAD " Load Game (F9)")) {
             CmdArgs args;
-            EditorCmdRegistry::Get().Dispatch("Load Game", args, MdRegistry::Get());
+            DispatchEditorCmd("Load Game", args);
         }
         ImGui::Separator();
         if (ImGui::MenuItem("Exit Editor")) {
@@ -143,15 +144,15 @@ void EditorToolbar::DrawMenuBar() {
         ImGui::Separator();
         if (ImGui::MenuItem("Duplicate", "Ctrl+D")) {
             CmdArgs args;
-            EditorCmdRegistry::Get().Dispatch("Duplicate Selected", args, MdRegistry::Get());
+            DispatchEditorCmd("Duplicate Selected", args);
         }
         if (ImGui::MenuItem("Delete", "Del")) {
             CmdArgs args;
-            EditorCmdRegistry::Get().Dispatch("Delete Selected", args, MdRegistry::Get());
+            DispatchEditorCmd("Delete Selected", args);
         }
         if (ImGui::MenuItem("Select All", "Ctrl+A")) {
             CmdArgs args;
-            EditorCmdRegistry::Get().Dispatch("Select All", args, MdRegistry::Get());
+            DispatchEditorCmd("Select All", args);
         }
         ImGui::EndMenu();
     }
@@ -194,7 +195,7 @@ void EditorToolbar::DrawMenuBar() {
         }
         if (ImGui::MenuItem("Rebuild NavMesh")) {
             CmdArgs args;
-            EditorCmdRegistry::Get().Dispatch("Rebuild NavMesh", args, MdRegistry::Get());
+            DispatchEditorCmd("Rebuild NavMesh", args);
         }
         if (ImGui::MenuItem("Bake Lights (stub)")) {
             MD_LOG(MD_LOG_INFO, "[Editor] Bake not available: Phase 33 CSM is runtime-only");
