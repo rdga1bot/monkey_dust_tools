@@ -4,6 +4,8 @@
 #include "editor_core.h"
 #include "editor_reflect_bridge.h"
 #include <monkey_dust/ecs/md_entity.h>
+#include <monkey_dust/ecs/md_registry.h>
+#include <monkey_dust/editor/cmd_registry.h>
 #include <flecs.h>
 #include <cstdio>
 #include <cstring>
@@ -98,7 +100,13 @@ void EditorReflectInspector::DrawContent(ecs_world_t* world) {
 
     static constexpr int MAX_STRUCT_OPS = 8;
     ecs_entity_t remove_ops[MAX_STRUCT_OPS]; int remove_count = 0;
-    ecs_entity_t add_ops[MAX_STRUCT_OPS];    int add_count = 0;
+    // Names, not ids: queued adds now go through the registered "Add
+    // Component" command (EDITOR_AUTOMATION_PLAN_v1.md Phase 1.3.4), which
+    // re-resolves the id from the name itself — see AddComponentCmd's doc
+    // comment (editor_std_commands.cpp) for why it takes a name, not a raw
+    // ecs_entity_t, across the command-args ABI. Pointers into
+    // bridge.Desc(i).name are stable for the remainder of this frame.
+    const char* add_names[MAX_STRUCT_OPS];   int add_count = 0;
 
     // ── Reflected components present on this entity ─────────────────────
     for (int i = 0; i < bridge.Count(); ++i) {
@@ -136,7 +144,7 @@ void EditorReflectInspector::DrawContent(ecs_world_t* world) {
             ecs_entity_t cid = bridge.Id(i);
             if (cid == 0 || ecs_has_id(world, eid, cid)) continue;
             if (ImGui::Selectable(bridge.Desc(i).name)) {
-                if (add_count < MAX_STRUCT_OPS) add_ops[add_count++] = cid;
+                if (add_count < MAX_STRUCT_OPS) add_names[add_count++] = bridge.Desc(i).name;
             }
         }
         ImGui::EndCombo();
@@ -144,7 +152,13 @@ void EditorReflectInspector::DrawContent(ecs_world_t* world) {
 
     // ── Apply structural ops AFTER the draw pass ─────────────────────────
     for (int i = 0; i < remove_count; ++i) ecs_remove_id(world, eid, remove_ops[i]);
-    for (int i = 0; i < add_count;    ++i) ecs_add_id(world, eid, add_ops[i]);
+    for (int i = 0; i < add_count; ++i) {
+        CmdArgs args; args.count = 2;
+        args.values[0].type = CmdArgType::Entity; args.values[0].entity_id = eid;
+        args.values[1].type = CmdArgType::Str;
+        snprintf(args.values[1].str, sizeof(args.values[1].str), "%s", add_names[i]);
+        EditorCmdRegistry::Get().Dispatch("Add Component", args, MdRegistry::Get());
+    }
 
     // ── Unreflected components (read-only) ───────────────────────────────
     ImGui::Separator();
