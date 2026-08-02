@@ -68,14 +68,13 @@ static const PaletteCmd kCommands[] = {
     // Camera
     { "Camera: Focus on Selection","F",       []{ EditorCore::Get().FocusOnSelected(); } },
     // Selection
+    // Phase 1.3 (EDITOR_AUTOMATION_PLAN_v1.md): dispatched through
+    // EditorCmdRegistry — this used to be a second, independent copy of the
+    // exact same logic as the toolbar's Edit>Select All ("one execution
+    // path" invariant finding from this phase's console inventory pass).
     { "Select All",              "Ctrl+A",    []{
-        auto& ec = EditorCore::Get(); auto& reg = MdRegistry::Get();
-        ec.DeselectAll();
-        static auto q_all = reg.Raw().query<MdManagedTag>();
-        q_all.each([&](flecs::entity fe, MdManagedTag) {
-            if (ec.selected_count >= EditorCore::MAX_SELECTED) return;
-            ec.selected[ec.selected_count++] = MdEntity(fe.id());
-        });
+        CmdArgs args;
+        EditorCmdRegistry::Get().Dispatch("Select All", args, MdRegistry::Get());
     }},
     { "Deselect All",            "",          []{ EditorCore::Get().DeselectAll(); } },
     // Phase 0 falsification probe (EDITOR_AUTOMATION_PLAN_v1.md): dispatched
@@ -94,19 +93,18 @@ static const PaletteCmd kCommands[] = {
     { "Spawn: NPC Bandit",       "",          []{ EditorToolbar::Get().SpawnEntity("NPC Bandit"); } },
     { "Spawn: NPC Trader",       "",          []{ EditorToolbar::Get().SpawnEntity("NPC Trader"); } },
     { "Spawn: NPC Holy",         "",          []{ EditorToolbar::Get().SpawnEntity("NPC Holy");   } },
-    // Scene
+    // Scene — same "one execution path" migration as Select All above.
     { "Scene: Rebuild NavMesh",  "",          []{
-        Vec3 t = EditorCore::Get().cam_target;
-        NavSystem::Get().EnqueueRebuild(t.x, t.z, nullptr, 0, nullptr, 0);
-        MD_LOG(MD_LOG_INFO, "[Editor] NavMesh rebuild enqueued");
+        CmdArgs args;
+        EditorCmdRegistry::Get().Dispatch("Rebuild NavMesh", args, MdRegistry::Get());
     }},
     { "Scene: Save Game",        "F5",        []{
-        SaveSystem::Get().SaveAsync(SaveSystem::DefaultPath());
-        MD_LOG(MD_LOG_INFO, "[Editor] Async save");
+        CmdArgs args;
+        EditorCmdRegistry::Get().Dispatch("Save Game", args, MdRegistry::Get());
     }},
     { "Scene: Load Game",        "F9",        []{
-        SaveSystem::Get().Load(SaveSystem::DefaultPath());
-        MD_LOG(MD_LOG_INFO, "[Editor] Load");
+        CmdArgs args;
+        EditorCmdRegistry::Get().Dispatch("Load Game", args, MdRegistry::Get());
     }},
     // Physics
     { "Physics: Toggle Pause",   "",          []{ EditorCore::Get().physics_paused ^= true; } },

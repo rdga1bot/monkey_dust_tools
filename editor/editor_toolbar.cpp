@@ -3,6 +3,7 @@
 #include <SDL3/SDL_events.h>
 #include "editor_command_palette.h"
 #include "editor_map_view.h"
+#include <monkey_dust/editor/cmd_registry.h>
 #include <monkey_dust/ecs/registry.h>
 #include <monkey_dust/ecs/md_registry.h>
 #include <monkey_dust/world/world_transform.h>
@@ -94,26 +95,36 @@ void EditorToolbar::DrawMenuBar() {
             ImGui::EndMenu();
         }
         ImGui::Separator();
+        // Phase 1.3 (EDITOR_AUTOMATION_PLAN_v1.md): New Scene/Save/Load
+        // dispatch through EditorCmdRegistry — this menu used to carry its
+        // own copy of the same logic as the command palette's "Scene: ..."
+        // entries (now also migrated), violating the plan's "one execution
+        // path" invariant. Import/Export take this file's own scene_path_
+        // as their "path" CmdArgs string.
         if (ImGui::MenuItem("New Scene")) {
-            EditorCore::Get().DeselectAll();
-            MdRegistry::Get().Clear();
-            TransformSoA::Get().Init();
-            MD_LOG(MD_LOG_INFO, "[Editor] New scene");
+            CmdArgs args;
+            EditorCmdRegistry::Get().Dispatch("New Scene", args, MdRegistry::Get());
         }
         if (ImGui::MenuItem("Import Scene (.json)...")) {
-            SceneSerializer::Import(scene_path_);
+            CmdArgs args; args.count = 1;
+            args.values[0].type = CmdArgType::Str;
+            snprintf(args.values[0].str, sizeof(args.values[0].str), "%s", scene_path_);
+            EditorCmdRegistry::Get().Dispatch("Import Scene", args, MdRegistry::Get());
         }
         if (ImGui::MenuItem("Export Scene (.json)...")) {
-            SceneSerializer::Export(scene_path_);
+            CmdArgs args; args.count = 1;
+            args.values[0].type = CmdArgType::Str;
+            snprintf(args.values[0].str, sizeof(args.values[0].str), "%s", scene_path_);
+            EditorCmdRegistry::Get().Dispatch("Export Scene", args, MdRegistry::Get());
         }
         ImGui::Separator();
         if (ImGui::MenuItem(ICON_SAVE " Save Game (F5)")) {
-            SaveSystem::Get().SaveAsync(SaveSystem::DefaultPath());
-            MD_LOG(MD_LOG_INFO, "[Editor] Async save → %s", SaveSystem::DefaultPath());
+            CmdArgs args;
+            EditorCmdRegistry::Get().Dispatch("Save Game", args, MdRegistry::Get());
         }
         if (ImGui::MenuItem(ICON_LOAD " Load Game (F9)")) {
-            SaveSystem::Get().Load(SaveSystem::DefaultPath());
-            MD_LOG(MD_LOG_INFO, "[Editor] Load ← %s", SaveSystem::DefaultPath());
+            CmdArgs args;
+            EditorCmdRegistry::Get().Dispatch("Load Game", args, MdRegistry::Get());
         }
         ImGui::Separator();
         if (ImGui::MenuItem("Exit Editor")) {
@@ -131,42 +142,16 @@ void EditorToolbar::DrawMenuBar() {
             EditorCore::Get().Redo();
         ImGui::Separator();
         if (ImGui::MenuItem("Duplicate", "Ctrl+D")) {
-            auto& ec  = EditorCore::Get();
-            auto& reg = MdRegistry::Get();
-            MdEntity src = ec.GetPrimary();
-            if (reg.Valid(src) && (reg.Handle(src).has<WorldTransform>())) {
-                MdEntity dst = reg.Create();
-                reg.Handle(dst).emplace<WorldTransform>(reg.Handle(src).get_mut<WorldTransform>());
-                auto& tr = reg.Handle(dst).get_mut<WorldTransform>();
-                tr.x += 1.f; tr.slot = 0xFFFFFFFFu;
-                uint32_t fid = (reg.Handle(src).has<AIAgent>()) ? reg.Handle(src).get_mut<AIAgent>().faction_id : 0u;
-                tr.slot = TransformSoA::Get().Alloc(dst, tr.x, tr.z, (uint8_t)fid);
-                if ((reg.Handle(src).has<Health>()))    reg.Handle(dst).emplace<Health>(reg.Handle(src).get_mut<Health>());
-                if ((reg.Handle(src).has<AIAgent>()))   reg.Handle(dst).emplace<AIAgent>(reg.Handle(src).get_mut<AIAgent>());
-                if ((reg.Handle(src).has<Renderable>()))reg.Handle(dst).emplace<Renderable>(reg.Handle(src).get_mut<Renderable>());
-                ec.Select(dst);
-            }
+            CmdArgs args;
+            EditorCmdRegistry::Get().Dispatch("Duplicate Selected", args, MdRegistry::Get());
         }
         if (ImGui::MenuItem("Delete", "Del")) {
-            auto& ec  = EditorCore::Get();
-            auto& reg = MdRegistry::Get();
-            for (int i = ec.selected_count - 1; i >= 0; --i) {
-                MdEntity e = ec.selected[i];
-                if (!reg.Valid(e)) continue;
-                if ((reg.Handle(e).has<WorldTransform>())) TransformSoA::Get().Free(e);
-                reg.Destroy(e);
-            }
-            ec.DeselectAll();
+            CmdArgs args;
+            EditorCmdRegistry::Get().Dispatch("Delete Selected", args, MdRegistry::Get());
         }
         if (ImGui::MenuItem("Select All", "Ctrl+A")) {
-            auto& ec  = EditorCore::Get();
-            auto& reg = MdRegistry::Get();
-            ec.DeselectAll();
-            static auto q_all = reg.Raw().query<MdManagedTag>();
-            q_all.each([&](flecs::entity fe, MdManagedTag) {
-                if (ec.selected_count >= EditorCore::MAX_SELECTED) return;
-                ec.selected[ec.selected_count++] = MdEntity(fe.id());
-            });
+            CmdArgs args;
+            EditorCmdRegistry::Get().Dispatch("Select All", args, MdRegistry::Get());
         }
         ImGui::EndMenu();
     }
@@ -208,9 +193,8 @@ void EditorToolbar::DrawMenuBar() {
             MD_LOG(MD_LOG_INFO, "[Editor] JSON data reloaded");
         }
         if (ImGui::MenuItem("Rebuild NavMesh")) {
-            Vec3 t = EditorCore::Get().cam_target;
-            NavSystem::Get().EnqueueRebuild(t.x, t.z, nullptr, 0, nullptr, 0);
-            MD_LOG(MD_LOG_INFO, "[Editor] NavMesh rebuild enqueued at (%.0f,%.0f)", t.x, t.z);
+            CmdArgs args;
+            EditorCmdRegistry::Get().Dispatch("Rebuild NavMesh", args, MdRegistry::Get());
         }
         if (ImGui::MenuItem("Bake Lights (stub)")) {
             MD_LOG(MD_LOG_INFO, "[Editor] Bake not available: Phase 33 CSM is runtime-only");

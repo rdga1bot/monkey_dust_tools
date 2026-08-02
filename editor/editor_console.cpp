@@ -94,6 +94,28 @@ void EditorConsole::ExecCommand(const char* raw) {
         return;
     }
 
+    // EDITOR_AUTOMATION_PLAN_v1.md Phase 1.3.3 console inventory (required
+    // before writing this file's generic `exec` parser above): real
+    // ExecCommand branch count is 14 (help/set/get/list/subsystem/
+    // reload-shaders/reload/spawn/kill/save/load/navmesh/faction/fps) — the
+    // plan's own "current-state facts" undercounted this at 6. Per-command
+    // decision (registered vs console-only), recorded here rather than only
+    // in a PR description so it stays next to the code it describes:
+    //   REGISTERED (now dispatch via EditorCmdRegistry, below):
+    //     reload-shaders, spawn, kill, save, load, faction, fps
+    //   CONSOLE-ONLY (stay a direct passthrough — decision, not a default):
+    //     help       — pure text dump, nothing to script/undo
+    //     set/get/list — CVarRegistry is already an adequate mini-registry
+    //                    (name+value, generic across all cvars); folding it
+    //                    into EditorCmdRegistry would just duplicate it
+    //     subsystem  — same reasoning, SubsystemRegistry
+    //     reload     — vestigial: prints a hint pointing at reload-shaders,
+    //                    not a distinct action (found while doing this
+    //                    inventory; not fixed here — findings, not fixes,
+    //                    inside a migration commit)
+    //     navmesh    — read-only status query; better home is Phase 2.3's
+    //                    md.editor.status() extension than a "command" that
+    //                    doesn't command anything
     if (strncmp(cmd, "help", 4) == 0) {
         Log(MD_LOG_INFO, "/reload-shaders — hot-reload SPIR-V without restart");
         Log(MD_LOG_INFO, "/spawn N x z  /kill N  /save  /load  /navmesh  /fps");
@@ -168,14 +190,9 @@ void EditorConsole::ExecCommand(const char* raw) {
 
     if (strncmp(cmd, "reload-shaders", 14) == 0) {
         Log(MD_LOG_INFO, "[Shaders] Compiling SPIR-V (blocking ~3s)...");
-        int ret = system("bash scripts/compile_shaders.sh 2>&1 | tail -3");
-        if (ret == 0) {
-            extern void EditorReloadAllShaderPipelines();
-            EditorReloadAllShaderPipelines();
-            Log(MD_LOG_INFO, "[Shaders] Reloaded OK — restart not required");
-        } else {
-            Log(MD_LOG_WARNING, "[Shaders] Compilation FAILED — check compile_shaders.sh output");
-        }
+        CmdArgs args;
+        DispatchOutcome out = EditorCmdRegistry::Get().Dispatch("Reload Shaders", args, MdRegistry::Get());
+        Log(out.result.ok ? MD_LOG_INFO : MD_LOG_WARNING, out.result.msg);
         return;
     }
     if (strncmp(cmd, "reload", 6) == 0) {
@@ -186,54 +203,36 @@ void EditorConsole::ExecCommand(const char* raw) {
     if (strncmp(cmd, "spawn", 5) == 0) {
         int faction = 1; float cx = 0.f, cz = 0.f;
         sscanf(cmd + 5, "%d %f %f", &faction, &cx, &cz);
-        auto& reg = MdRegistry::Get();
-        auto e = reg.Create();
-        reg.Handle(e).emplace<WorldTransform>();
-        auto& tr = reg.Handle(e).get_mut<WorldTransform>();
-        tr.x = cx; tr.y = 0.f; tr.z = cz; tr.rot_y = 0.f;
-        reg.Handle(e).emplace<AIAgent>();
-        auto& ai = reg.Handle(e).get_mut<AIAgent>();
-        ai.faction_id = (uint32_t)faction;
-        reg.Handle(e).emplace<Health>(Health{100.f, 100.f});
-        reg.Handle(e).emplace<Combat>(Combat::MakeBandit());
-        char msg[64];
-        snprintf(msg, sizeof(msg), "[Console] Spawned entity faction=%d at (%.1f,%.1f)", faction, cx, cz);
-        Log(MD_LOG_INFO, msg);
+        CmdArgs args; args.count = 3;
+        args.values[0].type = CmdArgType::I64; args.values[0].i64 = faction;
+        args.values[1].type = CmdArgType::F64; args.values[1].f64 = cx;
+        args.values[2].type = CmdArgType::F64; args.values[2].f64 = cz;
+        DispatchOutcome out = EditorCmdRegistry::Get().Dispatch("Spawn Entity", args, MdRegistry::Get());
+        Log(out.result.ok ? MD_LOG_INFO : MD_LOG_WARNING, out.result.msg);
         return;
     }
 
     if (strncmp(cmd, "kill", 4) == 0) {
         uint32_t eid = 0;
         sscanf(cmd + 4, "%u", &eid);
-        auto& reg = MdRegistry::Get();
-        // Resolve entity by integral id — generation-aware, so a recycled
-        // index that no longer belongs to this id correctly misses (see
-        // MdRegistry::FromIndex()'s doc comment).
-        MdEntity e = reg.FromIndex(eid);
-        bool found = reg.Valid(e) && e.ToIntegral() == eid;
-        if (found) {
-            if ((reg.Handle(e).has<Combat>()))  reg.Handle(e).get_mut<Combat>().is_dead = true;
-            if ((reg.Handle(e).has<Health>())) { auto& h = reg.Handle(e).get_mut<Health>(); for (int _i=0;_i<LIMB_COUNT;++_i) h.hp[_i]=0.f; }
-        }
-        if (found) {
-            char msg[48];
-            snprintf(msg, sizeof(msg), "[Console] Killed entity %u", eid);
-            Log(MD_LOG_INFO, msg);
-        } else {
-            Log(MD_LOG_WARNING, "[Console] Entity not found");
-        }
+        CmdArgs args; args.count = 1;
+        args.values[0].type = CmdArgType::Entity; args.values[0].entity_id = eid;
+        DispatchOutcome out = EditorCmdRegistry::Get().Dispatch("Kill Entity", args, MdRegistry::Get());
+        Log(out.result.ok ? MD_LOG_INFO : MD_LOG_WARNING, out.result.msg);
         return;
     }
 
     if (strncmp(cmd, "save", 4) == 0) {
-        SaveSystem::Get().SaveAsync(SaveSystem::DefaultPath());
-        Log(MD_LOG_INFO, "[Console] Save started");
+        CmdArgs args;
+        DispatchOutcome out = EditorCmdRegistry::Get().Dispatch("Save Game", args, MdRegistry::Get());
+        Log(out.result.ok ? MD_LOG_INFO : MD_LOG_WARNING, out.result.msg);
         return;
     }
 
     if (strncmp(cmd, "load", 4) == 0) {
-        SaveSystem::Get().Load(SaveSystem::DefaultPath());
-        Log(MD_LOG_INFO, "[Console] Load complete");
+        CmdArgs args;
+        DispatchOutcome out = EditorCmdRegistry::Get().Dispatch("Load Game", args, MdRegistry::Get());
+        Log(out.result.ok ? MD_LOG_INFO : MD_LOG_WARNING, out.result.msg);
         return;
     }
 
@@ -248,18 +247,19 @@ void EditorConsole::ExecCommand(const char* raw) {
     if (strncmp(cmd, "faction", 7) == 0) {
         int a = 0, b = 0, v = 0;
         sscanf(cmd + 7, "%d %d %d", &a, &b, &v);
-        FactionSystem::Get().SetRelation((uint32_t)a, (uint32_t)b, (int8_t)v);
-        char msg[64];
-        snprintf(msg, sizeof(msg), "[Console] Faction %d→%d = %d", a, b, v);
-        Log(MD_LOG_INFO, msg);
+        CmdArgs args; args.count = 3;
+        args.values[0].type = CmdArgType::I64; args.values[0].i64 = a;
+        args.values[1].type = CmdArgType::I64; args.values[1].i64 = b;
+        args.values[2].type = CmdArgType::I64; args.values[2].i64 = v;
+        DispatchOutcome out = EditorCmdRegistry::Get().Dispatch("Set Faction Relation", args, MdRegistry::Get());
+        Log(out.result.ok ? MD_LOG_INFO : MD_LOG_WARNING, out.result.msg);
         return;
     }
 
     if (strncmp(cmd, "fps", 3) == 0) {
-        char msg[64];
-        snprintf(msg, sizeof(msg), "[Console] FPS=%.0f  dt=%.2fms",
-                 frame_fps_, frame_dt_ms_);
-        Log(MD_LOG_INFO, msg);
+        CmdArgs args;
+        DispatchOutcome out = EditorCmdRegistry::Get().Dispatch("FPS Query", args, MdRegistry::Get());
+        Log(out.result.ok ? MD_LOG_INFO : MD_LOG_WARNING, out.result.msg);
         return;
     }
 
