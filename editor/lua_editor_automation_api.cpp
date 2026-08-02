@@ -9,6 +9,9 @@
 #include "editor_std_commands.h"
 #include "editor_reflect_bridge.h"
 #include "editor_screenshot.h"
+#ifdef MONKEY_DUST_EDITOR_HOT_RELOAD
+#include <monkey_dust/hot/editor_module.h>
+#endif
 #include <flecs.h>
 #include <cstdio>
 #include <cstring>
@@ -129,6 +132,29 @@ int l_md_editor_help(lua_State* L) {
 
 int l_md_editor_undo(lua_State* L) { (void)L; EditorCore::Get().Undo(); return 0; }
 int l_md_editor_redo(lua_State* L) { (void)L; EditorCore::Get().Redo(); return 0; }
+
+// Phase 4 (regression suite): real hot-reload (dlclose/dlopen
+// libeditor_panels.so, re-running editor_panels_init/shutdown) is
+// otherwise only reachable via an actual F5 keypress (main.cpp's
+// input_key_pressed(SDL_SCANCODE_F5) check) — no existing Lua path
+// triggers it, which makes "Phase 0 hot-reload survival" impossible to
+// re-run as a live --exec regression scenario. This calls the exact same
+// EditorModule::Get().Reload() the F5 handler does, just from Lua instead
+// of a physical keypress, so the permanent regression suite can exercise
+// the real dlopen/dlclose cycle deterministically.
+int l_md_editor_trigger_hot_reload(lua_State* L) {
+#ifdef MONKEY_DUST_EDITOR_HOT_RELOAD
+    EditorModule::Get().Reload();
+    // Synchronous from the script's point of view (unlike the F5 hotkey
+    // path, which stays async for UI responsiveness) — see
+    // WaitReloadReady()'s doc comment for the crash this avoids.
+    EditorModule::Get().WaitReloadReady();
+    return 0;
+#else
+    (void)L;
+    return luaL_error(L, "trigger_hot_reload: this binary was not built with MONKEY_DUST_EDITOR_HOT_RELOAD");
+#endif
+}
 
 // ── md.editor.selection/camera/status ───────────────────────────────────────
 
@@ -472,6 +498,7 @@ void RegisterLuaEditorAutomationAPI(LuaSystem& sys) {
     sys.RegisterSubNamespaceFunction("editor", "help",        l_md_editor_help);
     sys.RegisterSubNamespaceFunction("editor", "undo",        l_md_editor_undo);
     sys.RegisterSubNamespaceFunction("editor", "redo",        l_md_editor_redo);
+    sys.RegisterSubNamespaceFunction("editor", "trigger_hot_reload", l_md_editor_trigger_hot_reload);
     sys.RegisterSubNamespaceFunction("editor", "selection",   l_md_editor_selection);
     sys.RegisterSubNamespaceFunction("editor", "camera",      l_md_editor_camera);
     sys.RegisterSubNamespaceFunction("editor", "status",      l_md_editor_status);

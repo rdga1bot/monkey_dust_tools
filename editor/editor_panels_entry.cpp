@@ -155,6 +155,25 @@ void editor_panels_shutdown(const char* layout_path) {
     MD_LOG(MD_LOG_INFO, "[EditorPanels] shutdown complete");
 }
 
+// ── WaitLoaderReady — Phase 4 regression-suite fix ──────────────────────────
+// EDITOR_AUTOMATION_PLAN_v1.md Phase 4: md.editor.trigger_hot_reload()
+// (lua_editor_automation_api.cpp) previously returned as soon as
+// editor_panels_init() spawned WorldEditor3D_SDLGPU's background GPU-
+// resource loader thread, WITHOUT waiting for it to finish — a script
+// that reloads and then quits shortly after (exactly what the Phase 4
+// regress_hot_reload.lua scenario does) races that thread against process
+// shutdown, reproduced as a SIGSEGV/SIGABRT in `coredumpctl` during this
+// phase's own testing (~1-in-a-few runs when reload is called repeatedly).
+// This reuses WorldEditor3D_SDLGPU::Shutdown()'s existing join-until-done
+// logic (safe to call multiple times — joinable() is false after the
+// first join, so a later real editor_panels_shutdown() call is a no-op)
+// WITHOUT the rest of Shutdown()'s teardown, so EditorModule can make
+// Reload() synchronous from the caller's point of view without actually
+// tearing anything down.
+void editor_panels_wait_loader_ready() {
+    WorldEditor3D_SDLGPU::Shutdown();
+}
+
 // ── BuildUI — called inside ImGui frame ──────────────────────────────────────
 // Returns active-viewport bitmask:
 //   bit 0: 3D World, bit 1: CharPreview, bit 2: (unused), bit 3: Map View
