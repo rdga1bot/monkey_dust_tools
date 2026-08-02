@@ -26,6 +26,7 @@
 #include "editor_reflect_bridge.h"
 #include "editor_reflect_inspector.h"
 #include "lua_editor_scenario_api.h"
+#include "lua_editor_automation_api.h"
 #include "editor_command_palette.h"
 #include "editor_std_commands.h"
 #include <monkey_dust/editor/cmd_registry.h>
@@ -77,6 +78,7 @@ void editor_panels_init(void* ctx, void* ecs_world, void* /*gpu*/, void* /*windo
     // the same md.* table fields.
     if (lua_system) {
         RegisterLuaEditorScenarioAPI(*static_cast<LuaSystem*>(lua_system));
+        RegisterLuaEditorAutomationAPI(*static_cast<LuaSystem*>(lua_system));
     }
 
     SettingsEditor::Load(CFG_PATH);

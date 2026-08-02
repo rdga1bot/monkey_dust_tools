@@ -49,4 +49,19 @@ CmdResult AddComponentCmd(const CmdArgs& args, MdRegistry& reg, uint8_t undo_dat
 // caller so UnregisterModule() only purges that caller's own entries.
 void RegisterStdEditorCommands(uint32_t owner_module_id);
 
+// EDITOR_AUTOMATION_PLAN_v1.md Phase 2: the ONE place that actually pushes
+// onto EditorCore::Get().history (CommandStack) when a dispatch produces
+// undo/redo data. Found missing while wiring md.editor.undo(): every
+// existing call site (palette/toolbar/console/inspector, Phase 1.3) called
+// EditorCmdRegistry::Get().Dispatch(...) directly and discarded the
+// DispatchOutcome's undo/redo fields entirely — Phase 1.1-1.2's undo-
+// mediation mechanism was proven only against a FAKE stack in the unit
+// test, never wired into the REAL one. Every dispatch call site (including
+// this file's own commands' future callers, and the Lua md.editor.exec
+// binding) should go through this helper instead of calling
+// EditorCmdRegistry::Get().Dispatch(...) directly, so Ctrl+Z/Ctrl+Y and
+// md.editor.undo()/redo() actually see every undo-capable command's
+// effect, not just the ones some call site happened to wire by hand.
+CmdResult DispatchEditorCmd(const char* name, const CmdArgs& args);
+
 #endif

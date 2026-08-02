@@ -4,6 +4,7 @@
 #include <monkey_dust/ecs/registry.h>
 #include <monkey_dust/ecs/md_registry.h>
 #include <monkey_dust/editor/cmd_registry.h>
+#include "editor_std_commands.h"
 #include <monkey_dust/world/world_transform.h>
 #include <monkey_dust/world/transform_soa.h>
 #include <monkey_dust/components/ai_agent.h>
@@ -74,7 +75,7 @@ static const PaletteCmd kCommands[] = {
     // path" invariant finding from this phase's console inventory pass).
     { "Select All",              "Ctrl+A",    []{
         CmdArgs args;
-        EditorCmdRegistry::Get().Dispatch("Select All", args, MdRegistry::Get());
+        DispatchEditorCmd("Select All", args);
     }},
     { "Deselect All",            "",          []{ EditorCore::Get().DeselectAll(); } },
     // Phase 0 falsification probe (EDITOR_AUTOMATION_PLAN_v1.md): dispatched
@@ -83,7 +84,7 @@ static const PaletteCmd kCommands[] = {
     // editor_panels_init()/DeleteSelectedCmd (this file, above).
     { "Delete Selected",         "Del",       []{
         CmdArgs args;
-        EditorCmdRegistry::Get().Dispatch("Delete Selected", args, MdRegistry::Get());
+        DispatchEditorCmd("Delete Selected", args);
     }},
     // Edit
     { "Edit: Undo",              "Ctrl+Z",    []{ EditorCore::Get().Undo(); } },
@@ -96,15 +97,15 @@ static const PaletteCmd kCommands[] = {
     // Scene — same "one execution path" migration as Select All above.
     { "Scene: Rebuild NavMesh",  "",          []{
         CmdArgs args;
-        EditorCmdRegistry::Get().Dispatch("Rebuild NavMesh", args, MdRegistry::Get());
+        DispatchEditorCmd("Rebuild NavMesh", args);
     }},
     { "Scene: Save Game",        "F5",        []{
         CmdArgs args;
-        EditorCmdRegistry::Get().Dispatch("Save Game", args, MdRegistry::Get());
+        DispatchEditorCmd("Save Game", args);
     }},
     { "Scene: Load Game",        "F9",        []{
         CmdArgs args;
-        EditorCmdRegistry::Get().Dispatch("Load Game", args, MdRegistry::Get());
+        DispatchEditorCmd("Load Game", args);
     }},
     // Physics
     { "Physics: Toggle Pause",   "",          []{ EditorCore::Get().physics_paused ^= true; } },

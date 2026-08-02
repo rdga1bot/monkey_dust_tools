@@ -6,6 +6,7 @@
 #include <monkey_dust/ecs/md_entity.h>
 #include <monkey_dust/ecs/md_registry.h>
 #include <monkey_dust/editor/cmd_registry.h>
+#include "editor_std_commands.h"
 #include <flecs.h>
 #include <cstdio>
 #include <cstring>
@@ -157,7 +158,7 @@ void EditorReflectInspector::DrawContent(ecs_world_t* world) {
         args.values[0].type = CmdArgType::Entity; args.values[0].entity_id = eid;
         args.values[1].type = CmdArgType::Str;
         snprintf(args.values[1].str, sizeof(args.values[1].str), "%s", add_names[i]);
-        EditorCmdRegistry::Get().Dispatch("Add Component", args, MdRegistry::Get());
+        DispatchEditorCmd("Add Component", args);
     }
 
     // ── Unreflected components (read-only) ───────────────────────────────

@@ -17,6 +17,7 @@
 #include <monkey_dust/tools/graphics_settings.h>
 #include <monkey_dust/core/subsystem_registry.h>
 #include <monkey_dust/editor/cmd_registry.h>
+#include "editor_std_commands.h"
 #include <cstdio>
 #include <cstring>
 
@@ -86,9 +87,9 @@ void EditorConsole::ExecCommand(const char* raw) {
         const char* name = cmd + 5;
         while (*name == ' ') ++name;
         CmdArgs args;
-        DispatchOutcome outcome = EditorCmdRegistry::Get().Dispatch(name, args, MdRegistry::Get());
-        if (!outcome.result.ok) {
-            char out[160]; snprintf(out, sizeof(out), "[Console] %s", outcome.result.msg);
+        CmdResult result = DispatchEditorCmd(name, args);
+        if (!result.ok) {
+            char out[160]; snprintf(out, sizeof(out), "[Console] %s", result.msg);
             Log(MD_LOG_WARNING, out);
         }
         return;
@@ -191,8 +192,8 @@ void EditorConsole::ExecCommand(const char* raw) {
     if (strncmp(cmd, "reload-shaders", 14) == 0) {
         Log(MD_LOG_INFO, "[Shaders] Compiling SPIR-V (blocking ~3s)...");
         CmdArgs args;
-        DispatchOutcome out = EditorCmdRegistry::Get().Dispatch("Reload Shaders", args, MdRegistry::Get());
-        Log(out.result.ok ? MD_LOG_INFO : MD_LOG_WARNING, out.result.msg);
+        CmdResult out = DispatchEditorCmd("Reload Shaders", args);
+        Log(out.ok ? MD_LOG_INFO : MD_LOG_WARNING, out.msg);
         return;
     }
     if (strncmp(cmd, "reload", 6) == 0) {
@@ -207,8 +208,8 @@ void EditorConsole::ExecCommand(const char* raw) {
         args.values[0].type = CmdArgType::I64; args.values[0].i64 = faction;
         args.values[1].type = CmdArgType::F64; args.values[1].f64 = cx;
         args.values[2].type = CmdArgType::F64; args.values[2].f64 = cz;
-        DispatchOutcome out = EditorCmdRegistry::Get().Dispatch("Spawn Entity", args, MdRegistry::Get());
-        Log(out.result.ok ? MD_LOG_INFO : MD_LOG_WARNING, out.result.msg);
+        CmdResult out = DispatchEditorCmd("Spawn Entity", args);
+        Log(out.ok ? MD_LOG_INFO : MD_LOG_WARNING, out.msg);
         return;
     }
 
@@ -217,22 +218,22 @@ void EditorConsole::ExecCommand(const char* raw) {
         sscanf(cmd + 4, "%u", &eid);
         CmdArgs args; args.count = 1;
         args.values[0].type = CmdArgType::Entity; args.values[0].entity_id = eid;
-        DispatchOutcome out = EditorCmdRegistry::Get().Dispatch("Kill Entity", args, MdRegistry::Get());
-        Log(out.result.ok ? MD_LOG_INFO : MD_LOG_WARNING, out.result.msg);
+        CmdResult out = DispatchEditorCmd("Kill Entity", args);
+        Log(out.ok ? MD_LOG_INFO : MD_LOG_WARNING, out.msg);
         return;
     }
 
     if (strncmp(cmd, "save", 4) == 0) {
         CmdArgs args;
-        DispatchOutcome out = EditorCmdRegistry::Get().Dispatch("Save Game", args, MdRegistry::Get());
-        Log(out.result.ok ? MD_LOG_INFO : MD_LOG_WARNING, out.result.msg);
+        CmdResult out = DispatchEditorCmd("Save Game", args);
+        Log(out.ok ? MD_LOG_INFO : MD_LOG_WARNING, out.msg);
         return;
     }
 
     if (strncmp(cmd, "load", 4) == 0) {
         CmdArgs args;
-        DispatchOutcome out = EditorCmdRegistry::Get().Dispatch("Load Game", args, MdRegistry::Get());
-        Log(out.result.ok ? MD_LOG_INFO : MD_LOG_WARNING, out.result.msg);
+        CmdResult out = DispatchEditorCmd("Load Game", args);
+        Log(out.ok ? MD_LOG_INFO : MD_LOG_WARNING, out.msg);
         return;
     }
 
@@ -251,15 +252,15 @@ void EditorConsole::ExecCommand(const char* raw) {
         args.values[0].type = CmdArgType::I64; args.values[0].i64 = a;
         args.values[1].type = CmdArgType::I64; args.values[1].i64 = b;
         args.values[2].type = CmdArgType::I64; args.values[2].i64 = v;
-        DispatchOutcome out = EditorCmdRegistry::Get().Dispatch("Set Faction Relation", args, MdRegistry::Get());
-        Log(out.result.ok ? MD_LOG_INFO : MD_LOG_WARNING, out.result.msg);
+        CmdResult out = DispatchEditorCmd("Set Faction Relation", args);
+        Log(out.ok ? MD_LOG_INFO : MD_LOG_WARNING, out.msg);
         return;
     }
 
     if (strncmp(cmd, "fps", 3) == 0) {
         CmdArgs args;
-        DispatchOutcome out = EditorCmdRegistry::Get().Dispatch("FPS Query", args, MdRegistry::Get());
-        Log(out.result.ok ? MD_LOG_INFO : MD_LOG_WARNING, out.result.msg);
+        CmdResult out = DispatchEditorCmd("FPS Query", args);
+        Log(out.ok ? MD_LOG_INFO : MD_LOG_WARNING, out.msg);
         return;
     }
 
