@@ -97,6 +97,11 @@ if(MONKEY_DUST_EDITOR_HOT_RELOAD)
     # and are pulled in transitively — no explicit listing needed.
     file(GLOB _EDITOR_PANELS_CPP CONFIGURE_DEPENDS "editor/*.cpp")
     list(REMOVE_ITEM _EDITOR_PANELS_CPP "${CMAKE_CURRENT_SOURCE_DIR}/editor/main.cpp")
+    # ui_smoke_tests.cpp (Phase 5) needs the imgui_test_engine include paths/
+    # defines set up below under MD_UI_TESTS — those are only added to the
+    # monkey_dust_editor target, not this hot-reload .so, so building this
+    # target with MD_UI_TESTS=ON would otherwise fail on a missing header.
+    list(REMOVE_ITEM _EDITOR_PANELS_CPP "${CMAKE_CURRENT_SOURCE_DIR}/editor/ui_smoke_tests.cpp")
     set(EDITOR_PANELS_HOT_SRCS
         ${_EDITOR_PANELS_CPP}
         # Engine sources needed by panels (not pulled via static lib at dlopen time)
