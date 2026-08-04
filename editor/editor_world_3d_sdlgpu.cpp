@@ -97,6 +97,11 @@ static constexpr float kGranitePatchSize = 300.f;
 static TerrainPatchRenderer::Instance s_granite_insts[TerrainPatchRenderer::kNumTiers][4096];
 static int   s_granite_counts[TerrainPatchRenderer::kNumTiers] = {};
 
+// terrain-vt Phase 1/2 -- see VtDebugFill/VtDebugDump's doc comment
+// (editor_world_3d_sdlgpu.h) and Phase 2's wiring in s_update_granite_terrain.
+static TerrainVtPageCache s_vt_cache;
+static bool s_vt_cache_ready = false;
+
 // Builds/rebuilds the static world heightmap from TerrainAtlas's CURRENT
 // contents -- called once at Init() and again whenever s_terrain_dirty's
 // debounce fires (terrain edited) or the R key forces a refresh, mirroring
@@ -116,6 +121,13 @@ static void s_rebuild_granite_hmap() {
     if (hmap_ok) {
         s_granite_grid.Init(0.f, 0.f, s_granite_hmap.WorldExtent(),
                              kGranitePatchSize, TerrainPatchRenderer::kNumTiers - 1);
+        // terrain-vt Phase 2: init the page cache alongside the grid it
+        // mirrors -- ONCE only (this function can re-run on terrain edits/
+        // R-key refresh; re-Init()ing the cache each time would either leak
+        // or need an explicit Shutdown+Init cycle for no benefit, since a
+        // stale cached page after an edit is a known, deferred problem --
+        // Phase 7's real invalidation, not something to half-solve here).
+        if (!s_vt_cache_ready) s_vt_cache_ready = s_vt_cache.Init(dev, kGranitePatchSize, s_granite_hmap);
     }
 }
 
@@ -157,6 +169,14 @@ static void s_update_granite_terrain(SDL_GPUCommandBuffer* cmd,
         int tier = (int)p.lod;
         if (tier < 0) tier = 0;
         if (tier > TerrainPatchRenderer::kNumTiers - 1) tier = TerrainPatchRenderer::kNumTiers - 1;
+        // terrain-vt Phase 2: reuse this SAME per-frame visibility pass to
+        // drive page-cache requests -- zero extra visibility computation,
+        // exactly the reasoning the plan called for (TerrainPatchGrid
+        // already knows what's visible for geometry LOD; no separate GPU
+        // feedback buffer needed). Reject-on-full/queue-full cases are
+        // silent no-ops inside RequestPage -- retried automatically next
+        // frame for as long as this patch stays visible.
+        if (s_vt_cache_ready) s_vt_cache.RequestPage(p.ix, p.iz, tier);
         int& n = s_granite_counts[tier];
         if (n >= kMaxInstPerTier) continue;
         auto& inst = s_granite_insts[tier][n++];
@@ -164,6 +184,12 @@ static void s_update_granite_terrain(SDL_GPUCommandBuffer* cmd,
         inst.origin_z = p.origin_z;
         inst.lod      = p.lod;
     }
+
+    // terrain-vt Phase 2: drain this frame's page-fill requests -- must run
+    // outside any render/compute pass (we're still before
+    // SDL_BeginGPURenderPass here) and before the shading-resolve pass that
+    // will eventually read the atlas (Phase 4; nothing reads it yet).
+    if (s_vt_cache_ready) s_vt_cache.FlushFillQueue(md::GpuDevice::Get().SDLDevice(), cmd, s_granite_hmap, s_terrain);
 
     const TerrainPatchRenderer::Instance* inst_ptrs[TerrainPatchRenderer::kNumTiers];
     for (int t = 0; t < TerrainPatchRenderer::kNumTiers; ++t)
@@ -804,13 +830,6 @@ void SetCameraPos(float x, float y, float z, float yaw, float pitch) {
     s_yaw = yaw; s_pitch = pitch;
 }
 
-// terrain-vt Phase 1 verification only -- see editor_world_3d_sdlgpu.h's
-// doc comment. Lazily inited on first VtDebugFill() call (needs
-// s_granite_hmap already Init()'d, which only happens after the
-// background loader thread finishes -- see s_granite_ready).
-static TerrainVtPageCache s_vt_cache;
-static bool s_vt_cache_ready = false;
-
 int VtDebugFill() {
     if (!s_granite_ready) return -1;
     SDL_GPUDevice* dev = md::GpuDevice::Get().SDLDevice();
@@ -846,6 +865,10 @@ bool VtDebugDump(const char* out_png_path) {
     SDL_GPUDevice* dev = md::GpuDevice::Get().SDLDevice();
     if (!dev) return false;
     return s_vt_cache.DebugDumpAtlas(dev, out_png_path);
+}
+
+int VtResidentCount() {
+    return s_vt_cache_ready ? s_vt_cache.ResidentCount() : -1;
 }
 
 } // namespace WorldEditor3D_SDLGPU

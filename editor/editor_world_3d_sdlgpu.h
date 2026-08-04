@@ -58,6 +58,12 @@ int GetChunksTotal();
 // atlas to a PNG for visual inspection.
 int  VtDebugFill();
 bool VtDebugDump(const char* out_png_path);
+// terrain-vt Phase 2 verification: total resident page count in the SAME
+// cache the real per-frame visibility loop (s_update_granite_terrain)
+// now drives via RequestPage/FlushFillQueue every frame -- lets a --exec
+// scenario confirm the live wiring actually fills pages while flying the
+// camera around, without needing VtDebugFill's manual neighborhood probe.
+int VtResidentCount();
 
 } // namespace WorldEditor3D_SDLGPU
 #endif // MD_SDL_GPU
