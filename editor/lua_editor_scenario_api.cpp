@@ -98,6 +98,28 @@ static int l_md_editor_terrain_op(lua_State* L) {
     return luaL_error(L, "md.editor_terrain_op: unsupported op '%s' (Etap 4 supports \"height\", \"chunks_loaded\")", op);
 }
 
+// ── md.editor_vt_debug(op[, path]) — terrain-vt Phase 1 verification only.
+// "fill": requests+flushes a small neighborhood of pages around the
+// current editor camera, returns resident count (or -1 if not ready).
+// "dump": blocking atlas readback to a PNG at `path`. NOT part of the
+// shipping render path -- see WorldEditor3D_SDLGPU::VtDebugFill/VtDebugDump's
+// own doc comment.
+static int l_md_editor_vt_debug(lua_State* L) {
+    const char* op = luaL_checkstring(L, 1);
+#ifdef MD_SDL_GPU
+    if (strcmp(op, "fill") == 0) {
+        lua_pushinteger(L, WorldEditor3D_SDLGPU::VtDebugFill());
+        return 1;
+    }
+    if (strcmp(op, "dump") == 0) {
+        const char* path = luaL_checkstring(L, 2);
+        lua_pushboolean(L, WorldEditor3D_SDLGPU::VtDebugDump(path));
+        return 1;
+    }
+#endif
+    return luaL_error(L, "md.editor_vt_debug: unsupported op '%s' (supports \"fill\", \"dump\")", op);
+}
+
 // ── md.log(msg) — same convention as game's lua_scenario_api.cpp: bare
 // stdout, [SCRIPT] prefix, not MD_LOG (defaults to stderr, md_log.h). Not
 // part of the shared engine bootstrap (only wait_ticks/wait_until/quit are)
@@ -152,6 +174,7 @@ void RegisterLuaEditorScenarioAPI(LuaSystem& sys) {
     sys.RegisterNamespaceFunction("editor_camera_pos",  l_md_editor_camera_pos);
     sys.RegisterNamespaceFunction("editor_terrain_op",  l_md_editor_terrain_op);
     sys.RegisterNamespaceFunction("editor_screenshot",  l_md_editor_screenshot);
+    sys.RegisterNamespaceFunction("editor_vt_debug",    l_md_editor_vt_debug);
     sys.RegisterNamespaceFunction("log",                l_md_log);
     sys.RegisterNamespaceFunction("assert_eq",          l_md_assert_eq);
     sys.RegisterNamespaceFunction("assert_true",        l_md_assert_true);

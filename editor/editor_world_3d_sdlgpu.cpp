@@ -17,6 +17,7 @@
 #include <monkey_dust/render/terrain_world_heightmap.h>
 #include <monkey_dust/render/terrain_patch_renderer.h>
 #include <monkey_dust/render/terrain_shading_projected.h>
+#include <monkey_dust/render/terrain_vt_page_cache.h>
 #include <monkey_dust/world/terrain_patch_grid.h>
 #include <monkey_dust/render/prop_renderer.h>
 #include <monkey_dust/render/gpu_device.h>
@@ -801,6 +802,50 @@ int GetChunksTotal()  { return 1; }
 void SetCameraPos(float x, float y, float z, float yaw, float pitch) {
     s_cx = x; s_cy = y; s_cz = z;
     s_yaw = yaw; s_pitch = pitch;
+}
+
+// terrain-vt Phase 1 verification only -- see editor_world_3d_sdlgpu.h's
+// doc comment. Lazily inited on first VtDebugFill() call (needs
+// s_granite_hmap already Init()'d, which only happens after the
+// background loader thread finishes -- see s_granite_ready).
+static TerrainVtPageCache s_vt_cache;
+static bool s_vt_cache_ready = false;
+
+int VtDebugFill() {
+    if (!s_granite_ready) return -1;
+    SDL_GPUDevice* dev = md::GpuDevice::Get().SDLDevice();
+    if (!dev) return -1;
+    if (!s_vt_cache_ready) {
+        s_vt_cache_ready = s_vt_cache.Init(dev, kGranitePatchSize, s_granite_hmap);
+        if (!s_vt_cache_ready) return -1;
+    }
+
+    // Small neighborhood of pages around the current camera position, all
+    // at tier 0 -- enough to exercise page allocation + compute dispatch +
+    // indirection upload end-to-end without real visibility wiring (Phase 2).
+    int ix0 = (int)(s_cx / kGranitePatchSize);
+    int iz0 = (int)(s_cz / kGranitePatchSize);
+    for (int dz = -3; dz <= 3; ++dz)
+        for (int dx = -3; dx <= 3; ++dx)
+            s_vt_cache.RequestPage(ix0 + dx, iz0 + dz, 0);
+
+    SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(dev);
+    if (!cmd) return -1;
+    s_vt_cache.FlushFillQueue(dev, cmd, s_granite_hmap, s_terrain);
+    // Debug-only diagnostic: fence-wait so a subsequent VtDebugDump call
+    // (separate command buffer) can never race the compute writes above --
+    // isolates whether a visible-content bug is really about the dispatch
+    // itself vs. cross-command-buffer ordering.
+    SDL_GPUFence* fence = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
+    if (fence) { SDL_WaitForGPUFences(dev, true, &fence, 1); SDL_ReleaseGPUFence(dev, fence); }
+    return s_vt_cache.ResidentCount();
+}
+
+bool VtDebugDump(const char* out_png_path) {
+    if (!s_vt_cache_ready) return false;
+    SDL_GPUDevice* dev = md::GpuDevice::Get().SDLDevice();
+    if (!dev) return false;
+    return s_vt_cache.DebugDumpAtlas(dev, out_png_path);
 }
 
 } // namespace WorldEditor3D_SDLGPU
