@@ -64,6 +64,7 @@ bool VtDebugDump(const char* out_png_path);
 // scenario confirm the live wiring actually fills pages while flying the
 // camera around, without needing VtDebugFill's manual neighborhood probe.
 int VtResidentCount();
+int VtEvictionCount();
 
 } // namespace WorldEditor3D_SDLGPU
 #endif // MD_SDL_GPU

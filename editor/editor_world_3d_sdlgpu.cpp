@@ -871,6 +871,10 @@ int VtResidentCount() {
     return s_vt_cache_ready ? s_vt_cache.ResidentCount() : -1;
 }
 
+int VtEvictionCount() {
+    return s_vt_cache_ready ? (int)s_vt_cache.EvictionCount() : -1;
+}
+
 } // namespace WorldEditor3D_SDLGPU
 
 #endif // MD_SDL_GPU

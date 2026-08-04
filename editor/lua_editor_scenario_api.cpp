@@ -118,7 +118,8 @@ static int l_md_editor_vt_debug(lua_State* L) {
     }
     if (strcmp(op, "stats") == 0) {
         lua_pushinteger(L, WorldEditor3D_SDLGPU::VtResidentCount());
-        return 1;
+        lua_pushinteger(L, WorldEditor3D_SDLGPU::VtEvictionCount());
+        return 2;
     }
 #endif
     return luaL_error(L, "md.editor_vt_debug: unsupported op '%s' (supports \"fill\", \"dump\", \"stats\")", op);
