@@ -706,7 +706,7 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
             s_terrain_shading.DrawShadingResolve(rp, cmd, sun, eye_x, eye_y, eye_z,
                 WCX, WCZ, W2UV,
                 60000.f, kFogColor, 0.f,
-                s_terrain);
+                s_terrain, s_vt_cache);
         }
 
         SDL_EndGPURenderPass(rp);
