@@ -176,7 +176,8 @@ static void s_update_granite_terrain(SDL_GPUCommandBuffer* cmd,
         // feedback buffer needed). Reject-on-full/queue-full cases are
         // silent no-ops inside RequestPage -- retried automatically next
         // frame for as long as this patch stays visible.
-        if (s_vt_cache_ready) s_vt_cache.RequestPage(p.ix, p.iz, tier);
+        if (s_vt_cache_ready && tier >= TerrainVtPageCache::MIN_CACHEABLE_TIER)
+            s_vt_cache.RequestPage(p.ix, p.iz, tier);
         int& n = s_granite_counts[tier];
         if (n >= kMaxInstPerTier) continue;
         auto& inst = s_granite_insts[tier][n++];
@@ -846,7 +847,7 @@ int VtDebugFill() {
     int iz0 = (int)(s_cz / kGranitePatchSize);
     for (int dz = -3; dz <= 3; ++dz)
         for (int dx = -3; dx <= 3; ++dx)
-            s_vt_cache.RequestPage(ix0 + dx, iz0 + dz, 0);
+            s_vt_cache.RequestPage(ix0 + dx, iz0 + dz, TerrainVtPageCache::MIN_CACHEABLE_TIER);
 
     SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(dev);
     if (!cmd) return -1;
