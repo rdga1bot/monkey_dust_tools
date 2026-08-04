@@ -16,6 +16,7 @@
 #include <monkey_dust/render/terrain_renderer.h>
 #include <monkey_dust/render/terrain_world_heightmap.h>
 #include <monkey_dust/render/terrain_patch_renderer.h>
+#include <monkey_dust/render/terrain_shading_projected.h>
 #include <monkey_dust/world/terrain_patch_grid.h>
 #include <monkey_dust/render/prop_renderer.h>
 #include <monkey_dust/render/gpu_device.h>
@@ -82,6 +83,14 @@ static PropRenderer       s_props;
 static TerrainWorldHeightmap s_granite_hmap;
 static TerrainPatchGrid      s_granite_grid;
 static TerrainPatchRenderer  s_granite_pr;
+// Variant A (screen-space decoupled shading) -- matches the game's sole
+// terrain shading path (game/src/render/scene_render.h's own field,
+// TerrainShadingProjected class doc comment for the full history/why).
+// The editor's World3D viewport previously kept the forward path
+// (TerrainPatchRenderer::DrawBatch, Variant B) after the game switched --
+// this consolidates both onto ONE shading path so there's only one to
+// reason about/fix, per direct user request.
+static TerrainShadingProjected s_terrain_shading;
 static bool  s_granite_ready = false;
 static constexpr float kGranitePatchSize = 300.f;
 static TerrainPatchRenderer::Instance s_granite_insts[TerrainPatchRenderer::kNumTiers][4096];
@@ -379,6 +388,11 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
         // pipeline above) -- doesn't depend on terrain data, never needs
         // rebuilding, unlike the heightmap texture (s_rebuild_granite_hmap).
         s_granite_pr.Init(md::GpuDevice::Get().SDLDevice());
+        // Placeholder size -- DrawImGui's ensure_rtt-adjacent EnsureSize call
+        // resizes this to the real viewport dims on the first frame the
+        // panel is actually shown (this thread doesn't know the ImGui
+        // panel's size yet, same reason ensure_rtt itself isn't called here).
+        s_terrain_shading.Init(md::GpuDevice::Get().SDLDevice(), 64, 64);
         s_props.Init("game/data/props/rock_01.glb", 0.f); // no-op if missing; 0=rock diffuse
         s_terrain.InitKenshiOverlay(op);
         s_terrain.InitGroundTextureArray();
@@ -580,6 +594,27 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
     // pass below opens (issues its own SDL_GPU copy passes on cmd).
     s_update_granite_terrain(cmd, eye_x, eye_y, eye_z, vp.m);
 
+    // Variant A G-buffer pass -- must run in its OWN render pass, BEFORE
+    // the main color pass below (TerrainShadingProjected's doc comment).
+    // Nothing else in this viewport draws into the shared depth before or
+    // after terrain (s_props is loaded but never drawn -- see this file's
+    // RenderFrame), so unlike game/src/render/npc_render.cpp's
+    // CullAndPrepass this doesn't need a separate depth-only Early-Z
+    // prepass into the shared `s_depth`: it's still at its LOAD_OP_CLEAR
+    // 1.0 when the resolve pass below runs, so its gl_FragDepth-forwarded
+    // depth test trivially passes everywhere real terrain exists.
+    if (s_granite_ready && s_terrain.IsReady()) {
+        SDL_GPURenderPass* gbuf_pass = s_terrain_shading.BeginGBufferPass(cmd);
+        if (gbuf_pass) {
+            for (int t = 0; t < TerrainPatchRenderer::kNumTiers; ++t) {
+                s_granite_pr.DrawBatchGBuffer(gbuf_pass, cmd, t, vp.m, kGranitePatchSize,
+                    s_granite_hmap, eye_x, eye_y, eye_z);
+            }
+            SDL_EndGPURenderPass(gbuf_pass);
+        }
+        s_terrain_shading.EndGBufferPass();
+    }
+
     // ── Terrain render pass ──────────────────────────────────────────────────
     SDL_GPUColorTargetInfo ct = {};
     ct.texture     = s_color;
@@ -631,25 +666,20 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
             sun.ambient[1] = kSkyG * 0.2f + 0.23f;
             sun.ambient[2] = kSkyB * 0.2f + 0.26f;
 
-            // Granite terrain migration, Phase 7: replaces BOTH the old
-            // far-tier backdrop AND near-tier quadtree draw blocks with
-            // one batched instanced draw per LOD tier (instances already
-            // computed+uploaded by s_update_granite_terrain above, before
-            // this render pass opened). fog_far=60000m / fog_near=0: same
-            // aerial-altitude fog override the old tiers used (WCX/WCZ/
-            // W2UV, an absolute-space world-centre convention, is exactly
-            // this file's own kWorldCenter equivalent -- the editor camera
-            // is already absolute, so no COL_OX/COL_OZ-style local
-            // conversion is needed the way game/src/render/npc_render.cpp
-            // needs for its own granite draw).
+            // Variant A resolve: fullscreen draw reading back the G-buffer
+            // pass rasterized above (before this render pass opened).
+            // fog_far=60000m / fog_near=0: same aerial-altitude fog
+            // override the old forward draw used (WCX/WCZ/W2UV, an
+            // absolute-space world-centre convention, is exactly this
+            // file's own kWorldCenter equivalent -- the editor camera is
+            // already absolute, so no COL_OX/COL_OZ-style local conversion
+            // is needed the way game/src/render/npc_render.cpp needs for
+            // its own granite draw).
             static const float kFogColor[3] = { kSkyR, kSkyG, kSkyB };
-            for (int t = 0; t < TerrainPatchRenderer::kNumTiers; ++t) {
-                s_granite_pr.DrawBatch(rp, cmd, t, vp.m, kGranitePatchSize,
-                    s_granite_hmap, sun, eye_x, eye_y, eye_z,
-                    WCX, WCZ, W2UV,
-                    60000.f, kFogColor, 0.f,
-                    s_terrain);
-            }
+            s_terrain_shading.DrawShadingResolve(rp, cmd, sun, eye_x, eye_y, eye_z,
+                WCX, WCZ, W2UV,
+                60000.f, kFogColor, 0.f,
+                s_terrain);
         }
 
         SDL_EndGPURenderPass(rp);
@@ -679,8 +709,18 @@ void DrawImGui(float W, float H, float dt) {
 
     // Create/resize RTT HERE so s_color is stable when AddImage captures it.
     // RenderFrame (called after ImGui::Render) then renders into this texture.
-    if ((int)W > 4 && (int)H > 4)
+    if ((int)W > 4 && (int)H > 4) {
         ensure_rtt((int)W, (int)H);
+        // Same "before AcquireCommandBuffer" safety requirement as
+        // ensure_rtt above -- see TerrainShadingProjected::EnsureSize's
+        // doc comment / game/src/render/npc_render.cpp's own call site
+        // for the diagnosed SIGSEGV this ordering avoids (destroying a
+        // render-target texture referenced by an already-forming command
+        // buffer). DrawImGui runs during the UI-build phase, strictly
+        // before editor_panels_render acquires this frame's command
+        // buffer, so this is the correct, already-established hook point.
+        s_terrain_shading.EnsureSize(md::GpuDevice::Get().SDLDevice(), (int)W, (int)H);
+    }
 
     ImVec2 origin = ImGui::GetCursorScreenPos();
 
