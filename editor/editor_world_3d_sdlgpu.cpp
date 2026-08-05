@@ -175,8 +175,10 @@ static void s_update_granite_terrain(SDL_GPUCommandBuffer* cmd,
         // already knows what's visible for geometry LOD; no separate GPU
         // feedback buffer needed). Reject-on-full/queue-full cases are
         // silent no-ops inside RequestPage -- retried automatically next
-        // frame for as long as this patch stays visible.
-        if (s_vt_cache_ready && tier >= TerrainVtPageCache::MIN_CACHEABLE_TIER)
+        // frame for as long as this patch stays visible. terrain-vt
+        // clipmap fix: no more MIN_CACHEABLE_TIER gate -- see
+        // scene_render.cpp's identical wiring for the full reasoning.
+        if (s_vt_cache_ready)
             s_vt_cache.RequestPage(p.ix, p.iz, tier);
         int& n = s_granite_counts[tier];
         if (n >= kMaxInstPerTier) continue;
@@ -843,11 +845,15 @@ int VtDebugFill() {
     // Small neighborhood of pages around the current camera position, all
     // at tier 0 -- enough to exercise page allocation + compute dispatch +
     // indirection upload end-to-end without real visibility wiring (Phase 2).
+    // terrain-vt clipmap fix: tier 0 now exercises the NEW subdivided
+    // (FINE_SUBDIV x FINE_SUBDIV sub-page) path -- the most-changed code
+    // path this debug helper should actually be smoke-testing, now that
+    // every tier is cacheable (no more MIN_CACHEABLE_TIER floor).
     int ix0 = (int)(s_cx / kGranitePatchSize);
     int iz0 = (int)(s_cz / kGranitePatchSize);
     for (int dz = -3; dz <= 3; ++dz)
         for (int dx = -3; dx <= 3; ++dx)
-            s_vt_cache.RequestPage(ix0 + dx, iz0 + dz, TerrainVtPageCache::MIN_CACHEABLE_TIER);
+            s_vt_cache.RequestPage(ix0 + dx, iz0 + dz, /*tier=*/0);
 
     SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(dev);
     if (!cmd) return -1;
