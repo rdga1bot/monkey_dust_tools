@@ -274,6 +274,10 @@ if(MONKEY_DUST_TOOLS_NEED_SDL3)
 # Pure SDL_GPU demo: plain SDL3 window, no OpenGL context, no Raylib.
 add_executable(md_flare_demo
     flare_demo/main.cpp
+    flare_demo/flare_demo_util.cpp
+    flare_demo/flare_demo_recording.cpp
+    flare_demo/flare_demo_world3d.cpp
+    flare_demo/flare_demo_ai.cpp
     ${CMAKE_SOURCE_DIR}/engine/src/vendor/glad_impl.cpp
     ${CMAKE_SOURCE_DIR}/engine/src/vendor/stb_image_impl.cpp
     ${CMAKE_SOURCE_DIR}/engine/src/render/cgltf_impl.cpp
