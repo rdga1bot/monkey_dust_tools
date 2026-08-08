@@ -159,6 +159,18 @@ void EditorCore::Update(float dt) {
     extern float s_overlay_top;
     float toolbar_h = s_overlay_top + ImGui::GetFrameHeight() + 30.f;
 
+    // UiDriver's md.ui.select_tab(name) — selects a tab directly via
+    // ImGuiTabItemFlags_SetSelected, no mouse simulation. Defined in
+    // game/src/ui_driver/ui_driver.cpp (game-only, hence forward-declared
+    // here rather than #included — this file also compiles into the
+    // standalone editor, which has no ui_driver.h on its include path).
+    extern const char* UiDriver_ConsumeForcedTab();
+    const char* forced_tab = UiDriver_ConsumeForcedTab();
+    auto tab_flags = [&](const char* name) -> ImGuiTabItemFlags {
+        bool m = forced_tab && strcmp(forced_tab, name) == 0;
+        return m ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+    };
+
     // If the active tab's panel is floating, make ##f3editor transparent so the
     // game is visible behind the detached panel (one-frame lag is imperceptible).
     static int  s_f3_active_tab = 0;
@@ -180,7 +192,7 @@ void EditorCore::Update(float dt) {
     // min_y: floating title bars must not overlap the tab bar strip.
     const float min_y = toolbar_h + ImGui::GetFrameHeight() + 4.f;
     static constexpr ImGuiWindowFlags FLOAT_FLAGS =
-        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings;
+        ImGuiWindowFlags_NoSavedSettings;
 
     // Helper: track pos/size after every frame and clamp y so the title bar
     // never sits under the tab bar.
@@ -194,17 +206,12 @@ void EditorCore::Update(float dt) {
     // ALL tabs stay in the tab bar regardless of detach state.
     // A detached panel's floating window is created INSIDE its BeginTabItem scope —
     // so it only exists (and is visible) while that tab is active.  Switching to
-    // another tab makes ImGui hide the floating window automatically.
-    // Right-align Detach/Dock buttons in every panel.
-    auto det_right = [](const char* lbl) -> bool {
-        float bw = ImGui::CalcTextSize(lbl).x + ImGui::GetStyle().FramePadding.x * 2 + 2;
-        ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - bw);
-        return ImGui::SmallButton(lbl);
-    };
+    // another tab makes ImGui hide the floating window automatically. A floating
+    // panel's native title bar (collapse box + close ×, once NoCollapse is off)
+    // already docks it back — no custom "Dock" button needed.
     if (ImGui::BeginTabBar("##f3tabs")) {
-        if (ImGui::BeginTabItem("Scene")) { s_f3_active_tab = 0;
+        if (ImGui::BeginTabItem("Scene", nullptr, tab_flags("Scene"))) { s_f3_active_tab = 0;
             if (!g_det_scene) {
-                if (det_right("Detach##scene")) g_det_scene = true;
                 ImGui::Separator();
                 ImVec2 av = ImGui::GetContentRegionAvail();
                 ImGui::BeginChild("##f3h", {300.f, av.y}, false);
@@ -221,7 +228,6 @@ void EditorCore::Update(float dt) {
                 ImGui::SetNextWindowPos(f3_pos_scene, ImGuiCond_Appearing);
                 ImGui::SetNextWindowSize(f3_size_scene, ImGuiCond_Appearing);
                 if (ImGui::Begin("Scene##float", &g_det_scene, FLOAT_FLAGS)) {
-                    if (det_right("Dock##scene")) g_det_scene = false;
                     ImGui::Separator();
                     ImVec2 av = ImGui::GetContentRegionAvail();
                     ImGui::BeginChild("##fh", {av.x * 0.30f, av.y}, false);
@@ -238,9 +244,8 @@ void EditorCore::Update(float dt) {
             }
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("AI")) { s_f3_active_tab = 1;
+        if (ImGui::BeginTabItem("AI", nullptr, tab_flags("AI"))) { s_f3_active_tab = 1;
             if (!g_det_ai) {
-                if (det_right("Detach##ai")) g_det_ai = true;
                 ImGui::Separator();
                 ImVec2 av = ImGui::GetContentRegionAvail();
                 ImGui::BeginChild("##f3dir", {av.x * 0.50f, av.y}, false);
@@ -255,7 +260,6 @@ void EditorCore::Update(float dt) {
                 ImGui::SetNextWindowPos(f3_pos_ai, ImGuiCond_Appearing);
                 ImGui::SetNextWindowSize(f3_size_ai, ImGuiCond_Appearing);
                 if (ImGui::Begin("AI##float", &g_det_ai, FLOAT_FLAGS)) {
-                    if (det_right("Dock##ai")) g_det_ai = false;
                     ImGui::Separator();
                     ImVec2 av = ImGui::GetContentRegionAvail();
                     ImGui::BeginChild("##fdir", {av.x * 0.50f, av.y}, false);
@@ -270,9 +274,8 @@ void EditorCore::Update(float dt) {
             }
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Animation")) { s_f3_active_tab = 2;
+        if (ImGui::BeginTabItem("Animation", nullptr, tab_flags("Animation"))) { s_f3_active_tab = 2;
             if (!g_det_anim) {
-                if (det_right("Detach##anim")) g_det_anim = true;
                 ImGui::Separator();
                 ImVec2 av = ImGui::GetContentRegionAvail();
                 ImGui::BeginChild("##f3an", {av.x, 180.f}, false);
@@ -286,7 +289,6 @@ void EditorCore::Update(float dt) {
                 ImGui::SetNextWindowPos(f3_pos_anim, ImGuiCond_Appearing);
                 ImGui::SetNextWindowSize(f3_size_anim, ImGuiCond_Appearing);
                 if (ImGui::Begin("Animation##float", &g_det_anim, FLOAT_FLAGS)) {
-                    if (det_right("Dock##anim")) g_det_anim = false;
                     ImGui::Separator();
                     ImVec2 av = ImGui::GetContentRegionAvail();
                     ImGui::BeginChild("##fan", {av.x, 180.f}, false);
@@ -300,9 +302,8 @@ void EditorCore::Update(float dt) {
             }
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("FlowGraph")) { s_f3_active_tab = 3;
+        if (ImGui::BeginTabItem("FlowGraph", nullptr, tab_flags("FlowGraph"))) { s_f3_active_tab = 3;
             if (!g_det_flow) {
-                if (det_right("Detach##flow")) g_det_flow = true;
                 ImGui::Separator();
                 EditorFlowGraphPanel::Get().DrawContent();
             } else {
@@ -310,7 +311,6 @@ void EditorCore::Update(float dt) {
                 ImGui::SetNextWindowPos(f3_pos_flow, ImGuiCond_Appearing);
                 ImGui::SetNextWindowSize(f3_size_flow, ImGuiCond_Appearing);
                 if (ImGui::Begin("FlowGraph##float", &g_det_flow, FLOAT_FLAGS)) {
-                    if (det_right("Dock##flow")) g_det_flow = false;
                     ImGui::Separator();
                     EditorFlowGraphPanel::Get().DrawContent();
                 }
@@ -318,9 +318,8 @@ void EditorCore::Update(float dt) {
             }
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Debug")) { s_f3_active_tab = 4;
+        if (ImGui::BeginTabItem("Debug", nullptr, tab_flags("Debug"))) { s_f3_active_tab = 4;
             if (!g_det_debug) {
-                if (det_right("Detach##debug")) g_det_debug = true;
                 ImGui::Separator();
                 ImVec2 av = ImGui::GetContentRegionAvail();
                 ImGui::BeginChild("##f3con", {av.x * 0.60f, av.y}, false);
@@ -335,7 +334,6 @@ void EditorCore::Update(float dt) {
                 ImGui::SetNextWindowPos(f3_pos_debug, ImGuiCond_Appearing);
                 ImGui::SetNextWindowSize(f3_size_debug, ImGuiCond_Appearing);
                 if (ImGui::Begin("Debug##float", &g_det_debug, FLOAT_FLAGS)) {
-                    if (det_right("Dock##debug")) g_det_debug = false;
                     ImGui::Separator();
                     ImVec2 av = ImGui::GetContentRegionAvail();
                     ImGui::BeginChild("##fcon", {av.x * 0.60f, av.y}, false);
@@ -350,9 +348,8 @@ void EditorCore::Update(float dt) {
             }
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Camera")) { s_f3_active_tab = 5;
+        if (ImGui::BeginTabItem("Camera", nullptr, tab_flags("Camera"))) { s_f3_active_tab = 5;
             if (!g_det_cam) {
-                if (det_right("Detach##cam")) g_det_cam = true;
                 ImGui::Separator();
                 EditorCameraPanel::Get().DrawContent();
             } else {
@@ -360,7 +357,6 @@ void EditorCore::Update(float dt) {
                 ImGui::SetNextWindowPos(f3_pos_cam, ImGuiCond_Appearing);
                 ImGui::SetNextWindowSize(f3_size_cam, ImGuiCond_Appearing);
                 if (ImGui::Begin("Camera##float", &g_det_cam, FLOAT_FLAGS)) {
-                    if (det_right("Dock##cam")) g_det_cam = false;
                     ImGui::Separator();
                     EditorCameraPanel::Get().DrawContent();
                 }
@@ -368,7 +364,7 @@ void EditorCore::Update(float dt) {
             }
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Settings")) { s_f3_active_tab = 6;
+        if (ImGui::BeginTabItem("Settings", nullptr, tab_flags("Settings"))) { s_f3_active_tab = 6;
             bool&   g_det_set  = f3_det_settings;
             ImVec2& f3_pos_set = f3_pos_settings;
             ImVec2& f3_size_set = f3_size_settings;
@@ -396,7 +392,6 @@ void EditorCore::Update(float dt) {
                 }
             };
             if (!g_det_set) {
-                if (det_right("Detach##set")) g_det_set = true;
                 ImGui::Separator();
                 draw_settings();
             } else {
@@ -404,13 +399,32 @@ void EditorCore::Update(float dt) {
                 ImGui::SetNextWindowPos(f3_pos_set,  ImGuiCond_Appearing);
                 ImGui::SetNextWindowSize(f3_size_set, ImGuiCond_Appearing);
                 if (ImGui::Begin("Settings##float", &g_det_set, FLOAT_FLAGS)) {
-                    if (det_right("Dock##set")) g_det_set = false;
                     ImGui::Separator();
                     draw_settings();
                 }
                 f3_end(f3_pos_set, f3_size_set);
             }
             ImGui::EndTabItem();
+        }
+        // Trailing "Detach" rendered directly in the tab bar's own row
+        // (ImGuiTabItemFlags_Trailing sorts it to the end regardless of call
+        // order) instead of a per-panel button inside the tab body — avoids
+        // an extra blank content row above each panel. Only shown for the
+        // currently active tab while it's docked.
+        bool* active_det = nullptr;
+        switch (s_f3_active_tab) {
+            case 0: active_det = &g_det_scene;  break;
+            case 1: active_det = &g_det_ai;     break;
+            case 2: active_det = &g_det_anim;   break;
+            case 3: active_det = &g_det_flow;   break;
+            case 4: active_det = &g_det_debug;  break;
+            case 5: active_det = &g_det_cam;    break;
+            case 6: active_det = &f3_det_settings; break;
+            default: break;
+        }
+        if (active_det && !*active_det) {
+            if (ImGui::TabItemButton("Detach", ImGuiTabItemFlags_Trailing | ImGuiTabItemFlags_NoTooltip))
+                *active_det = true;
         }
         ImGui::EndTabBar();
     }
