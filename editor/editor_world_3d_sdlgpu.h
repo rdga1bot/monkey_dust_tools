@@ -47,5 +47,24 @@ void SetCameraPos(float x, float y, float z, float yaw, float pitch);
 int GetChunksLoaded();
 int GetChunksTotal();
 
+// terrain-vt Phase 1 verification only (md.editor_vt_debug("fill"/"dump")) --
+// NOT part of the shipping render path yet (Phase 4 wires real shading
+// consumption, Phase 2 wires real visibility-driven requests). Lazily
+// inits a TerrainVtPageCache on first call. VtDebugFill requests a small
+// neighborhood of pages around the current camera position at tier 0 and
+// flushes them via its own acquired+submitted command buffer, returning
+// the cache's total resident count (or -1 if terrain/cache isn't ready).
+// VtDebugDump blocks (fence-waited readback) writing the whole physical
+// atlas to a PNG for visual inspection.
+int  VtDebugFill();
+bool VtDebugDump(const char* out_png_path);
+// terrain-vt Phase 2 verification: total resident page count in the SAME
+// cache the real per-frame visibility loop (s_update_granite_terrain)
+// now drives via RequestPage/FlushFillQueue every frame -- lets a --exec
+// scenario confirm the live wiring actually fills pages while flying the
+// camera around, without needing VtDebugFill's manual neighborhood probe.
+int VtResidentCount();
+int VtEvictionCount();
+
 } // namespace WorldEditor3D_SDLGPU
 #endif // MD_SDL_GPU

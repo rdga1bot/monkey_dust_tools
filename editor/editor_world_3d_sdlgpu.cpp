@@ -16,6 +16,8 @@
 #include <monkey_dust/render/terrain_renderer.h>
 #include <monkey_dust/render/terrain_world_heightmap.h>
 #include <monkey_dust/render/terrain_patch_renderer.h>
+#include <monkey_dust/render/terrain_shading_projected.h>
+#include <monkey_dust/render/terrain_vt_page_cache.h>
 #include <monkey_dust/world/terrain_patch_grid.h>
 #include <monkey_dust/render/prop_renderer.h>
 #include <monkey_dust/render/gpu_device.h>
@@ -82,10 +84,23 @@ static PropRenderer       s_props;
 static TerrainWorldHeightmap s_granite_hmap;
 static TerrainPatchGrid      s_granite_grid;
 static TerrainPatchRenderer  s_granite_pr;
+// Variant A (screen-space decoupled shading) -- matches the game's sole
+// terrain shading path (game/src/render/scene_render.h's own field,
+// TerrainShadingProjected class doc comment for the full history/why).
+// The editor's World3D viewport previously kept the forward path
+// (TerrainPatchRenderer::DrawBatch, Variant B) after the game switched --
+// this consolidates both onto ONE shading path so there's only one to
+// reason about/fix, per direct user request.
+static TerrainShadingProjected s_terrain_shading;
 static bool  s_granite_ready = false;
 static constexpr float kGranitePatchSize = 300.f;
 static TerrainPatchRenderer::Instance s_granite_insts[TerrainPatchRenderer::kNumTiers][4096];
 static int   s_granite_counts[TerrainPatchRenderer::kNumTiers] = {};
+
+// terrain-vt Phase 1/2 -- see VtDebugFill/VtDebugDump's doc comment
+// (editor_world_3d_sdlgpu.h) and Phase 2's wiring in s_update_granite_terrain.
+static TerrainVtPageCache s_vt_cache;
+static bool s_vt_cache_ready = false;
 
 // Builds/rebuilds the static world heightmap from TerrainAtlas's CURRENT
 // contents -- called once at Init() and again whenever s_terrain_dirty's
@@ -106,6 +121,13 @@ static void s_rebuild_granite_hmap() {
     if (hmap_ok) {
         s_granite_grid.Init(0.f, 0.f, s_granite_hmap.WorldExtent(),
                              kGranitePatchSize, TerrainPatchRenderer::kNumTiers - 1);
+        // terrain-vt Phase 2: init the page cache alongside the grid it
+        // mirrors -- ONCE only (this function can re-run on terrain edits/
+        // R-key refresh; re-Init()ing the cache each time would either leak
+        // or need an explicit Shutdown+Init cycle for no benefit, since a
+        // stale cached page after an edit is a known, deferred problem --
+        // Phase 7's real invalidation, not something to half-solve here).
+        if (!s_vt_cache_ready) s_vt_cache_ready = s_vt_cache.Init(dev, kGranitePatchSize, s_granite_hmap);
     }
 }
 
@@ -147,6 +169,17 @@ static void s_update_granite_terrain(SDL_GPUCommandBuffer* cmd,
         int tier = (int)p.lod;
         if (tier < 0) tier = 0;
         if (tier > TerrainPatchRenderer::kNumTiers - 1) tier = TerrainPatchRenderer::kNumTiers - 1;
+        // terrain-vt Phase 2: reuse this SAME per-frame visibility pass to
+        // drive page-cache requests -- zero extra visibility computation,
+        // exactly the reasoning the plan called for (TerrainPatchGrid
+        // already knows what's visible for geometry LOD; no separate GPU
+        // feedback buffer needed). Reject-on-full/queue-full cases are
+        // silent no-ops inside RequestPage -- retried automatically next
+        // frame for as long as this patch stays visible. terrain-vt
+        // clipmap fix: no more MIN_CACHEABLE_TIER gate -- see
+        // scene_render.cpp's identical wiring for the full reasoning.
+        if (s_vt_cache_ready)
+            s_vt_cache.RequestPage(p.ix, p.iz, tier);
         int& n = s_granite_counts[tier];
         if (n >= kMaxInstPerTier) continue;
         auto& inst = s_granite_insts[tier][n++];
@@ -154,6 +187,12 @@ static void s_update_granite_terrain(SDL_GPUCommandBuffer* cmd,
         inst.origin_z = p.origin_z;
         inst.lod      = p.lod;
     }
+
+    // terrain-vt Phase 2: drain this frame's page-fill requests -- must run
+    // outside any render/compute pass (we're still before
+    // SDL_BeginGPURenderPass here) and before the shading-resolve pass that
+    // will eventually read the atlas (Phase 4; nothing reads it yet).
+    if (s_vt_cache_ready) s_vt_cache.FlushFillQueue(md::GpuDevice::Get().SDLDevice(), cmd, s_granite_hmap, s_terrain);
 
     const TerrainPatchRenderer::Instance* inst_ptrs[TerrainPatchRenderer::kNumTiers];
     for (int t = 0; t < TerrainPatchRenderer::kNumTiers; ++t)
@@ -379,6 +418,11 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
         // pipeline above) -- doesn't depend on terrain data, never needs
         // rebuilding, unlike the heightmap texture (s_rebuild_granite_hmap).
         s_granite_pr.Init(md::GpuDevice::Get().SDLDevice());
+        // Placeholder size -- DrawImGui's ensure_rtt-adjacent EnsureSize call
+        // resizes this to the real viewport dims on the first frame the
+        // panel is actually shown (this thread doesn't know the ImGui
+        // panel's size yet, same reason ensure_rtt itself isn't called here).
+        s_terrain_shading.Init(md::GpuDevice::Get().SDLDevice(), 64, 64);
         s_props.Init("game/data/props/rock_01.glb", 0.f); // no-op if missing; 0=rock diffuse
         s_terrain.InitKenshiOverlay(op);
         s_terrain.InitGroundTextureArray();
@@ -580,6 +624,27 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
     // pass below opens (issues its own SDL_GPU copy passes on cmd).
     s_update_granite_terrain(cmd, eye_x, eye_y, eye_z, vp.m);
 
+    // Variant A G-buffer pass -- must run in its OWN render pass, BEFORE
+    // the main color pass below (TerrainShadingProjected's doc comment).
+    // Nothing else in this viewport draws into the shared depth before or
+    // after terrain (s_props is loaded but never drawn -- see this file's
+    // RenderFrame), so unlike game/src/render/npc_render.cpp's
+    // CullAndPrepass this doesn't need a separate depth-only Early-Z
+    // prepass into the shared `s_depth`: it's still at its LOAD_OP_CLEAR
+    // 1.0 when the resolve pass below runs, so its gl_FragDepth-forwarded
+    // depth test trivially passes everywhere real terrain exists.
+    if (s_granite_ready && s_terrain.IsReady()) {
+        SDL_GPURenderPass* gbuf_pass = s_terrain_shading.BeginGBufferPass(cmd);
+        if (gbuf_pass) {
+            for (int t = 0; t < TerrainPatchRenderer::kNumTiers; ++t) {
+                s_granite_pr.DrawBatchGBuffer(gbuf_pass, cmd, t, vp.m, kGranitePatchSize,
+                    s_granite_hmap, eye_x, eye_y, eye_z);
+            }
+            SDL_EndGPURenderPass(gbuf_pass);
+        }
+        s_terrain_shading.EndGBufferPass();
+    }
+
     // ── Terrain render pass ──────────────────────────────────────────────────
     SDL_GPUColorTargetInfo ct = {};
     ct.texture     = s_color;
@@ -631,25 +696,20 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
             sun.ambient[1] = kSkyG * 0.2f + 0.23f;
             sun.ambient[2] = kSkyB * 0.2f + 0.26f;
 
-            // Granite terrain migration, Phase 7: replaces BOTH the old
-            // far-tier backdrop AND near-tier quadtree draw blocks with
-            // one batched instanced draw per LOD tier (instances already
-            // computed+uploaded by s_update_granite_terrain above, before
-            // this render pass opened). fog_far=60000m / fog_near=0: same
-            // aerial-altitude fog override the old tiers used (WCX/WCZ/
-            // W2UV, an absolute-space world-centre convention, is exactly
-            // this file's own kWorldCenter equivalent -- the editor camera
-            // is already absolute, so no COL_OX/COL_OZ-style local
-            // conversion is needed the way game/src/render/npc_render.cpp
-            // needs for its own granite draw).
+            // Variant A resolve: fullscreen draw reading back the G-buffer
+            // pass rasterized above (before this render pass opened).
+            // fog_far=60000m / fog_near=0: same aerial-altitude fog
+            // override the old forward draw used (WCX/WCZ/W2UV, an
+            // absolute-space world-centre convention, is exactly this
+            // file's own kWorldCenter equivalent -- the editor camera is
+            // already absolute, so no COL_OX/COL_OZ-style local conversion
+            // is needed the way game/src/render/npc_render.cpp needs for
+            // its own granite draw).
             static const float kFogColor[3] = { kSkyR, kSkyG, kSkyB };
-            for (int t = 0; t < TerrainPatchRenderer::kNumTiers; ++t) {
-                s_granite_pr.DrawBatch(rp, cmd, t, vp.m, kGranitePatchSize,
-                    s_granite_hmap, sun, eye_x, eye_y, eye_z,
-                    WCX, WCZ, W2UV,
-                    60000.f, kFogColor, 0.f,
-                    s_terrain);
-            }
+            s_terrain_shading.DrawShadingResolve(rp, cmd, sun, eye_x, eye_y, eye_z,
+                WCX, WCZ, W2UV,
+                60000.f, kFogColor, 0.f,
+                s_terrain, s_vt_cache);
         }
 
         SDL_EndGPURenderPass(rp);
@@ -679,8 +739,18 @@ void DrawImGui(float W, float H, float dt) {
 
     // Create/resize RTT HERE so s_color is stable when AddImage captures it.
     // RenderFrame (called after ImGui::Render) then renders into this texture.
-    if ((int)W > 4 && (int)H > 4)
+    if ((int)W > 4 && (int)H > 4) {
         ensure_rtt((int)W, (int)H);
+        // Same "before AcquireCommandBuffer" safety requirement as
+        // ensure_rtt above -- see TerrainShadingProjected::EnsureSize's
+        // doc comment / game/src/render/npc_render.cpp's own call site
+        // for the diagnosed SIGSEGV this ordering avoids (destroying a
+        // render-target texture referenced by an already-forming command
+        // buffer). DrawImGui runs during the UI-build phase, strictly
+        // before editor_panels_render acquires this frame's command
+        // buffer, so this is the correct, already-established hook point.
+        s_terrain_shading.EnsureSize(md::GpuDevice::Get().SDLDevice(), (int)W, (int)H);
+    }
 
     ImVec2 origin = ImGui::GetCursorScreenPos();
 
@@ -761,6 +831,55 @@ int GetChunksTotal()  { return 1; }
 void SetCameraPos(float x, float y, float z, float yaw, float pitch) {
     s_cx = x; s_cy = y; s_cz = z;
     s_yaw = yaw; s_pitch = pitch;
+}
+
+int VtDebugFill() {
+    if (!s_granite_ready) return -1;
+    SDL_GPUDevice* dev = md::GpuDevice::Get().SDLDevice();
+    if (!dev) return -1;
+    if (!s_vt_cache_ready) {
+        s_vt_cache_ready = s_vt_cache.Init(dev, kGranitePatchSize, s_granite_hmap);
+        if (!s_vt_cache_ready) return -1;
+    }
+
+    // Small neighborhood of pages around the current camera position, all
+    // at tier 0 -- enough to exercise page allocation + compute dispatch +
+    // indirection upload end-to-end without real visibility wiring (Phase 2).
+    // terrain-vt clipmap fix: tier 0 now exercises the NEW subdivided
+    // (FINE_SUBDIV x FINE_SUBDIV sub-page) path -- the most-changed code
+    // path this debug helper should actually be smoke-testing, now that
+    // every tier is cacheable (no more MIN_CACHEABLE_TIER floor).
+    int ix0 = (int)(s_cx / kGranitePatchSize);
+    int iz0 = (int)(s_cz / kGranitePatchSize);
+    for (int dz = -3; dz <= 3; ++dz)
+        for (int dx = -3; dx <= 3; ++dx)
+            s_vt_cache.RequestPage(ix0 + dx, iz0 + dz, /*tier=*/0);
+
+    SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(dev);
+    if (!cmd) return -1;
+    s_vt_cache.FlushFillQueue(dev, cmd, s_granite_hmap, s_terrain);
+    // Debug-only diagnostic: fence-wait so a subsequent VtDebugDump call
+    // (separate command buffer) can never race the compute writes above --
+    // isolates whether a visible-content bug is really about the dispatch
+    // itself vs. cross-command-buffer ordering.
+    SDL_GPUFence* fence = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
+    if (fence) { SDL_WaitForGPUFences(dev, true, &fence, 1); SDL_ReleaseGPUFence(dev, fence); }
+    return s_vt_cache.ResidentCount();
+}
+
+bool VtDebugDump(const char* out_png_path) {
+    if (!s_vt_cache_ready) return false;
+    SDL_GPUDevice* dev = md::GpuDevice::Get().SDLDevice();
+    if (!dev) return false;
+    return s_vt_cache.DebugDumpAtlas(dev, out_png_path);
+}
+
+int VtResidentCount() {
+    return s_vt_cache_ready ? s_vt_cache.ResidentCount() : -1;
+}
+
+int VtEvictionCount() {
+    return s_vt_cache_ready ? (int)s_vt_cache.EvictionCount() : -1;
 }
 
 } // namespace WorldEditor3D_SDLGPU
