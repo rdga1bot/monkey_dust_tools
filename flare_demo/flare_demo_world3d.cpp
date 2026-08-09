@@ -66,10 +66,6 @@ void World3DInit(SDL_Window* window,
     // CAS post-process pass — actual viewport size passed later in World3DRender.
     s_cas.Init(1, 1, 0.5f);
 
-    // OIT pass — investigation: composite pipeline created FIRST (before accum).
-    // Testing if Intel HD 520 driver crash was order-dependent.
-    s_oit.Init(1, 1);
-
     // MaskedOcclusionCulling — CPU occlusion culling for NPC visibility.
     md::MocCuller::Get().Init(320, 160);
 
@@ -135,16 +131,11 @@ void World3DRender(int vp_w, int vp_h, float dt) {
         s_w3d_depth.Init(vp_w, vp_h);
     }
 
-    // OIT manual-blend composite requires scene_tex != output_tex (Vulkan constraint).
-    // Route scene through an intermediate (cas.SceneTex()) whenever OIT or CAS is active.
     const bool use_cas = s_cas.IsReady() &&
                          md::RenderPassGraph::Get().IsEnabled("cas_sharpening");
-    const bool use_oit_check = s_oit.IsReady() &&
-                               md::RenderPassGraph::Get().IsEnabled("oit_transparency");
-    const bool need_intermediate = use_cas || use_oit_check;
 
-    // Resize CAS/OIT intermediate textures if viewport changed.
-    if (need_intermediate && s_cas.IsReady()) s_cas.Resize(vp_w, vp_h);
+    // Resize CAS intermediate texture if viewport changed.
+    if (use_cas) s_cas.Resize(vp_w, vp_h);
 
     // Acquire command buffer + swapchain texture.
     SDL_GPUCommandBuffer* cmd = md::GpuDevice::Get().AcquireCommandBuffer();
@@ -155,11 +146,8 @@ void World3DRender(int vp_w, int vp_h, float dt) {
         return;
     }
 
-    // When OIT or CAS is active, scene always goes to cas.SceneTex() so OIT
-    // composite can read scene_target (cas.SceneTex()) and write to swap without
-    // the Vulkan same-texture read+write restriction.
-    SDL_GPUTexture* scene_target = (need_intermediate && s_cas.IsReady()) ? s_cas.SceneTex() : swap;
-    SDL_GPUTexture* scene_depth  = (need_intermediate && s_cas.IsReady()) ? s_cas.DepthTex() : s_w3d_depth.SDLTexture();
+    SDL_GPUTexture* scene_target = use_cas ? s_cas.SceneTex() : swap;
+    SDL_GPUTexture* scene_depth  = use_cas ? s_cas.DepthTex() : s_w3d_depth.SDLTexture();
 
     // Scene render pass.
     GpuCommandBuffer cb;
@@ -186,93 +174,10 @@ void World3DRender(int vp_w, int vp_h, float dt) {
     }
     cb.EndPass();
 
-    // OIT pass: transparent geometry (water, leaves, particles) over opaque scene.
-    // Must run BEFORE CAS apply so scene is still in scene_target (cas.SceneTex())
-    // and we can pass it as scene_tex to OIT Composite (scene_tex != output=swap).
-    const bool use_oit = use_oit_check;
-    if (use_oit) {
-        s_oit.Resize(vp_w, vp_h);
-
-        // Demo: 8 semi-transparent quads at fixed world positions (simulate leaves).
-        // Non-indexed triangle list: 6 verts per quad (0-1-2, 0-2-3).
-        struct OitVert { float x,y,z; float r,g,b,a; };
-        static OitVert s_oit_verts[6 * 8];  // 48 verts max
-        int nv = 0;
-
-        auto push_quad = [&](float wx, float wz, float wy,
-                              float r, float g, float b, float a) {
-            const float hs = 0.6f;
-            OitVert v0 = {wx-hs, wy, wz-hs, r,g,b,a};
-            OitVert v1 = {wx+hs, wy, wz-hs, r,g,b,a};
-            OitVert v2 = {wx+hs, wy, wz+hs, r,g,b,a};
-            OitVert v3 = {wx-hs, wy, wz+hs, r,g,b,a};
-            s_oit_verts[nv++] = v0; s_oit_verts[nv++] = v1; s_oit_verts[nv++] = v2;
-            s_oit_verts[nv++] = v0; s_oit_verts[nv++] = v2; s_oit_verts[nv++] = v3;
-        };
-
-        // Quads placed on verified dry ground tiles east of the camp clearing.
-        // Water spans wx=-14..18.5, wz=4.5..46 — these positions are confirmed
-        // non-water (collision==0) with 3-tile buffer from any water tile.
-        push_quad(10.0f, 20.0f, 1.0f, 0.2f, 0.8f, 0.2f, 0.5f);  // col=30,row=10
-        push_quad(12.0f, 22.0f, 0.8f, 0.3f, 0.7f, 0.1f, 0.4f);  // col=34,row=10
-        push_quad( 9.0f, 20.0f, 1.2f, 0.2f, 0.6f, 0.3f, 0.6f);  // col=29,row=11
-        push_quad(12.5f, 23.5f, 0.9f, 0.1f, 0.9f, 0.2f, 0.35f); // col=36,row=11
-        push_quad(11.5f, 22.5f, 1.1f, 0.3f, 0.7f, 0.15f, 0.45f);// col=34,row=11
-        push_quad( 8.5f, 20.5f, 0.7f, 0.15f,0.8f, 0.25f, 0.55f);// col=29,row=12
-        push_quad(11.0f, 21.0f, 1.3f, 0.2f, 0.75f,0.3f, 0.5f);  // col=32,row=10
-        push_quad(10.5f, 20.5f, 1.0f, 0.25f,0.7f, 0.2f, 0.4f);  // col=30,row=11
-
-        // Upload vertex data via transfer buffer.
-        SDL_GPUDevice* sdl_dev = md::GpuDevice::Get().SDLDevice();
-        uint32_t vb_size = (uint32_t)(nv * sizeof(OitVert));
-
-        SDL_GPUBufferCreateInfo bci{};
-        bci.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
-        bci.size  = vb_size;
-        SDL_GPUBuffer* oit_vbuf = SDL_CreateGPUBuffer(sdl_dev, &bci);
-
-        SDL_GPUTransferBufferCreateInfo tci{};
-        tci.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
-        tci.size  = vb_size;
-        SDL_GPUTransferBuffer* oit_tbuf = SDL_CreateGPUTransferBuffer(sdl_dev, &tci);
-        void* ptr = SDL_MapGPUTransferBuffer(sdl_dev, oit_tbuf, false);
-        if (ptr) memcpy(ptr, s_oit_verts, vb_size);
-        SDL_UnmapGPUTransferBuffer(sdl_dev, oit_tbuf);
-
-        // Copy pass: transfer → vertex buffer.
-        SDL_GPUCopyPass* cp = SDL_BeginGPUCopyPass(cmd);
-        SDL_GPUTransferBufferLocation src_loc{ oit_tbuf, 0 };
-        SDL_GPUBufferRegion dst_reg{ oit_vbuf, 0, vb_size };
-        SDL_UploadToGPUBuffer(cp, &src_loc, &dst_reg, false);
-        SDL_EndGPUCopyPass(cp);
-        SDL_ReleaseGPUTransferBuffer(sdl_dev, oit_tbuf);
-
-        // OIT accumulation pass — pass scene depth so quads are clipped by walls.
-        SDL_GPURenderPass* oit_rp = s_oit.BeginAccum(cmd, scene_depth);
-        if (oit_rp && s_oit.AccumPipeline()) {
-            SDL_BindGPUGraphicsPipeline(oit_rp, s_oit.AccumPipeline());
-
-            // Push MVP + View uniforms (slot 0 = set=1, binding=0).
-            struct OitUBO { float mvp[16]; float view[16]; } ubo;
-            memcpy(ubo.mvp,  mat4_ptr(mvp),  64);
-            memcpy(ubo.view, mat4_ptr(view), 64);
-            SDL_PushGPUVertexUniformData(cmd, 0, &ubo, sizeof(ubo));
-
-            SDL_GPUBufferBinding vb_bind{ oit_vbuf, 0 };
-            SDL_BindGPUVertexBuffers(oit_rp, 0, &vb_bind, 1);
-            SDL_DrawGPUPrimitives(oit_rp, (uint32_t)nv, 1, 0, 0);
-        }
-        s_oit.EndAccum();
-        SDL_ReleaseGPUBuffer(sdl_dev, oit_vbuf);
-
-        // OIT manual composite: reads scene_target (cas.SceneTex()) + accum_tex_,
-        // writes merged result to swap. No same-texture conflict.
-        // CAS sharpening is skipped this frame (swap already has final output).
-        s_oit.Composite(cmd, scene_target, swap, vp_w, vp_h);
-    } else {
-        // No OIT: apply CAS sharpening normally (scene_target → swap).
-        if (use_cas) s_cas.Apply(cmd, swap, vp_w, vp_h);
-    }
+    // OIT (transparent leaf-quad demo) removed 2026-08-09 -- unused by the
+    // actual game, was demo-only synthetic content here. CAS sharpening
+    // still applies normally.
+    if (use_cas) s_cas.Apply(cmd, swap, vp_w, vp_h);
 
     md::GpuDevice::Get().Submit(cmd);
 }
@@ -282,7 +187,6 @@ void World3DShutdown() {
     md::NpcGpuCuller::Get().Shutdown();
     md::MocCuller::Get().Shutdown();
     md::WorldBVH::Get().Shutdown();
-    s_oit.Shutdown();
     s_cas.Shutdown();
     s_w3d_depth.Shutdown();
     s_w3d_vbuf.Shutdown();

@@ -22,7 +22,6 @@
 #include <monkey_dust/render/render_pass_graph.h>
 #include <monkey_dust/render/cas_pass.h>
 #include <monkey_dust/render/moc_culler.h>
-#include <monkey_dust/render/oit_pass.h>
 #include <monkey_dust/render/npc_gpu_culler.h>
 #include <monkey_dust/render/evsm_shadow.h>
 #include <monkey_dust/ecs/component_reflect.h>
@@ -124,7 +123,6 @@ extern GpuPipeline    s_w3d_pipeline;
 extern GpuStaticBuffer s_w3d_vbuf;
 extern GpuDepthTexture s_w3d_depth;
 extern md::CasPass    s_cas;
-extern md::OitPass    s_oit;
 extern int            s_w3d_tri_count;
 extern Vec3           s_w3d_target;  // look-at (map center, world space)
 extern SDL_Window*    s_w3d_window;

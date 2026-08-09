@@ -73,12 +73,6 @@ int main(int argc, char** argv) {
         rpg.Register("world_3d",        false);  // 3D geometry view (Tab toggle)
         rpg.Register("overlay",         true);   // camera button + UI overlays
         rpg.Register("cas_sharpening",  true);   // CAS post-process (3D mode)
-        // OIT split into two sub-passes for correct resource tracking:
-        //   oit_accum     — transparent geometry → writes oit_accum_tex
-        //   oit_composite — reads oit_accum_tex → writes to swapchain
-        rpg.Register("oit_accum",      true);   // OIT accumulation pass
-        rpg.Register("oit_composite",  true);   // OIT composite pass
-        rpg.Register("oit_transparency",true);  // legacy combined alias (backward compat)
         rpg.LoadFromJSON("data/render_settings.json");
 
         // ── Resource dependency declarations (Step 7 — FrameGraph) ────────────
@@ -86,7 +80,6 @@ int main(int argc, char** argv) {
         // barriers internally; this layer adds documentation + ordering validation.
         //
         // 3D pipeline:  world_3d → [scene_color] → cas_sharpening → swapchain
-        // OIT pipeline: oit_accum → [oit_accum_tex] → oit_composite → swapchain
         rpg.DeclareWrite("evsm_shadows",  "evsm_moment_tex");  // shadow pass
         rpg.DeclareRead ("world_3d",      "evsm_moment_tex");  // main pass reads shadow
         rpg.DeclareWrite("world_3d",      "scene_color");
@@ -94,9 +87,6 @@ int main(int argc, char** argv) {
         rpg.DeclareWrite("cas_sharpening","swapchain");
         rpg.DeclareWrite("tiles_2d",      "swapchain");
         rpg.DeclareWrite("overlay",       "swapchain");
-        rpg.DeclareWrite("oit_accum",     "oit_accum_tex");
-        rpg.DeclareRead ("oit_composite", "oit_accum_tex");
-        rpg.DeclareWrite("oit_composite", "swapchain");
         rpg.Validate();
     }
 

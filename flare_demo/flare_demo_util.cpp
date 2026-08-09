@@ -30,7 +30,6 @@ GpuPipeline    s_w3d_pipeline;
 GpuStaticBuffer s_w3d_vbuf;
 GpuDepthTexture s_w3d_depth;
 md::CasPass    s_cas;
-md::OitPass    s_oit;
 int            s_w3d_tri_count = 0;
 Vec3           s_w3d_target    = {0.f,0.f,0.f};  // look-at (map center, world space)
 SDL_Window*    s_w3d_window    = nullptr;
