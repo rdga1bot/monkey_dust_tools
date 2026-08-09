@@ -154,7 +154,21 @@ static void s_update_granite_terrain(SDL_GPUCommandBuffer* cmd,
     planes[ 8]=vp_m[3]-vp_m[1]; planes[ 9]=vp_m[7]-vp_m[5]; planes[10]=vp_m[11]-vp_m[ 9]; planes[11]=vp_m[15]-vp_m[13];
     planes[12]=vp_m[3]+vp_m[1]; planes[13]=vp_m[7]+vp_m[5]; planes[14]=vp_m[11]+vp_m[ 9]; planes[15]=vp_m[15]+vp_m[13];
 
-    static constexpr int kMaxVisible = 4096;
+    // Bug fix (2026-08-09): was 4096, but this call passes no max_lod_cull
+    // (unlike scene_render.cpp's game-side call, which bounds patch count
+    // via RenderQualityConfig's fog/draw distance) -- the editor's free
+    // aerial camera can fly to any altitude, and this world's full grid is
+    // ~99x99 ~= 9801 patches (kGranitePatchSize=300m over a 29491.2m
+    // world). At high altitude with a wide frustum, more than 4096 patches
+    // pass the side-plane test; SelectVisible iterates in raster (iz,ix)
+    // scan order with no distance sort and just stops once count==max_out
+    // -- real user report: a hard, blocky, non-circular cutoff slicing
+    // across the visible terrain wherever the scan happened to fill the
+    // array, unrelated to actual camera distance. Matching
+    // TerrainPatchGrid::kMaxPatches (the grid's own hard architectural
+    // cap) makes this truncation provably impossible: SelectVisible can
+    // never return more results than total patches in the grid.
+    static constexpr int kMaxVisible = TerrainPatchGrid::kMaxPatchesPublic;
     static TerrainPatchGrid::VisiblePatch visible[kMaxVisible];
     int nvis = s_granite_grid.SelectVisible(planes, visible, kMaxVisible);
 
