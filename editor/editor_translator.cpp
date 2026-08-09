@@ -74,146 +74,21 @@ Vec3 EditorTranslator::ComputePlaneHit(MdRay ray, EditorGizmoOp op,
 }
 
 // ── Draw ──────────────────────────────────────────────────────────────────────
-void EditorTranslator::Draw(const MdCamera& cam, MdEntity sel, EditorGizmoOp op) {
-    (void)cam; (void)op;
+// Gizmo rendering used Raylib 3D draw calls (DrawLine3D/DrawSphere/DrawCube/
+// DrawCircle3D) -- removed 2026-08-09 along with the rest of the Raylib
+// fallback skeleton. Was already a no-op under SDL3 (never ported); still a
+// no-op now, just without the dead alternate body.
+void EditorTranslator::Draw(const MdCamera& /*cam*/, MdEntity sel, EditorGizmoOp /*op*/) {
     if (sel == MdEntity::Null()) return;
-#ifndef USE_SDL3
-    // Gizmo rendering uses Raylib 3D draw calls — SDL3 path skips for now.
-    auto& reg = MdRegistry::Get();
-    if (!reg.Valid(sel) || !(reg.Handle(sel).has<WorldTransform>())) return;
-    const auto& tr = reg.Handle(sel).get_mut<WorldTransform>();
-    Vec3 pos = {tr.x, tr.y, tr.z};
-
-    Color cx = (active_axis_ == 0) ? YELLOW : RED;
-    Color cy = (active_axis_ == 1) ? YELLOW : GREEN;
-    Color cz = (active_axis_ == 2) ? YELLOW : BLUE;
-    auto torl = [](Vec3 v) -> Vector3 { return {v.x, v.y, v.z}; };
-
-    if (op == EditorGizmoOp::TRANSLATE) {
-        DrawLine3D(torl(pos), torl(vec3_add(pos, {3.5f, 0.f, 0.f})), cx);
-        DrawLine3D(torl(pos), torl(vec3_add(pos, {0.f,  3.5f, 0.f})), cy);
-        DrawLine3D(torl(pos), torl(vec3_add(pos, {0.f,  0.f, 3.5f})), cz);
-        DrawSphere(torl(vec3_add(pos, {3.5f, 0.f, 0.f})), 0.22f, cx);
-        DrawSphere(torl(vec3_add(pos, {0.f,  3.5f, 0.f})), 0.22f, cy);
-        DrawSphere(torl(vec3_add(pos, {0.f,  0.f, 3.5f})), 0.22f, cz);
-        DrawCube(torl(pos), 0.2f, 0.2f, 0.2f, WHITE);
-    } else if (op == EditorGizmoOp::SCALE) {
-        DrawLine3D(torl(pos), torl(vec3_add(pos, {3.5f, 0.f, 0.f})), cx);
-        DrawLine3D(torl(pos), torl(vec3_add(pos, {0.f,  3.5f, 0.f})), cy);
-        DrawLine3D(torl(pos), torl(vec3_add(pos, {0.f,  0.f, 3.5f})), cz);
-        DrawCube(torl(vec3_add(pos, {3.5f, 0.f, 0.f})), 0.3f, 0.3f, 0.3f, cx);
-        DrawCube(torl(vec3_add(pos, {0.f,  3.5f, 0.f})), 0.3f, 0.3f, 0.3f, cy);
-        DrawCube(torl(vec3_add(pos, {0.f,  0.f, 3.5f})), 0.3f, 0.3f, 0.3f, cz);
-        DrawCube(torl(pos), 0.2f, 0.2f, 0.2f, WHITE);
-    } else if (op == EditorGizmoOp::ROTATE) {
-        DrawCircle3D(torl(pos), 3.5f, {1.f, 0.f, 0.f}, 90.f, cx);
-        DrawCircle3D(torl(pos), 3.5f, {0.f, 1.f, 0.f}, 90.f, cy);
-        DrawCircle3D(torl(pos), 3.5f, {0.f, 0.f, 1.f},  0.f, cz);
-    }
-#endif
 }
 
 // ── Update (hit detection + drag) ────────────────────────────────────────────
-void EditorTranslator::Update(const MdCamera& cam, MdEntity sel,
-                               EditorGizmoOp op, EditorGizmoSpace space) {
-#ifndef USE_SDL3
-    // Gizmo interaction uses Raylib 3D draw + ImGui input — SDL3/SDL_GPU path deferred.
-    (void)space;
+// Gizmo interaction (Raylib 3D draw + ImGui input) removed 2026-08-09 along
+// with the rest of the Raylib fallback skeleton. Was already a no-op under
+// SDL3 (never ported); still a no-op now, just without the dead alternate
+// body.
+void EditorTranslator::Update(const MdCamera& /*cam*/, MdEntity sel,
+                               EditorGizmoOp /*op*/, EditorGizmoSpace /*space*/) {
     if (sel == MdEntity::Null()) return;
-    auto& reg = MdRegistry::Get();
-    if (!reg.Valid(sel) || !(reg.Handle(sel).has<WorldTransform>())) return;
-
-    auto&   ec   = EditorCore::Get();
-    ImGuiIO& io  = ImGui::GetIO();
-    bool snap = ImGui::IsKeyDown(ImGuiKey_LeftCtrl) || ImGui::IsKeyDown(ImGuiKey_RightCtrl);
-    MdRay ray = CameraRay(io.MousePos.x, io.MousePos.y, cam);
-
-    auto& tr  = reg.Handle(sel).get_mut<WorldTransform>();
-    Vec3 pos = {tr.x, tr.y, tr.z};
-
-    // ── Press: detect which axis was clicked ──────────────────────────────
-    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !dragging_) {
-        active_axis_ = -1;
-
-        if (op == EditorGizmoOp::TRANSLATE || op == EditorGizmoOp::SCALE) {
-            constexpr float HIT_R = 0.45f;
-            float tx = RaySphereIntersect(ray, vec3_add(pos, {3.5f, 0.f, 0.f}), HIT_R);
-            float ty = RaySphereIntersect(ray, vec3_add(pos, {0.f,  3.5f, 0.f}), HIT_R);
-            float tz = RaySphereIntersect(ray, vec3_add(pos, {0.f,  0.f, 3.5f}), HIT_R);
-            float best = 1e9f;
-            if (tx > 0.f && tx < best) { best = tx; active_axis_ = 0; }
-            if (ty > 0.f && ty < best) { best = ty; active_axis_ = 1; }
-            if (tz > 0.f && tz < best) { best = tz; active_axis_ = 2; }
-        } else if (op == EditorGizmoOp::ROTATE) {
-            float t = RayPlaneIntersect(ray, {0.f, 1.f, 0.f}, pos);
-            if (t > 0.f) {
-                Vec3  hit  = RayAt(ray, t);
-                float dx   = hit.x - pos.x, dz = hit.z - pos.z;
-                float dist = sqrtf(dx * dx + dz * dz);
-                if (dist >= 2.95f && dist <= 4.05f) active_axis_ = 1;
-            }
-        }
-
-        if (active_axis_ >= 0) {
-            dragging_           = true;
-            entity_start_       = pos;
-            entity_start_rot_y_ = tr.rot_y;
-            drag_start_         = ComputePlaneHit(ray, op, active_axis_, pos, cam);
-        }
-    }
-
-    // ── Held: apply delta each frame ──────────────────────────────────────
-    if (dragging_ && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-        Vec3 cur = ComputePlaneHit(ray, op, active_axis_, entity_start_, cam);
-
-        if (op == EditorGizmoOp::TRANSLATE) {
-            Vec3 raw = entity_start_;
-            if (active_axis_ == 0) raw.x += cur.x - drag_start_.x;
-            if (active_axis_ == 1) raw.y += cur.y - drag_start_.y;
-            if (active_axis_ == 2) raw.z += cur.z - drag_start_.z;
-
-            if (snap) {
-                raw.x = SnapF(raw.x, translate_snap_);
-                raw.y = SnapF(raw.y, translate_snap_);
-                raw.z = SnapF(raw.z, translate_snap_);
-            }
-
-            Vec3 delta = vec3_sub(raw, pos);
-
-            for (int i = 0; i < ec.selected_count; ++i) {
-                MdEntity e = ec.selected[i];
-                if (!reg.Valid(e) || !(reg.Handle(e).has<WorldTransform>())) continue;
-                auto& etr = reg.Handle(e).get_mut<WorldTransform>();
-                etr.x += delta.x;
-                etr.y += delta.y;
-                etr.z += delta.z;
-            }
-
-
-        } else if (op == EditorGizmoOp::ROTATE && active_axis_ == 1) {
-            float a0 = atan2f(drag_start_.z - entity_start_.z,
-                              drag_start_.x - entity_start_.x);
-            float a1 = atan2f(cur.z - entity_start_.z,
-                              cur.x - entity_start_.x);
-            static constexpr float RAD2DEG_K = 180.f / 3.14159265f;
-            float delta_deg = (a1 - a0) * RAD2DEG_K;
-            if (snap) delta_deg = SnapF(delta_deg, rotate_snap_);
-
-            float new_rot = entity_start_rot_y_ + delta_deg;
-            for (int i = 0; i < ec.selected_count; ++i) {
-                MdEntity e = ec.selected[i];
-                if (!reg.Valid(e) || !(reg.Handle(e).has<WorldTransform>())) continue;
-                reg.Handle(e).get_mut<WorldTransform>().rot_y = new_rot;
-            }
-        }
-        // SCALE: WorldTransform has no scale field — no-op
-    }
-
-    // ── Release: end drag ─────────────────────────────────────────────────
-    if (dragging_ && ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
-        dragging_    = false;
-        active_axis_ = -1;
-    }
-#endif // !USE_SDL3
 }
 #endif // MONKEY_DUST_EDITOR

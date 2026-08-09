@@ -1,13 +1,10 @@
 #pragma once
 #include <monkey_dust/ecs/md_entity.h>
 #ifdef MONKEY_DUST_EDITOR
-#ifdef USE_SDL3
+// Raylib fallback (rlImGui) removed 2026-08-09 -- USE_SDL3=ON is the only
+// buildable configuration (engine/CMakeLists.txt's FATAL_ERROR gate).
 #  include "backends/imgui_impl_sdl3.h"
 #  include "backends/imgui_impl_opengl3.h"
-#else
-#  include "raylib.h"
-#  include "rlImGui.h"
-#endif
 #include "imgui.h"
 #include "editor_history.h"
 #include <monkey_dust/ecs/registry.h>

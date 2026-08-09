@@ -89,14 +89,11 @@ void EditorCameraPanel::DrawContent() {
     }
 
     // ── Screenshot ────────────────────────────────────────────────────────
+    // Raylib's TakeScreenshot() fallback removed 2026-08-09 (USE_SDL3=ON is
+    // the only buildable configuration); real SDL_GPU screenshot capture is
+    // md.screenshot() (Lua/automation), not this panel.
     if (ImGui::CollapsingHeader("Screenshot")) {
-#ifndef USE_SDL3
-        if (ImGui::Button("Take Screenshot##cam"))
-            TakeScreenshot("editor_screenshot.png");
-        ImGui::TextDisabled("Saves to editor_screenshot.png");
-#else
         ImGui::TextDisabled("Screenshot not available in SDL3 build");
-#endif
     }
 
 }
