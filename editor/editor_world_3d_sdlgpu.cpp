@@ -159,61 +159,36 @@ static void s_update_granite_terrain(SDL_GPUCommandBuffer* cmd,
     static TerrainPatchGrid::VisiblePatch visible[kMaxVisible];
     int nvis = s_granite_grid.SelectVisible(planes, visible, kMaxVisible);
 
-    // task terrain-cdlod-geomorph: same change as scene_render.cpp's
-    // UpdateGraniteTerrain -- see its comment for the A/B test that
-    // dropped the neighbor-tier cascade-snap in favour of a per-patch
-    // CDLOD-style geomorph (terrain_patch.vert). inst.lod is now the raw
-    // continuous per-patch LOD, not a rounded/clamped tier.
+    // Tier-select + neighbor-tier clamp + lod/tier-mismatch fixup --
+    // centralized in TerrainPatchRenderer::BuildInstanceBatches (engine),
+    // shared with scene_render.cpp's UpdateGraniteTerrain -- see that
+    // function's own doc comment (terrain_patch_renderer.h) for the full
+    // task #389 reasoning. This used to be ~50 lines hand-duplicated in
+    // both files, which is exactly how task #389 happened (one copy got
+    // fixed, the other didn't -- twice).
     static constexpr int kMaxInstPerTier = (int)(sizeof(s_granite_insts[0]) / sizeof(s_granite_insts[0][0]));
-    for (int i = 0; i < nvis; ++i) {
-        const auto& p = visible[i];
-        int tier = (int)p.lod;
-        if (tier < 0) tier = 0;
-        if (tier > TerrainPatchRenderer::kNumTiers - 1) tier = TerrainPatchRenderer::kNumTiers - 1;
+    TerrainPatchRenderer::Instance* inst_ptrs_for_batching[TerrainPatchRenderer::kNumTiers];
+    for (int t = 0; t < TerrainPatchRenderer::kNumTiers; ++t)
+        inst_ptrs_for_batching[t] = s_granite_insts[t];
+    static TerrainPatchRenderer::PlacedPatch s_placed[kMaxVisible];
+    int placed_n = 0;
+    TerrainPatchRenderer::BuildInstanceBatches(s_granite_grid, visible, nvis,
+                                                inst_ptrs_for_batching, s_granite_counts,
+                                                kMaxInstPerTier,
+                                                s_placed, kMaxVisible, &placed_n);
 
-        // Neighbor-tier clamp -- see scene_render.cpp's UpdateGraniteTerrain
-        // (identical clamp) for the full reasoning: the CDLOD geomorph only
-        // hides a 1-tier neighbor gap, not 2+; the height-range relief bias
-        // (task #387) is per-patch/data-dependent and can produce exactly
-        // that gap at real cliff edges, which the fixed-depth skirt can't
-        // cover -- confirmed as the root cause of the reported "flickering
-        // vertical stripes"/diagonal-line crack, present in both game and
-        // this editor viewport, independent of camera position.
-        {
-            int min_neighbor_tier = TerrainPatchRenderer::kNumTiers - 1;
-            static constexpr int kDix[4] = { -1, 1, 0, 0 };
-            static constexpr int kDiz[4] = { 0, 0, -1, 1 };
-            for (int k = 0; k < 4; ++k) {
-                int nix = p.ix + kDix[k], niz = p.iz + kDiz[k];
-                if (nix < 0 || nix >= s_granite_grid.NumPatchesX()) continue;
-                if (niz < 0 || niz >= s_granite_grid.NumPatchesZ()) continue;
-                int ntier = (int)s_granite_grid.LOD(nix, niz);
-                if (ntier < min_neighbor_tier) min_neighbor_tier = ntier;
-            }
-            if (tier > min_neighbor_tier + 1) tier = min_neighbor_tier + 1;
-        }
-        // terrain-vt Phase 2: reuse this SAME per-frame visibility pass to
-        // drive page-cache requests -- zero extra visibility computation,
-        // exactly the reasoning the plan called for (TerrainPatchGrid
-        // already knows what's visible for geometry LOD; no separate GPU
-        // feedback buffer needed). Reject-on-full/queue-full cases are
-        // silent no-ops inside RequestPage -- retried automatically next
-        // frame for as long as this patch stays visible. terrain-vt
-        // clipmap fix: no more MIN_CACHEABLE_TIER gate -- see
-        // scene_render.cpp's identical wiring for the full reasoning.
-        if (s_vt_cache_ready)
-            s_vt_cache.RequestPage(p.ix, p.iz, tier);
-        int& n = s_granite_counts[tier];
-        if (n >= kMaxInstPerTier) continue;
-        auto& inst = s_granite_insts[tier][n++];
-        inst.origin_x = p.origin_x;
-        inst.origin_z = p.origin_z;
-        // See scene_render.cpp's identical fix (2026-08-11) for the full
-        // reasoning: floor(inst.lod) and u.tier_n must agree in the
-        // shader (mip selection + geomorph morph fraction), which broke
-        // whenever the neighbor clamp above moved this patch into a
-        // finer bucket than floor(p.lod).
-        inst.lod = (tier < (int)p.lod) ? (float)tier : p.lod;
+    // terrain-vt Phase 2: reuse this SAME per-frame visibility pass to
+    // drive page-cache requests -- zero extra visibility computation,
+    // exactly the reasoning the plan called for (TerrainPatchGrid already
+    // knows what's visible for geometry LOD; no separate GPU feedback
+    // buffer needed). Reject-on-full/queue-full cases are silent no-ops
+    // inside RequestPage -- retried automatically next frame for as long
+    // as this patch stays visible. terrain-vt clipmap fix: no more
+    // MIN_CACHEABLE_TIER gate -- see scene_render.cpp's identical wiring
+    // for the full reasoning.
+    if (s_vt_cache_ready) {
+        for (int i = 0; i < placed_n; ++i)
+            s_vt_cache.RequestPage(s_placed[i].ix, s_placed[i].iz, s_placed[i].tier);
     }
 
     // terrain-vt Phase 2: drain this frame's page-fill requests -- must run
