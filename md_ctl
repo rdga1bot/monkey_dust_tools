@@ -39,19 +39,22 @@ def _run_id() -> str:
     return time.strftime("%Y%m%d_%H%M%S")
 
 
-def run_logged(cmd, cwd=None, timeout=None, tag=None):
+def run_logged(cmd, cwd=None, timeout=None, tag=None, env=None):
     """Runs `cmd`, writes full stdout+stderr to a timestamped log file under
     tmp_/md_ctl_logs/, returns (returncode, log_path, tail_text). tail_text
     is the last ~15 lines, for the human summary — full output stays in the
     log, never dumped to stdout wholesale (VERIFY: each command's own
-    output <= 15 lines)."""
+    output <= 15 lines). env=None inherits the parent process's environment
+    (subprocess.run's own default); pass a dict to run with a modified
+    environment (e.g. VK_ICD_FILENAMES for the lavapipe backend, see
+    _lavapipe_env())."""
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     tag = tag or Path(str(cmd[0])).name
     log_path = LOG_DIR / f"{_run_id()}_{tag}.log"
     try:
         proc = subprocess.run(cmd, cwd=str(cwd or REPO_ROOT),
                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                               timeout=timeout, text=True)
+                               timeout=timeout, text=True, env=env)
         log_path.write_text(proc.stdout or "")
         tail = "\n".join((proc.stdout or "").splitlines()[-15:])
         return proc.returncode, log_path, tail
@@ -230,12 +233,49 @@ def cmd_rebuild_terrain(args) -> int:
 
 
 # ── qa ─────────────────────────────────────────────────────────────────────
+# Candidate paths for Mesa's software-rasterizer Vulkan ICD (lavapipe) --
+# package name/layout differs slightly by distro, so probe a short list
+# instead of hardcoding one path.
+_LAVAPIPE_ICD_CANDIDATES = [
+    "/usr/share/vulkan/icd.d/lvp_icd.json",
+    "/usr/share/vulkan/icd.d/lvp_icd.x86_64.json",
+]
+
+
+def _lavapipe_env():
+    """Returns (env_dict, None) if a lavapipe ICD is found on this system,
+    else (None, error_message). Setting VK_ICD_FILENAMES restricts the
+    Vulkan loader to ONLY enumerate that one ICD -- confirmed live
+    (2026-08-12) this is sufficient on its own to make SDL_GPU's Vulkan
+    backend pick the software device with zero engine code changes: the
+    loader only ever sees what's in this env var, same mechanism
+    `vulkaninfo --summary` uses to prove which device would be selected.
+    Previously this whole backend was a hardcoded abort here claiming
+    vulkan-swrast wasn't installed (docs/AUTONOMY_LOG.md §Recon.4,
+    2026-XX-XX) -- that claim went stale (the package IS installed on
+    this dev machine) and, more importantly, the check was never a real
+    runtime probe to begin with, just a fixed `return 2`. This replaces
+    it with an actual file-existence check."""
+    for p in _LAVAPIPE_ICD_CANDIDATES:
+        if Path(p).exists():
+            env = dict(os.environ)
+            env["VK_ICD_FILENAMES"] = p
+            return env, None
+    return None, (
+        "[md_ctl qa] backend=lavapipe requested, but no lavapipe ICD found "
+        f"(checked: {', '.join(_LAVAPIPE_ICD_CANDIDATES)}) -- install the "
+        "software Vulkan driver package (Arch: vulkan-swrast; Debian/Ubuntu: "
+        "mesa-vulkan-drivers) and retry."
+    )
+
+
 def cmd_qa(args) -> int:
+    qa_env = None
     if args.backend == "lavapipe":
-        print("[md_ctl qa] backend=lavapipe requested, but not installed on this "
-              "system (docs/AUTONOMY_LOG.md §Recon.4: pacman -S vulkan-swrast, "
-              "not present) — per-backend baselines are Etap 4 scope. Aborting.")
-        return 2
+        qa_env, err = _lavapipe_env()
+        if err:
+            print(err)
+            return 2
 
     if args.editor:
         # Etap 4: editor QA-capture (audit finding — only the game was
@@ -245,7 +285,7 @@ def cmd_qa(args) -> int:
         script = "tests/editor_scenarios/editor_verify_hub_screenshot.lua"
         cmd = ["build/tools/monkey_dust_editor", "--exec", script,
                "--fast", "--seed", "42", "--max-seconds", "180"]
-        code, log, tail = run_logged(cmd, tag="qa_editor", timeout=200)
+        code, log, tail = run_logged(cmd, tag="qa_editor", timeout=200, env=qa_env)
         if code != 0:
             print(f"[md_ctl qa] editor: FAILED (exit={code})")
             print(f"  log: {log}")

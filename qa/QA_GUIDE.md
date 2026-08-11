@@ -111,11 +111,16 @@ verify_diagonal_line_neighbor_clamp.lua`'s репро-пози (Zone 27,32,
 8000m). `editor_baselines/` НЕ gitignored — коміт нову baseline-PNG у
 tools submodule.
 
-`--backend lavapipe` (headless software Vulkan, потрібен для CI без
-реального GPU) задокументований, але пакет не встановлений на жодній
-машині цього проекту (`docs/AUTONOMY_LOG.md` §Recon.4: `pacman -S
-vulkan-swrast` відсутній) — GPU-візуальні перевірки лишаються
-manual-only, свідомо відкладено, не забуто.
+`--backend lavapipe` (headless software Vulkan) тепер живий на цій
+машині (`vulkan-swrast` встановлено, `md_ctl qa --editor --backend
+lavapipe` перевірено end-to-end — `docs/AUTONOMY_LOG.md` §Recon.4's
+UPDATE 2026-08-12) — `VK_ICD_FILENAMES` вказує на `lvp_icd.json`,
+SDL_GPU підхоплює автоматично, нуль змін у C++. `editor_baselines/
+lavapipe/` існує паралельно з `hw/` (rasterizer-різниця між
+backend'ами очікувана, тому кожен має власні baseline'и, ніколи не
+порівнюються між собою). Не автоматизовано в CI (GitHub Actions
+раннери — окреме питання: чи стоїть там `mesa-vulkan-drivers`), лише
+локально на dev-машинах, що мають пакет встановленим.
 
 ### Perf regression
 
