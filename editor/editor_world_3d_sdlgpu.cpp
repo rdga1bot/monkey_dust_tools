@@ -120,7 +120,8 @@ static void s_rebuild_granite_hmap() {
     s_granite_ready = hmap_ok && s_granite_pr.IsReady();
     if (hmap_ok) {
         s_granite_grid.Init(0.f, 0.f, s_granite_hmap.WorldExtent(),
-                             kGranitePatchSize, TerrainPatchRenderer::kNumTiers - 1);
+                             kGranitePatchSize, TerrainPatchRenderer::kNumTiers - 1,
+                             &TerrainAtlas_SampleWorld);
         // terrain-vt Phase 2: init the page cache alongside the grid it
         // mirrors -- ONCE only (this function can re-run on terrain edits/
         // R-key refresh; re-Init()ing the cache each time would either leak
@@ -169,6 +170,28 @@ static void s_update_granite_terrain(SDL_GPUCommandBuffer* cmd,
         int tier = (int)p.lod;
         if (tier < 0) tier = 0;
         if (tier > TerrainPatchRenderer::kNumTiers - 1) tier = TerrainPatchRenderer::kNumTiers - 1;
+
+        // Neighbor-tier clamp -- see scene_render.cpp's UpdateGraniteTerrain
+        // (identical clamp) for the full reasoning: the CDLOD geomorph only
+        // hides a 1-tier neighbor gap, not 2+; the height-range relief bias
+        // (task #387) is per-patch/data-dependent and can produce exactly
+        // that gap at real cliff edges, which the fixed-depth skirt can't
+        // cover -- confirmed as the root cause of the reported "flickering
+        // vertical stripes"/diagonal-line crack, present in both game and
+        // this editor viewport, independent of camera position.
+        {
+            int min_neighbor_tier = TerrainPatchRenderer::kNumTiers - 1;
+            static constexpr int kDix[4] = { -1, 1, 0, 0 };
+            static constexpr int kDiz[4] = { 0, 0, -1, 1 };
+            for (int k = 0; k < 4; ++k) {
+                int nix = p.ix + kDix[k], niz = p.iz + kDiz[k];
+                if (nix < 0 || nix >= s_granite_grid.NumPatchesX()) continue;
+                if (niz < 0 || niz >= s_granite_grid.NumPatchesZ()) continue;
+                int ntier = (int)s_granite_grid.LOD(nix, niz);
+                if (ntier < min_neighbor_tier) min_neighbor_tier = ntier;
+            }
+            if (tier > min_neighbor_tier + 1) tier = min_neighbor_tier + 1;
+        }
         // terrain-vt Phase 2: reuse this SAME per-frame visibility pass to
         // drive page-cache requests -- zero extra visibility computation,
         // exactly the reasoning the plan called for (TerrainPatchGrid
@@ -185,7 +208,12 @@ static void s_update_granite_terrain(SDL_GPUCommandBuffer* cmd,
         auto& inst = s_granite_insts[tier][n++];
         inst.origin_x = p.origin_x;
         inst.origin_z = p.origin_z;
-        inst.lod      = p.lod;
+        // See scene_render.cpp's identical fix (2026-08-11) for the full
+        // reasoning: floor(inst.lod) and u.tier_n must agree in the
+        // shader (mip selection + geomorph morph fraction), which broke
+        // whenever the neighbor clamp above moved this patch into a
+        // finer bucket than floor(p.lod).
+        inst.lod = (tier < (int)p.lod) ? (float)tier : p.lod;
     }
 
     // terrain-vt Phase 2: drain this frame's page-fill requests -- must run
