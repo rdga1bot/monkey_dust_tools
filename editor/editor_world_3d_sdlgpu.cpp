@@ -172,7 +172,7 @@ static void s_update_granite_terrain(SDL_GPUCommandBuffer* cmd,
         inst_ptrs_for_batching[t] = s_granite_insts[t];
     static TerrainPatchRenderer::PlacedPatch s_placed[kMaxVisible];
     int placed_n = 0;
-    TerrainPatchRenderer::BuildInstanceBatches(s_granite_grid, visible, nvis,
+    TerrainPatchRenderer::BuildInstanceBatches(visible, nvis,
                                                 inst_ptrs_for_batching, s_granite_counts,
                                                 kMaxInstPerTier,
                                                 s_placed, kMaxVisible, &placed_n);

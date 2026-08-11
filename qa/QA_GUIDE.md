@@ -84,6 +84,26 @@ python3 tools/qa/qa_regression.py --list
 
 HTML звіт: `tools/qa/reports/TIMESTAMP/regression/report.html` — drag-to-reveal scrubber.
 
+**Targeted single-scenario baseline (не з `qa_run.sh` gameplay-сесії):**
+`qa_regression.py` не знає звідки взялись `frame_*.png` — можна
+зареєструвати baseline для ОДНОГО конкретного `--exec` editor-сценарію
+(не для звичайної gameplay-сесії), якщо потрібен точковий regression-
+захист конкретного бага. Приклад — `baselines/terrain_crack_repro/`
+(task #389/#392, 2026-08-12): скріншот
+`tests/editor_scenarios/verify_diagonal_line_neighbor_clamp.lua`'s
+репро-пози (Zone 27,32, 8000m) вручну скопійований у
+`captures/<id>/frames/frame_0000.png` перед `--baseline <id>`.
+Перевірка на регресію:
+```bash
+./build/tools/monkey_dust_editor --exec tests/editor_scenarios/verify_diagonal_line_neighbor_clamp.lua
+mkdir -p tools/qa/captures/terrain_crack_recheck/frames
+cp tmp_/verify_diagonal_line_fix.png tools/qa/captures/terrain_crack_recheck/frames/frame_0000.png
+python3 tools/qa/qa_regression.py --compare terrain_crack_recheck --baseline-id terrain_crack_repro
+rm -rf tools/qa/captures/terrain_crack_recheck  # ephemeral, gitignored anyway
+```
+`baselines/` (на відміну від `captures/`/`reports/`) НЕ gitignored —
+коміт baseline-теки в tools submodule, коли додаєш нову.
+
 ### Perf regression
 
 `FrameStats` (engine/include/monkey_dust/platform/frame_stats.h) друкує
