@@ -84,25 +84,38 @@ python3 tools/qa/qa_regression.py --list
 
 HTML звіт: `tools/qa/reports/TIMESTAMP/regression/report.html` — drag-to-reveal scrubber.
 
-**Targeted single-scenario baseline (не з `qa_run.sh` gameplay-сесії):**
-`qa_regression.py` не знає звідки взялись `frame_*.png` — можна
-зареєструвати baseline для ОДНОГО конкретного `--exec` editor-сценарію
-(не для звичайної gameplay-сесії), якщо потрібен точковий regression-
-захист конкретного бага. Приклад — `baselines/terrain_crack_repro/`
-(task #389/#392, 2026-08-12): скріншот
-`tests/editor_scenarios/verify_diagonal_line_neighbor_clamp.lua`'s
-репро-пози (Zone 27,32, 8000m) вручну скопійований у
-`captures/<id>/frames/frame_0000.png` перед `--baseline <id>`.
-Перевірка на регресію:
+### Targeted single-scenario baseline (editor `--exec`, не gameplay-сесія)
+
+Для точкового regression-захисту ОДНОГО конкретного бага (не для
+звичайної gameplay QA-сесії) — використовуй `editor_screenshot_compare.py`
+(Etap 4, `docs/AUTONOMY_LOG.md`), не `qa_regression.py` (той заточений
+під `qa_run.sh`'s багатокадрові gameplay-capture, і підганяти під нього
+один скріншот — зайва складність). RMSE-метрика, per-backend baseline'и
+(`editor_baselines/<backend>/NAME.png` — backend'и НЕ порівнюються між
+собою, бо GPU/driver rasterizer-різниця очікувана й не є регресією).
+
 ```bash
-./build/tools/monkey_dust_editor --exec tests/editor_scenarios/verify_diagonal_line_neighbor_clamp.lua
-mkdir -p tools/qa/captures/terrain_crack_recheck/frames
-cp tmp_/verify_diagonal_line_fix.png tools/qa/captures/terrain_crack_recheck/frames/frame_0000.png
-python3 tools/qa/qa_regression.py --compare terrain_crack_recheck --baseline-id terrain_crack_repro
-rm -rf tools/qa/captures/terrain_crack_recheck  # ephemeral, gitignored anyway
+# Зберегти baseline (один раз, після підтвердження що стан коректний):
+./build/tools/monkey_dust_editor --exec tests/editor_scenarios/SCENARIO.lua
+python3 tools/qa/editor_screenshot_compare.py --save NAME tmp_/SCREENSHOT.png --backend hw
+
+# Перевірка на регресію:
+./build/tools/monkey_dust_editor --exec tests/editor_scenarios/SCENARIO.lua
+python3 tools/qa/editor_screenshot_compare.py --compare NAME tmp_/SCREENSHOT.png --backend hw
+# PASS/FAIL за threshold (--threshold-pct, дефолт 0.5%)
 ```
-`baselines/` (на відміну від `captures/`/`reports/`) НЕ gitignored —
-коміт baseline-теки в tools submodule, коли додаєш нову.
+
+Приклад — `editor_baselines/hw/terrain_crack_repro.png` (task #389/#392,
+2026-08-12): baseline для `tests/editor_scenarios/
+verify_diagonal_line_neighbor_clamp.lua`'s репро-пози (Zone 27,32,
+8000m). `editor_baselines/` НЕ gitignored — коміт нову baseline-PNG у
+tools submodule.
+
+`--backend lavapipe` (headless software Vulkan, потрібен для CI без
+реального GPU) задокументований, але пакет не встановлений на жодній
+машині цього проекту (`docs/AUTONOMY_LOG.md` §Recon.4: `pacman -S
+vulkan-swrast` відсутній) — GPU-візуальні перевірки лишаються
+manual-only, свідомо відкладено, не забуто.
 
 ### Perf regression
 
