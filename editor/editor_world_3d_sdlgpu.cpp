@@ -120,8 +120,7 @@ static void s_rebuild_granite_hmap() {
     s_granite_ready = hmap_ok && s_granite_pr.IsReady();
     if (hmap_ok) {
         s_granite_grid.Init(0.f, 0.f, s_granite_hmap.WorldExtent(),
-                             kGranitePatchSize, TerrainPatchRenderer::kNumTiers - 1,
-                             &TerrainAtlas_SampleWorld);
+                             kGranitePatchSize, TerrainPatchRenderer::kNumTiers - 1);
         // terrain-vt Phase 2: init the page cache alongside the grid it
         // mirrors -- ONCE only (this function can re-run on terrain edits/
         // R-key refresh; re-Init()ing the cache each time would either leak
