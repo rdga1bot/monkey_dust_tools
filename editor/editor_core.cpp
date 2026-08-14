@@ -484,6 +484,7 @@ void EditorCore::UpdateEditorCamera(float dt, bool viewport_hovered) {
 
     // Relative mouse mode for unlimited 360° rotation on RMB (no window-edge clamping).
     bool rmb_down = io.MouseDown[ImGuiMouseButton_Right];
+    bool mmb_down = io.MouseDown[ImGuiMouseButton_Middle];
     {
         static bool s_rel = false;
         if (rmb_down != s_rel) {
@@ -491,10 +492,13 @@ void EditorCore::UpdateEditorCamera(float dt, bool viewport_hovered) {
             s_rel = rmb_down;
         }
     }
-    // SDL raw delta — unlimited, not clamped to window edges.
+    // SDL raw delta — unlimited, not clamped to window edges. Also used for
+    // MMB pan below (io.MouseDelta has the same "read before imgui_new_frame
+    // populates it" staleness as io.MouseWheel above -- MMB pan silently did
+    // nothing in-game for the same reason scroll-zoom did).
     float rdx = 0.f, rdy = 0.f;
     SDL_GetRelativeMouseState(&rdx, &rdy);
-    if (!rmb_down) { rdx = 0.f; rdy = 0.f; }
+    if (!rmb_down && !mmb_down) { rdx = 0.f; rdy = 0.f; }
 
     if (cam_flying) {
         // ── Exact copy of editor_world_3d_sdlgpu handle_input() ──────────────
@@ -551,14 +555,16 @@ void EditorCore::UpdateEditorCamera(float dt, bool viewport_hovered) {
             if (cam_pitch >  89.f) cam_pitch =  89.f;
             if (cam_pitch < -89.f) cam_pitch = -89.f;
         }
-        // MMB pan
-        if (io.MouseDown[ImGuiMouseButton_Middle]) {
+        // MMB pan — io.MouseDelta has the same pre-imgui_new_frame staleness
+        // as io.MouseWheel (see comment on rdx/rdy above), so use the raw
+        // SDL delta instead; same formula/signs, only the data source changed.
+        if (mmb_down) {
             float yaw_r = cam_yaw * DEG2R;
             Vec3 right = { cosf(yaw_r), 0.f, -sinf(yaw_r) };
             Vec3 up    = { 0.f, 1.f, 0.f };
             float pan = cam_dist * 0.002f;
-            cam_target = vec3_sub(cam_target, vec3_scale(right, io.MouseDelta.x * pan));
-            cam_target = vec3_add(cam_target, vec3_scale(up,    io.MouseDelta.y * pan));
+            cam_target = vec3_sub(cam_target, vec3_scale(right, rdx * pan));
+            cam_target = vec3_add(cam_target, vec3_scale(up,    rdy * pan));
         }
         // Scroll zoom — same io.MouseWheel==0 gotcha as the Flythrough branch
         // above (UpdateEditorCamera() runs BEFORE imgui_new_frame() in the
