@@ -560,8 +560,14 @@ void EditorCore::UpdateEditorCamera(float dt, bool viewport_hovered) {
             cam_target = vec3_sub(cam_target, vec3_scale(right, io.MouseDelta.x * pan));
             cam_target = vec3_add(cam_target, vec3_scale(up,    io.MouseDelta.y * pan));
         }
-        // Scroll zoom
-        cam_dist -= io.MouseWheel * cam_dist * 0.1f;
+        // Scroll zoom — same io.MouseWheel==0 gotcha as the Flythrough branch
+        // above (UpdateEditorCamera() runs BEFORE imgui_new_frame() in the
+        // game loop, so io.MouseWheel is always stale/0 here); use
+        // input_get_scroll_y() with the same io.MouseWheel fallback for the
+        // standalone editor.
+        float orbit_wheel = input_get_scroll_y();
+        if (orbit_wheel == 0.f) orbit_wheel = io.MouseWheel;
+        cam_dist -= orbit_wheel * cam_dist * 0.1f;
         if (cam_dist < 1.f)   cam_dist = 1.f;
         if (cam_dist > 500.f) cam_dist = 500.f;
     }
