@@ -65,6 +65,14 @@ public:
     bool     cam_game_mode = false;  // true = use normal game camera (player moves, RMB rotates)
     float    cam_speed    = 100.0f; // m/s; Shift+Scroll to adjust
     Vec3     last_game_cam_target = { 0.f, 2.f, 0.f }; // updated each frame in game mode
+    // Absolute-Kenshi-world-space shift (metres) for the current session's
+    // floating local origin: abs = local + (scene_world_dx, scene_world_dz).
+    // Written from game/ each frame (game_render_frame.cpp, EditorCore::Update()
+    // call site) -- SceneRender::GraniteAbsCam (scene_render.cpp:565-571)
+    // proves this shift is independent of the point being converted, so only
+    // the constant itself crosses the tools/<->game boundary; the actual
+    // per-point add + zone lookup happen tools/-side (editor_camera_panel.cpp).
+    float    scene_world_dx = 0.f, scene_world_dz = 0.f;
     // Free-fly state (mirrors editor_world_3d_sdlgpu — radians, direct eye pos)
     float    fly_yaw     = 0.f;     // radians
     float    fly_pitch   = 0.f;     // radians

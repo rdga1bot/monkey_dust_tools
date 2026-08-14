@@ -2,6 +2,9 @@
 #include "editor_camera_panel.h"
 #include "editor_core.h"
 #include "imgui.h"
+#include <monkey_dust/world/chunk_def.h>
+#include <monkey_dust/world/world_registry.h>
+#include <cmath>
 
 void EditorCameraPanel::Draw() {
     if (!EditorCore::Get().panels_visible[5]) return;
@@ -83,6 +86,22 @@ void EditorCameraPanel::DrawContent() {
                     ec.cam_target.x, ec.cam_target.y, ec.cam_target.z);
         ImGui::Text("Yaw: %.1f  Pitch: %.1f  Dist: %.1f",
                     ec.cam_yaw, ec.cam_pitch, ec.cam_dist);
+        // Absolute Kenshi-world coords + zone -- see EditorCore::scene_world_dx's
+        // doc comment. Position/Target above are session-local (tnoff-relative)
+        // and meaningless outside this one running session; these are not.
+        {
+            float abs_x = cam.pos.x + ec.scene_world_dx;
+            float abs_z = cam.pos.z + ec.scene_world_dz;
+            int   gx = (int)floorf(abs_x / CHUNK_SIZE);
+            int   gz = (int)floorf(abs_z / CHUNK_SIZE);
+            ZoneRecord* zr = WorldRegistry::Get().FindByGrid(gx, gz);
+            ImGui::Separator();
+            ImGui::Text("Abs World:  (%.1f, %.1f, %.1f)", abs_x, cam.pos.y, abs_z);
+            ImGui::Text("Abs Target: (%.1f, %.1f, %.1f)",
+                        ec.cam_target.x + ec.scene_world_dx, ec.cam_target.y,
+                        ec.cam_target.z + ec.scene_world_dz);
+            ImGui::Text("Zone: %s (grid %d,%d)", zr ? zr->display_name : "(unknown)", gx, gz);
+        }
         ImGui::Separator();
         ImGui::Text("FPS: %.0f  |  dt: %.2f ms",
                     EditorCore::Get().frame_fps, EditorCore::Get().frame_dt_ms);
