@@ -16,6 +16,7 @@ Usage:
   tools/md_ctl state
   tools/md_ctl gc [--days N]
   tools/md_ctl editor-exec "<lua code>" [--timeout SECONDS]
+  tools/md_ctl doctor [--json]
 """
 import argparse
 import json
@@ -409,6 +410,21 @@ def cmd_editor_exec(args) -> int:
     return 124
 
 
+# ── doctor ─────────────────────────────────────────────────────────────────
+def cmd_doctor(args) -> int:
+    """Runs tools/md_doctor.py (PROMPT_DOC_RESTRUCTURE.md Phase 1) -- the
+    10 DOC-XX mechanical drift checks between *.md and real repo state.
+    Thin wrapper: md_doctor.py owns the checks, this just logs + relays
+    exit code, matching every other subcommand's contract."""
+    cmd = ["python3", "tools/md_doctor.py"]
+    if args.json:
+        cmd.append("--json")
+    code, log, tail = run_logged(cmd, tag="doctor", timeout=120)
+    print(tail)
+    print(f"[md_ctl doctor] exit={code}, log: {log}")
+    return code
+
+
 # ── gc ─────────────────────────────────────────────────────────────────────
 def cmd_gc(args) -> int:
     days = args.days or 7
@@ -469,6 +485,9 @@ def main() -> int:
 
     p = sub.add_parser("gc"); p.add_argument("--days", type=int, default=7)
     p.set_defaults(func=cmd_gc)
+
+    p = sub.add_parser("doctor"); p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_doctor)
 
     p = sub.add_parser("editor-exec")
     p.add_argument("lua")
