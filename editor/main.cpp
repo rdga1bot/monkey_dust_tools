@@ -131,6 +131,15 @@ int main(int argc, char** argv) {
     if (!md::GpuDevice::Get().Init(_wnd::ptr())) {
         fprintf(stderr, "[Editor] SDL_GPU init failed\n"); return 1;
     }
+    // window.cpp creates every window with SDL_WINDOW_HIDDEN so the
+    // compositor never shows an unpainted first frame; game_init.cpp
+    // un-hides it once its splash screen is ready to present. The editor
+    // has no splash screen and no equivalent call anywhere in its init
+    // path -- reproduced live once with xwininfo reporting the window
+    // stuck at "Map State: IsUnMapped" indefinitely despite the process
+    // rendering normally internally. No-op if the window is already
+    // shown by the time this runs.
+    SDL_ShowWindow(_wnd::ptr());
     SDL_GPUDevice* gpu = md::GpuDevice::Get().SDLDevice();
     SDL_GPUTextureFormat sc_fmt = SDL_GetGPUSwapchainTextureFormat(gpu, _wnd::ptr());
 
