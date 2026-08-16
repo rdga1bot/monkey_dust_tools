@@ -17,6 +17,7 @@ Usage:
   tools/md_ctl gc [--days N]
   tools/md_ctl editor-exec "<lua code>" [--timeout SECONDS]
   tools/md_ctl doctor [--json]
+  tools/md_ctl dash
 """
 import argparse
 import json
@@ -425,6 +426,17 @@ def cmd_doctor(args) -> int:
     return code
 
 
+# ── dash ───────────────────────────────────────────────────────────────────
+def cmd_dash(args) -> int:
+    """Runs tools/md_dash.py (PROMPT_DOC_RESTRUCTURE.md Phase 4) -- generates
+    tmp_/md_ctl_dash.html, a single offline HTML page summarizing git/build/
+    test/QA/doctor/issues/budget state across the 3 repos."""
+    code, log, tail = run_logged(["python3", "tools/md_dash.py"], tag="dash", timeout=90)
+    print(tail)
+    print(f"[md_ctl dash] exit={code}, log: {log}")
+    return code
+
+
 # ── gc ─────────────────────────────────────────────────────────────────────
 def cmd_gc(args) -> int:
     days = args.days or 7
@@ -488,6 +500,8 @@ def main() -> int:
 
     p = sub.add_parser("doctor"); p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_doctor)
+
+    p = sub.add_parser("dash"); p.set_defaults(func=cmd_dash)
 
     p = sub.add_parser("editor-exec")
     p.add_argument("lua")
