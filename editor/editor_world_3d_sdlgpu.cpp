@@ -581,10 +581,26 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
     if (s_granite_ready && s_terrain.IsReady()) {
         SDL_GPURenderPass* gbuf_pass = s_terrain_shading.BeginGBufferPass(cmd);
         if (gbuf_pass) {
+            // Minimal-variant Part B (per-tile culling): same Gribb &
+            // Hartmann plane extraction as MdCamera::FrustumPlanes
+            // (engine/include/monkey_dust/render/md_camera.h) applied
+            // directly to this viewport's already-built vp.m -- no
+            // MdCamera object exists here (eye_x/y/z + vp.m is this
+            // file's own camera representation), so inlined rather than
+            // constructing one just to call that method.
+            float frustum_planes[16];
+            {
+                const float* m = vp.m;
+                frustum_planes[ 0]=m[3]+m[0]; frustum_planes[ 1]=m[7]+m[4]; frustum_planes[ 2]=m[11]+m[ 8]; frustum_planes[ 3]=m[15]+m[12];
+                frustum_planes[ 4]=m[3]-m[0]; frustum_planes[ 5]=m[7]-m[4]; frustum_planes[ 6]=m[11]-m[ 8]; frustum_planes[ 7]=m[15]-m[12];
+                frustum_planes[ 8]=m[3]-m[1]; frustum_planes[ 9]=m[7]-m[5]; frustum_planes[10]=m[11]-m[ 9]; frustum_planes[11]=m[15]-m[13];
+                frustum_planes[12]=m[3]+m[1]; frustum_planes[13]=m[7]+m[5]; frustum_planes[14]=m[11]+m[ 9]; frustum_planes[15]=m[15]+m[13];
+            }
             for (int lvl = 0; lvl < TerrainClipmapCache::kNumLevels; ++lvl) {
                 s_clipmap_renderer.DrawLevel(gbuf_pass, cmd, lvl, s_clipmap_cache, vp.m,
                     eye_x, eye_y, eye_z,
-                    s_granite_hmap.HeightMin(), s_granite_hmap.HeightMax());
+                    s_granite_hmap.HeightMin(), s_granite_hmap.HeightMax(),
+                    frustum_planes);
             }
             SDL_EndGPURenderPass(gbuf_pass);
         }
