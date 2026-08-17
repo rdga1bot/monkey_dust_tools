@@ -1,5 +1,7 @@
 #include "editor_screenshot.h"
 #ifdef MD_SDL_GPU
+#include <monkey_dust/render/gpu_device.h>
+#include <SDL3/SDL.h>
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
@@ -67,6 +69,17 @@ bool EditorScreenshot_CaptureAndSubmit(SDL_GPUDevice* dev, SDL_GPUCommandBuffer*
     // DownloadFromGPUTexture specifically (data not guaranteed copied until
     // the fence signals). Synchronous stall is fine: this is an on-demand
     // scripted action (md.editor_screenshot), not a per-frame operation.
+    // GEOCLIPMAP Phase 7 (2026-08-16): this fence-wait is ALREADY the exact
+    // "submit + synchronous wait" pattern GpuDevice::Submit's SetSyncTiming
+    // path uses -- report it there too, so md.get_gpu_ms() stays meaningful
+    // on frames that only rendered because a screenshot was pending
+    // (RunScenarioMode/--exec never renders otherwise, see this function's
+    // only caller, npc_render_deferred.cpp). Without this, GpuDevice::
+    // Submit() -- and therefore LastGpuMs() -- is simply never reached on
+    // those frames (this function owns the whole submit, deliberately: it
+    // must append its own copy-pass to `cmd` before submitting).
+    bool sync_timing = md::GpuDevice::Get().SyncTiming();
+    uint64_t t0 = sync_timing ? SDL_GetPerformanceCounter() : 0;
     SDL_GPUFence* fence = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
     if (!fence) {
         fprintf(stderr, "[EditorScreenshot] SDL_SubmitGPUCommandBufferAndAcquireFence failed: %s\n", SDL_GetError());
@@ -74,6 +87,12 @@ bool EditorScreenshot_CaptureAndSubmit(SDL_GPUDevice* dev, SDL_GPUCommandBuffer*
         return false;
     }
     bool waited = SDL_WaitForGPUFences(dev, true, &fence, 1);
+    if (sync_timing) {
+        uint64_t t1 = SDL_GetPerformanceCounter();
+        uint64_t freq = SDL_GetPerformanceFrequency();
+        md::GpuDevice::Get().RecordExternalGpuMs(
+            freq ? (float)((double)(t1 - t0) * 1000.0 / (double)freq) : 0.f);
+    }
     SDL_ReleaseGPUFence(dev, fence);
     if (!waited) {
         fprintf(stderr, "[EditorScreenshot] SDL_WaitForGPUFences failed: %s\n", SDL_GetError());

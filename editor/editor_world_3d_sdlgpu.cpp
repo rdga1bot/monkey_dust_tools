@@ -15,10 +15,10 @@
 #include "imgui.h"
 #include <monkey_dust/render/terrain_renderer.h>
 #include <monkey_dust/render/terrain_world_heightmap.h>
-#include <monkey_dust/render/terrain_patch_renderer.h>
 #include <monkey_dust/render/terrain_shading_projected.h>
 #include <monkey_dust/render/terrain_vt_page_cache.h>
-#include <monkey_dust/world/terrain_patch_grid.h>
+#include <monkey_dust/render/terrain_clipmap_cache.h>
+#include <monkey_dust/render/terrain_clipmap_renderer.h>
 #include <monkey_dust/render/prop_renderer.h>
 #include <monkey_dust/render/gpu_device.h>
 #include <monkey_dust/render/gpu_hal.h>
@@ -57,33 +57,27 @@ static constexpr int   EDITOR_TNKN = 64;  // 64×64 = full world (32×32 km)
 static TerrainRenderer    s_terrain;
 static PropRenderer       s_props;
 
-// Granite terrain migration, Phase 7 (plan: /home/rdga1/.claude/plans/
-// serene-pondering-teapot.md): replaces BOTH the old two-tier scheme's
-// far backdrop mesh (s_build_synth_hmap, ~513x513-sample synchronous
-// CPU loop) AND the near-tier window-following TerrainQuadtree
-// (s_qt_*/s_rebuild_quadtree_region/s_kick_quadtree_rebuild_async/
-// s_poll_quadtree_rebuild_async, all removed this phase along with the
-// per-window rebuild/re-centre machinery they needed) with ONE static
-// world-wide heightmap + flat patch grid + Phase 5's instanced renderer
-// -- no window to re-centre at all, so the whole "camera drifted past
-// N% of window width, kick an async rebuild" class of complexity this
-// file used to carry (and the "GPU load >80%" bug that class caused,
-// bug #3 third follow-up) doesn't exist here anymore. Unlike the game's
-// SceneRender (Phase 6, dual-run A/B alongside terrain_qt), this is a
-// full replacement -- the editor's own s_qt_*/s_synth_* state was local
-// to this file and unused elsewhere, so removing it now (rather than
-// deferring to Phase 8) leaves no dead code. terrain_qt/TerrainQuadtree
-// themselves are NOT deleted from the engine yet (game's dual-run still
-// needs them) -- that's Phase 8, after the game side also confirms.
+// GEOCLIPMAP terrain geometry (plan: /home/rdga1/.claude/plans/serene-
+// pondering-teapot.md), Phase 8 -- THE editor World3D viewport's sole
+// terrain renderer. Replaces the flat-patch-grid system (s_granite_grid/
+// s_granite_pr, "Granite terrain migration", deleted this phase after
+// Phase 5-7's dual-run A/B confirmed pixel-identical output + ~21% lower
+// GPU-ms), which had itself replaced the far backdrop mesh + near-tier
+// TerrainQuadtree. No per-frame visible-patch list to cull/batch here --
+// each of the 8 clip levels just draws its full fixed-topology mesh via
+// TerrainClipmapRenderer::DrawLevel every frame.
 //
 // The editor's free-fly camera already lives in ABSOLUTE Kenshi metres
 // (s_cx/s_cy/s_cz, see handle_input's ATLAS_MAX clamp) -- the SAME
-// [0,extent) convention TerrainWorldHeightmap/TerrainPatchGrid use
-// natively, so unlike the game side (Phase 6's GraniteAbsCam) no local-
-// to-absolute camera translation is needed here at all.
+// [0,extent) convention TerrainWorldHeightmap uses natively, so unlike
+// the game side (SceneRender::GraniteAbsCam) no local-to-absolute camera
+// translation is needed here at all.
+// VT page-grid unit, metres -- purely a page-cache/debug-tool concept now
+// (matched the deleted TerrainPatchGrid's patch size when that system fed
+// VT's visibility; kept as a plain constant since terrain_vt_page_cache.h's
+// page grid is still measured in these units).
+static constexpr float kGranitePatchSize = 300.f;
 static TerrainWorldHeightmap s_granite_hmap;
-static TerrainPatchGrid      s_granite_grid;
-static TerrainPatchRenderer  s_granite_pr;
 // Variant A (screen-space decoupled shading) -- matches the game's sole
 // terrain shading path (game/src/render/scene_render.h's own field,
 // TerrainShadingProjected class doc comment for the full history/why).
@@ -93,14 +87,21 @@ static TerrainPatchRenderer  s_granite_pr;
 // reason about/fix, per direct user request.
 static TerrainShadingProjected s_terrain_shading;
 static bool  s_granite_ready = false;
-static constexpr float kGranitePatchSize = 300.f;
-static TerrainPatchRenderer::Instance s_granite_insts[TerrainPatchRenderer::kNumTiers][4096];
-static int   s_granite_counts[TerrainPatchRenderer::kNumTiers] = {};
 
 // terrain-vt Phase 1/2 -- see VtDebugFill/VtDebugDump's doc comment
-// (editor_world_3d_sdlgpu.h) and Phase 2's wiring in s_update_granite_terrain.
+// (editor_world_3d_sdlgpu.h). Its RequestPage/FlushFillQueue feed
+// (previously driven by s_granite_grid's per-frame visibility loop) has
+// no call site since this cutover, same as the game side -- see
+// scene_render.h's terrain_vt_cache doc comment for why this was already
+// fully inert before the cutover (shading resolve never actually reads
+// the VT atlas/indirection, per a 2026-08-09 user directive baked into
+// shaders/terrain_shading_screenspace.frag).
 static TerrainVtPageCache s_vt_cache;
 static bool s_vt_cache_ready = false;
+
+static TerrainClipmapCache    s_clipmap_cache;
+static TerrainClipmapRenderer s_clipmap_renderer;
+static bool s_clipmap_ready = false;
 
 // Builds/rebuilds the static world heightmap from TerrainAtlas's CURRENT
 // contents -- called once at Init() and again whenever s_terrain_dirty's
@@ -110,97 +111,39 @@ static bool s_vt_cache_ready = false;
 // (Shutdown+Init) from scratch -- the whole point of a single static
 // texture is that this is the ONLY rebuild needed, no window/mesh to
 // also re-triangulate.
-// Assumes s_granite_pr.Init() was already called once (see Init()'s loader
-// thread) -- the renderer's pipeline/meshes don't depend on terrain data
-// and never need rebuilding, only the heightmap texture + grid do.
 static void s_rebuild_granite_hmap() {
     SDL_GPUDevice* dev = md::GpuDevice::Get().SDLDevice();
     s_granite_hmap.Shutdown(dev);
     bool hmap_ok = s_granite_hmap.Init(dev);
-    s_granite_ready = hmap_ok && s_granite_pr.IsReady();
+    s_granite_ready = hmap_ok;
     if (hmap_ok) {
-        s_granite_grid.Init(0.f, 0.f, s_granite_hmap.WorldExtent(),
-                             kGranitePatchSize, TerrainPatchRenderer::kNumTiers - 1,
-                             &TerrainAtlas_SampleWorld);
-        // terrain-vt Phase 2: init the page cache alongside the grid it
-        // mirrors -- ONCE only (this function can re-run on terrain edits/
-        // R-key refresh; re-Init()ing the cache each time would either leak
-        // or need an explicit Shutdown+Init cycle for no benefit, since a
-        // stale cached page after an edit is a known, deferred problem --
-        // Phase 7's real invalidation, not something to half-solve here).
+        // terrain-vt Phase 2: init the page cache alongside the rest of
+        // the terrain pipeline -- ONCE only (this function can re-run on
+        // terrain edits/R-key refresh; re-Init()ing the cache each time
+        // would either leak or need an explicit Shutdown+Init cycle for
+        // no benefit, since a stale cached page after an edit is a known,
+        // deferred problem -- Phase 7's real invalidation, not something
+        // to half-solve here).
         if (!s_vt_cache_ready) s_vt_cache_ready = s_vt_cache.Init(dev, kGranitePatchSize, s_granite_hmap);
+        // s_clipmap_renderer.Init() already ran earlier on this same
+        // loader thread (terrain-data-independent pipeline/mesh setup,
+        // see that call site's doc comment) -- only the heightmap-
+        // dependent cache needs Init()ing here.
+        if (!s_clipmap_ready) s_clipmap_ready = s_clipmap_cache.Init(dev, s_granite_hmap);
+        s_granite_ready = s_granite_ready && s_clipmap_ready && s_clipmap_renderer.IsReady();
     }
 }
 
-// Computes this frame's visible patches (real frustum, from the already-
-// absolute-space editor camera -- no local-to-absolute conversion needed
-// here, unlike game/src/render/scene_render.cpp's GraniteAbsCam) and
-// uploads their per-tier instance batches. MUST be called BEFORE
-// SDL_BeginGPURenderPass (issues its own SDL_GPU copy passes on cmd).
+// Recenters all 8 clipmap levels around the editor's free-fly camera
+// (already absolute-space, no conversion needed). MUST be called BEFORE
+// SDL_BeginGPURenderPass (TerrainClipmapCache::Recenter issues its own
+// compute passes on cmd).
 static void s_update_granite_terrain(SDL_GPUCommandBuffer* cmd,
                                       float eye_x, float eye_y, float eye_z,
                                       const float vp_m[16]) {
-    for (int t = 0; t < TerrainPatchRenderer::kNumTiers; ++t) s_granite_counts[t] = 0;
+    (void)vp_m; // no per-frame visible-patch culling needed for the clipmap's fixed-topology draws
     if (!s_granite_ready) return;
-
-    float cam3[3] = { eye_x, eye_y, eye_z };
-    s_granite_grid.UpdateLOD(cam3);
-
-    // Gribb & Hartmann side-plane extraction -- same formula as
-    // MdCamera::FrustumPlanes (md_camera.h) / the old near-tier quadtree's
-    // qfp above, replicated locally since this file uses its own raw M4.
-    float planes[16];
-    planes[ 0]=vp_m[3]+vp_m[0]; planes[ 1]=vp_m[7]+vp_m[4]; planes[ 2]=vp_m[11]+vp_m[ 8]; planes[ 3]=vp_m[15]+vp_m[12];
-    planes[ 4]=vp_m[3]-vp_m[0]; planes[ 5]=vp_m[7]-vp_m[4]; planes[ 6]=vp_m[11]-vp_m[ 8]; planes[ 7]=vp_m[15]-vp_m[12];
-    planes[ 8]=vp_m[3]-vp_m[1]; planes[ 9]=vp_m[7]-vp_m[5]; planes[10]=vp_m[11]-vp_m[ 9]; planes[11]=vp_m[15]-vp_m[13];
-    planes[12]=vp_m[3]+vp_m[1]; planes[13]=vp_m[7]+vp_m[5]; planes[14]=vp_m[11]+vp_m[ 9]; planes[15]=vp_m[15]+vp_m[13];
-
-    static constexpr int kMaxVisible = 4096;
-    static TerrainPatchGrid::VisiblePatch visible[kMaxVisible];
-    int nvis = s_granite_grid.SelectVisible(planes, visible, kMaxVisible);
-
-    // Tier-select + neighbor-tier clamp + lod/tier-mismatch fixup --
-    // centralized in TerrainPatchRenderer::BuildInstanceBatches (engine),
-    // shared with scene_render.cpp's UpdateGraniteTerrain -- see that
-    // function's own doc comment (terrain_patch_renderer.h) for the full
-    // task #389 reasoning. This used to be ~50 lines hand-duplicated in
-    // both files, which is exactly how task #389 happened (one copy got
-    // fixed, the other didn't -- twice).
-    static constexpr int kMaxInstPerTier = (int)(sizeof(s_granite_insts[0]) / sizeof(s_granite_insts[0][0]));
-    TerrainPatchRenderer::Instance* inst_ptrs_for_batching[TerrainPatchRenderer::kNumTiers];
-    for (int t = 0; t < TerrainPatchRenderer::kNumTiers; ++t)
-        inst_ptrs_for_batching[t] = s_granite_insts[t];
-    static TerrainPatchRenderer::PlacedPatch s_placed[kMaxVisible];
-    int placed_n = 0;
-    TerrainPatchRenderer::BuildInstanceBatches(visible, nvis,
-                                                inst_ptrs_for_batching, s_granite_counts,
-                                                kMaxInstPerTier,
-                                                s_placed, kMaxVisible, &placed_n);
-
-    // terrain-vt Phase 2: reuse this SAME per-frame visibility pass to
-    // drive page-cache requests -- zero extra visibility computation,
-    // exactly the reasoning the plan called for (TerrainPatchGrid already
-    // knows what's visible for geometry LOD; no separate GPU feedback
-    // buffer needed). Reject-on-full/queue-full cases are silent no-ops
-    // inside RequestPage -- retried automatically next frame for as long
-    // as this patch stays visible. terrain-vt clipmap fix: no more
-    // MIN_CACHEABLE_TIER gate -- see scene_render.cpp's identical wiring
-    // for the full reasoning.
-    if (s_vt_cache_ready) {
-        for (int i = 0; i < placed_n; ++i)
-            s_vt_cache.RequestPage(s_placed[i].ix, s_placed[i].iz, s_placed[i].tier);
-    }
-
-    // terrain-vt Phase 2: drain this frame's page-fill requests -- must run
-    // outside any render/compute pass (we're still before
-    // SDL_BeginGPURenderPass here) and before the shading-resolve pass that
-    // will eventually read the atlas (Phase 4; nothing reads it yet).
-    if (s_vt_cache_ready) s_vt_cache.FlushFillQueue(md::GpuDevice::Get().SDLDevice(), cmd, s_granite_hmap, s_terrain);
-
-    const TerrainPatchRenderer::Instance* inst_ptrs[TerrainPatchRenderer::kNumTiers];
-    for (int t = 0; t < TerrainPatchRenderer::kNumTiers; ++t)
-        inst_ptrs[t] = (s_granite_counts[t] > 0) ? s_granite_insts[t] : nullptr;
-    s_granite_pr.UploadInstances(cmd, inst_ptrs, s_granite_counts);
+    s_clipmap_cache.Recenter(cmd, eye_x, eye_z);
 }
 
 // Per-zone (64x64=4096) ground-layer lookup, built once here and uploaded to
@@ -416,11 +359,11 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
         if (!s_terrain.Init()) {
             fprintf(stderr, "[W3D-SDLGPU] TerrainRenderer init failed\n"); return;
         }
-        // Granite terrain migration, Phase 7: one-time pipeline+mesh init
-        // for the instanced patch renderer (replaces the old backdrop
-        // pipeline above) -- doesn't depend on terrain data, never needs
-        // rebuilding, unlike the heightmap texture (s_rebuild_granite_hmap).
-        s_granite_pr.Init(md::GpuDevice::Get().SDLDevice());
+        // One-time pipeline+mesh init for the clipmap renderer (replaces
+        // the old backdrop pipeline above) -- doesn't depend on terrain
+        // data, never needs rebuilding, unlike the heightmap texture
+        // (s_rebuild_granite_hmap).
+        s_clipmap_renderer.Init(md::GpuDevice::Get().SDLDevice());
         // Placeholder size -- DrawImGui's ensure_rtt-adjacent EnsureSize call
         // resizes this to the real viewport dims on the first frame the
         // panel is actually shown (this thread doesn't know the ImGui
@@ -622,9 +565,8 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
     const auto& ls  = LightSystem::Get();
     static constexpr float kSkyR = 0.38f, kSkyG = 0.58f, kSkyB = 0.82f;
 
-    // Granite terrain migration, Phase 7: computes visible patches +
-    // uploads their per-tier instance batches. MUST run before the render
-    // pass below opens (issues its own SDL_GPU copy passes on cmd).
+    // Recenters the clipmap cache. MUST run before the render pass below
+    // opens (issues its own SDL_GPU compute passes on cmd).
     s_update_granite_terrain(cmd, eye_x, eye_y, eye_z, vp.m);
 
     // Variant A G-buffer pass -- must run in its OWN render pass, BEFORE
@@ -639,9 +581,10 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
     if (s_granite_ready && s_terrain.IsReady()) {
         SDL_GPURenderPass* gbuf_pass = s_terrain_shading.BeginGBufferPass(cmd);
         if (gbuf_pass) {
-            for (int t = 0; t < TerrainPatchRenderer::kNumTiers; ++t) {
-                s_granite_pr.DrawBatchGBuffer(gbuf_pass, cmd, t, vp.m, kGranitePatchSize,
-                    s_granite_hmap, eye_x, eye_y, eye_z);
+            for (int lvl = 0; lvl < TerrainClipmapCache::kNumLevels; ++lvl) {
+                s_clipmap_renderer.DrawLevel(gbuf_pass, cmd, lvl, s_clipmap_cache, vp.m,
+                    eye_x, eye_y, eye_z,
+                    s_granite_hmap.HeightMin(), s_granite_hmap.HeightMax());
             }
             SDL_EndGPURenderPass(gbuf_pass);
         }
