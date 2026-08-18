@@ -17,10 +17,8 @@
 #include <monkey_dust/render/terrain_world_heightmap.h>
 #include <monkey_dust/render/terrain_shading_projected.h>
 #include <monkey_dust/render/terrain_vt_page_cache.h>
-#include <monkey_dust/render/terrain_clipmap_cache.h>
-#include <monkey_dust/render/terrain_clipmap_renderer.h>
-#include <monkey_dust/render/terrain_patch_renderer.h>
-#include <monkey_dust/world/terrain_patch_grid.h>
+#include <monkey_dust/render/terrain_quadtree_renderer.h>
+#include <monkey_dust/world/terrain_quadtree.h>
 #include <monkey_dust/render/prop_renderer.h>
 #include <monkey_dust/render/gpu_device.h>
 #include <monkey_dust/render/gpu_hal.h>
@@ -101,19 +99,12 @@ static bool  s_granite_ready = false;
 static TerrainVtPageCache s_vt_cache;
 static bool s_vt_cache_ready = false;
 
-static TerrainClipmapCache    s_clipmap_cache;
-static TerrainClipmapRenderer s_clipmap_renderer;
-static bool s_clipmap_ready = false;
-
-// Full-variant Phase 6 (2026-08-17, plan at serene-pondering-teapot.md):
-// dual-run A/B against GEOCLIPMAP above, same MD_TERRAIN_GEOMETRY env-var
-// convention as the game side (game/src/render/scene_render.h's own
-// terrain_patch_grid_ field doc comment has the full naming-collision
-// warning against the OLD, unrelated, already-deleted TerrainPatchGrid).
-static TerrainPatchGrid     s_patch_grid;
-static TerrainPatchRenderer s_patch_renderer;
-static bool s_patchgrid_ready = false;
-static bool s_use_patchgrid_terrain = false;
+// Ogre-quadtree (geomorph+skirts) terrain -- THE sole geometry system.
+// No per-frame LOD-update step (unlike the old patch-grid's UpdateLOD):
+// SelectVisible is called directly at draw time from camera+frustum.
+static TerrainQuadtree         s_quadtree;
+static TerrainQuadtreeRenderer s_quadtree_renderer;
+static bool s_quadtree_ready = false;
 
 // Builds/rebuilds the static world heightmap from TerrainAtlas's CURRENT
 // contents -- called once at Init() and again whenever s_terrain_dirty's
@@ -137,36 +128,29 @@ static void s_rebuild_granite_hmap() {
         // deferred problem -- Phase 7's real invalidation, not something
         // to half-solve here).
         if (!s_vt_cache_ready) s_vt_cache_ready = s_vt_cache.Init(dev, kGranitePatchSize, s_granite_hmap);
-        // s_clipmap_renderer.Init() already ran earlier on this same
-        // loader thread (terrain-data-independent pipeline/mesh setup,
-        // see that call site's doc comment) -- only the heightmap-
-        // dependent cache needs Init()ing here.
-        if (!s_clipmap_ready) s_clipmap_ready = s_clipmap_cache.Init(dev, s_granite_hmap);
-        s_granite_ready = s_granite_ready && s_clipmap_ready && s_clipmap_renderer.IsReady();
+        s_granite_ready = s_granite_ready && s_quadtree_renderer.IsReady();
 
-        // Full-variant Phase 6: patch grid needs real height data (relief
-        // bias, HeightRange/SkirtDepth), so Init here alongside the
-        // clipmap cache, not with s_clipmap_renderer's data-independent
-        // pipeline setup above.
-        if (!s_patchgrid_ready && s_granite_ready) {
-            s_patch_grid.Init(0.f, 0.f, s_granite_hmap.WorldExtent(), 300.f,
-                               /*max_tier=*/TerrainClipmapCache::kNumLevels - 1,
-                               TerrainAtlas_SampleWorld);
-            s_patchgrid_ready = true;
+        // Ogre-quadtree needs real height data (relief-based skirt depth),
+        // so Init here alongside the rest of the heightmap-dependent setup
+        // (s_quadtree_renderer.Init() itself already ran earlier on this
+        // same loader thread -- data-independent pipeline/mesh setup).
+        if (!s_quadtree_ready && s_granite_ready) {
+            s_quadtree.Init(0.f, 0.f, s_granite_hmap.WorldExtent(), CHUNK_SIZE,
+                             /*max_depth=*/3, /*detail_multiplier=*/3.0f,
+                             TerrainAtlas_SampleWorld);
+            s_quadtree_ready = true;
         }
     }
 }
 
-// Recenters all 8 clipmap levels around the editor's free-fly camera
-// (already absolute-space, no conversion needed). MUST be called BEFORE
-// SDL_BeginGPURenderPass (TerrainClipmapCache::Recenter issues its own
-// compute passes on cmd).
+// Ogre-quadtree has no persistent cache/tree state to recenter (see
+// s_quadtree's own doc comment) -- kept as a no-op call site so
+// RenderFrame's structure (a pre-render-pass terrain update hook) doesn't
+// need to change if a future geometry system needs one again.
 static void s_update_granite_terrain(SDL_GPUCommandBuffer* cmd,
                                       float eye_x, float eye_y, float eye_z,
                                       const float vp_m[16]) {
-    (void)vp_m; // no per-frame visible-patch culling needed for the clipmap's fixed-topology draws
-    if (!s_granite_ready) return;
-    s_clipmap_cache.Recenter(cmd, eye_x, eye_z);
+    (void)cmd; (void)eye_x; (void)eye_y; (void)eye_z; (void)vp_m;
 }
 
 // Per-zone (64x64=4096) ground-layer lookup, built once here and uploaded to
@@ -382,18 +366,11 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
         if (!s_terrain.Init()) {
             fprintf(stderr, "[W3D-SDLGPU] TerrainRenderer init failed\n"); return;
         }
-        // One-time pipeline+mesh init for the clipmap renderer (replaces
+        // One-time pipeline+mesh init for the quadtree renderer (replaces
         // the old backdrop pipeline above) -- doesn't depend on terrain
         // data, never needs rebuilding, unlike the heightmap texture
         // (s_rebuild_granite_hmap).
-        s_clipmap_renderer.Init(md::GpuDevice::Get().SDLDevice());
-        // Full-variant Phase 6: same data-independent pipeline-only Init
-        // pattern as s_clipmap_renderer just above.
-        s_patch_renderer.Init(md::GpuDevice::Get().SDLDevice());
-        {
-            const char* tg_env = getenv("MD_TERRAIN_GEOMETRY");
-            s_use_patchgrid_terrain = tg_env && !strcmp(tg_env, "patchgrid");
-        }
+        s_quadtree_renderer.Init(md::GpuDevice::Get().SDLDevice());
         // Placeholder size -- DrawImGui's ensure_rtt-adjacent EnsureSize call
         // resizes this to the real viewport dims on the first frame the
         // panel is actually shown (this thread doesn't know the ImGui
@@ -626,28 +603,16 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
                 frustum_planes[ 8]=m[3]-m[1]; frustum_planes[ 9]=m[7]-m[5]; frustum_planes[10]=m[11]-m[ 9]; frustum_planes[11]=m[15]-m[13];
                 frustum_planes[12]=m[3]+m[1]; frustum_planes[13]=m[7]+m[5]; frustum_planes[14]=m[11]+m[ 9]; frustum_planes[15]=m[15]+m[13];
             }
-            if (s_use_patchgrid_terrain && s_patchgrid_ready) {
-                // Full-variant Phase 6 (MD_TERRAIN_GEOMETRY=patchgrid).
-                // static, not a stack array -- see the game-side call
-                // site's own comment (npc_render_frame_prep.cpp) for why
-                // kMaxPatchesPublic(16384) entries must not live on the stack.
-                static TerrainPatchGrid::VisiblePatch s_visible[TerrainPatchGrid::kMaxPatchesPublic];
-                s_patch_grid.UpdateLOD((const float[3]){ eye_x, eye_y, eye_z });
-                int count = s_patch_grid.SelectVisible(frustum_planes, s_visible,
-                                                        TerrainPatchGrid::kMaxPatchesPublic);
-                for (int i = 0; i < count; ++i) {
-                    const auto& p = s_visible[i];
-                    float skirt = s_patch_grid.SkirtDepth(p.ix, p.iz);
-                    s_patch_renderer.DrawPatch(gbuf_pass, cmd, s_granite_hmap, vp.m,
-                        p.origin_x, p.origin_z, p.tier, skirt, eye_x, eye_y, eye_z);
-                }
-            } else {
-                for (int lvl = 0; lvl < TerrainClipmapCache::kNumLevels; ++lvl) {
-                    s_clipmap_renderer.DrawLevel(gbuf_pass, cmd, lvl, s_clipmap_cache, vp.m,
-                        eye_x, eye_y, eye_z,
-                        s_granite_hmap.HeightMin(), s_granite_hmap.HeightMax(),
-                        frustum_planes);
-                }
+            // Ogre-quadtree: static, not a stack array -- see the game-side
+            // call site's own comment (npc_render_frame_prep.cpp) for why
+            // kMaxNodesPublic(16384) entries must not live on the stack.
+            static TerrainQuadtree::VisibleNode s_visible_nodes[TerrainQuadtree::kMaxNodesPublic];
+            float cam_pos[3] = { eye_x, eye_y, eye_z };
+            int qt_count = s_quadtree.SelectVisible(cam_pos, frustum_planes,
+                                                      s_visible_nodes, TerrainQuadtree::kMaxNodesPublic);
+            for (int i = 0; i < qt_count; ++i) {
+                s_quadtree_renderer.DrawNode(gbuf_pass, cmd, s_granite_hmap, vp.m,
+                    s_visible_nodes[i], eye_x, eye_y, eye_z);
             }
             SDL_EndGPURenderPass(gbuf_pass);
         }
