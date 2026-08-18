@@ -19,6 +19,8 @@
 #include <monkey_dust/render/terrain_vt_page_cache.h>
 #include <monkey_dust/render/terrain_clipmap_cache.h>
 #include <monkey_dust/render/terrain_clipmap_renderer.h>
+#include <monkey_dust/render/terrain_patch_renderer.h>
+#include <monkey_dust/world/terrain_patch_grid.h>
 #include <monkey_dust/render/prop_renderer.h>
 #include <monkey_dust/render/gpu_device.h>
 #include <monkey_dust/render/gpu_hal.h>
@@ -103,6 +105,16 @@ static TerrainClipmapCache    s_clipmap_cache;
 static TerrainClipmapRenderer s_clipmap_renderer;
 static bool s_clipmap_ready = false;
 
+// Full-variant Phase 6 (2026-08-17, plan at serene-pondering-teapot.md):
+// dual-run A/B against GEOCLIPMAP above, same MD_TERRAIN_GEOMETRY env-var
+// convention as the game side (game/src/render/scene_render.h's own
+// terrain_patch_grid_ field doc comment has the full naming-collision
+// warning against the OLD, unrelated, already-deleted TerrainPatchGrid).
+static TerrainPatchGrid     s_patch_grid;
+static TerrainPatchRenderer s_patch_renderer;
+static bool s_patchgrid_ready = false;
+static bool s_use_patchgrid_terrain = false;
+
 // Builds/rebuilds the static world heightmap from TerrainAtlas's CURRENT
 // contents -- called once at Init() and again whenever s_terrain_dirty's
 // debounce fires (terrain edited) or the R key forces a refresh, mirroring
@@ -131,6 +143,17 @@ static void s_rebuild_granite_hmap() {
         // dependent cache needs Init()ing here.
         if (!s_clipmap_ready) s_clipmap_ready = s_clipmap_cache.Init(dev, s_granite_hmap);
         s_granite_ready = s_granite_ready && s_clipmap_ready && s_clipmap_renderer.IsReady();
+
+        // Full-variant Phase 6: patch grid needs real height data (relief
+        // bias, HeightRange/SkirtDepth), so Init here alongside the
+        // clipmap cache, not with s_clipmap_renderer's data-independent
+        // pipeline setup above.
+        if (!s_patchgrid_ready && s_granite_ready) {
+            s_patch_grid.Init(0.f, 0.f, s_granite_hmap.WorldExtent(), 300.f,
+                               /*max_tier=*/TerrainClipmapCache::kNumLevels - 1,
+                               TerrainAtlas_SampleWorld);
+            s_patchgrid_ready = true;
+        }
     }
 }
 
@@ -364,6 +387,13 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
         // data, never needs rebuilding, unlike the heightmap texture
         // (s_rebuild_granite_hmap).
         s_clipmap_renderer.Init(md::GpuDevice::Get().SDLDevice());
+        // Full-variant Phase 6: same data-independent pipeline-only Init
+        // pattern as s_clipmap_renderer just above.
+        s_patch_renderer.Init(md::GpuDevice::Get().SDLDevice());
+        {
+            const char* tg_env = getenv("MD_TERRAIN_GEOMETRY");
+            s_use_patchgrid_terrain = tg_env && !strcmp(tg_env, "patchgrid");
+        }
         // Placeholder size -- DrawImGui's ensure_rtt-adjacent EnsureSize call
         // resizes this to the real viewport dims on the first frame the
         // panel is actually shown (this thread doesn't know the ImGui
@@ -596,11 +626,28 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
                 frustum_planes[ 8]=m[3]-m[1]; frustum_planes[ 9]=m[7]-m[5]; frustum_planes[10]=m[11]-m[ 9]; frustum_planes[11]=m[15]-m[13];
                 frustum_planes[12]=m[3]+m[1]; frustum_planes[13]=m[7]+m[5]; frustum_planes[14]=m[11]+m[ 9]; frustum_planes[15]=m[15]+m[13];
             }
-            for (int lvl = 0; lvl < TerrainClipmapCache::kNumLevels; ++lvl) {
-                s_clipmap_renderer.DrawLevel(gbuf_pass, cmd, lvl, s_clipmap_cache, vp.m,
-                    eye_x, eye_y, eye_z,
-                    s_granite_hmap.HeightMin(), s_granite_hmap.HeightMax(),
-                    frustum_planes);
+            if (s_use_patchgrid_terrain && s_patchgrid_ready) {
+                // Full-variant Phase 6 (MD_TERRAIN_GEOMETRY=patchgrid).
+                // static, not a stack array -- see the game-side call
+                // site's own comment (npc_render_frame_prep.cpp) for why
+                // kMaxPatchesPublic(16384) entries must not live on the stack.
+                static TerrainPatchGrid::VisiblePatch s_visible[TerrainPatchGrid::kMaxPatchesPublic];
+                s_patch_grid.UpdateLOD((const float[3]){ eye_x, eye_y, eye_z });
+                int count = s_patch_grid.SelectVisible(frustum_planes, s_visible,
+                                                        TerrainPatchGrid::kMaxPatchesPublic);
+                for (int i = 0; i < count; ++i) {
+                    const auto& p = s_visible[i];
+                    float skirt = s_patch_grid.SkirtDepth(p.ix, p.iz);
+                    s_patch_renderer.DrawPatch(gbuf_pass, cmd, s_granite_hmap, vp.m,
+                        p.origin_x, p.origin_z, p.tier, skirt, eye_x, eye_y, eye_z);
+                }
+            } else {
+                for (int lvl = 0; lvl < TerrainClipmapCache::kNumLevels; ++lvl) {
+                    s_clipmap_renderer.DrawLevel(gbuf_pass, cmd, lvl, s_clipmap_cache, vp.m,
+                        eye_x, eye_y, eye_z,
+                        s_granite_hmap.HeightMin(), s_granite_hmap.HeightMax(),
+                        frustum_planes);
+                }
             }
             SDL_EndGPURenderPass(gbuf_pass);
         }
