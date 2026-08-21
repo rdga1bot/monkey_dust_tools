@@ -5,6 +5,8 @@ Depends on [monkey\_dust\_engine](https://github.com/rdga1bot/monkey_dust_engine
 
 All tool names use the `md_` prefix (no proprietary asset branding in public repos).
 
+> **Render backend migration (in progress):** the game/engine's SDL3/SDL_GPU render path is being fully replaced by an embedded LibGodot RenderingServer (libgodot as a static library inside the host executable, via godot-cpp/GDExtension — not a Godot editor/engine rewrite). This affects the editor's `monkey_dust_editor`/`monkey_dust_editor_panels` targets (SDL_GPU/Vulkan today) once the terrain (Group 1) pipeline and full cutover land. See the parent [`monkey_dust`](https://github.com/rdga1bot/monkey_dust) repo's `docs/SDL3_TO_LIBGODOT_MIGRATION_AUDIT.md` for status.
+
 > **Full documentation →** [rdga1bot.github.io/monkey\_dust\_engine/monkey\_dust\_docs.html](https://rdga1bot.github.io/monkey_dust_engine/monkey_dust_docs.html)
 
 ---
