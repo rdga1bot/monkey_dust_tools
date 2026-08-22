@@ -5,23 +5,26 @@
 // path, target monkey_dust_editor) at all -- no dual-render in one
 // process, same precedent as the game side.
 //
-// Scope of THIS step (3a): prove the CMake target links and the
-// RenderingServer-backed ImGui adapter (imgui_impl_renderingserver.h,
-// Фаза E.1, already live-verified by the game HUD) draws real editor
-// panel content on screen. Deliberately NOT in scope yet (tracked as
+// Scope of THIS step (3a + input follow-up): prove the CMake target
+// links, the RenderingServer-backed ImGui adapter (imgui_impl_
+// renderingserver.h, Фаза E.1, already live-verified by the game HUD)
+// draws real editor panel content on screen, AND real mouse input
+// (position + left/right/middle buttons, via input.h's renderer-
+// agnostic input_mouse_x/y/down() -- same functions the SDL3 path
+// already uses) reaches ImGui::GetIO() so panels are genuinely
+// clickable, not just drawn. Deliberately NOT in scope yet (tracked as
 // remaining Крок 3 work in CLAUDE_STATE.md):
-//   - real mouse/keyboard input feeding into ImGui::GetIO() (Godot's
-//     core/input/input.h Input singleton has the state; wiring it into
-//     io.AddMousePosEvent/AddKeyEvent/etc. is the next real step, same
-//     gap the game HUD already has per main_libgodot.cpp's own comments)
+//   - keyboard input (text entry, shortcuts) -- mouse only so far
+//   - mouse wheel (input.h's own comment: Godot represents it as
+//     discrete WHEEL_UP/DOWN button events, needs a SceneTree _input()
+//     hookup, unspiked)
 //   - the 68 editor_*.h/.cpp panels themselves (this file draws ONE
-//     panel, faction_editor.h, as a first real-content smoke test --
-//     picked because it's a widely-referenced, non-SDL_GPU-coupled
-//     panel; the rest follow incrementally, excluding any panel that
-//     turns out to reach render/scene_render.h transitively, mirroring
-//     game/CMakeLists.txt's own LIBGODOT_GAME_ECS_SOURCES filter comment:
-//     "exact remaining gaps surface as real compile/link errors, not
-//     guesswork -- fix forward from there")
+//     generic smoke-test panel; the rest follow incrementally, excluding
+//     any panel that turns out to reach render/scene_render.h
+//     transitively, mirroring game/CMakeLists.txt's own
+//     LIBGODOT_GAME_ECS_SOURCES filter comment: "exact remaining gaps
+//     surface as real compile/link errors, not guesswork -- fix forward
+//     from there")
 //   - F3 terrain sculpt tools (needs Крок 1e's shared terrain module,
 //     task #534, still pending)
 //   - hot-reload (libeditor_panels.so) compatibility with this backend
@@ -60,10 +63,15 @@ int main(int argc, char** argv) {
     printf("%s: ImGui_ImplRenderingServer_Init\n", imgui_ok ? "OK" : "FAILED");
 
     for (int frame = 0; frame < max_frames; ++frame) {
+        input_begin_frame();
         window_begin_frame();
 
         io.DisplaySize = ImVec2((float)window_get_width(), (float)window_get_height());
         io.DeltaTime = 1.0f / 60.0f;
+        io.AddMousePosEvent(input_mouse_x(), input_mouse_y());
+        io.AddMouseButtonEvent(0, input_mouse_down(MOUSE_BUTTON_LEFT));
+        io.AddMouseButtonEvent(1, input_mouse_down(MOUSE_BUTTON_RIGHT));
+        io.AddMouseButtonEvent(2, input_mouse_down(MOUSE_BUTTON_MIDDLE));
         ImGui_ImplRenderingServer_NewFrame();
         ImGui::NewFrame();
 
