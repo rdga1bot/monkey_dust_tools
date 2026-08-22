@@ -15,6 +15,20 @@ endif()
 # All editor panel .cpp files (map_view + all wicked-style panels).
 file(GLOB EDITOR_PANEL_SOURCES "editor/*.cpp")
 list(REMOVE_ITEM EDITOR_PANEL_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/editor/main.cpp")
+# editor/main_libgodot.cpp (task #537, Крок 3a) has its own entry point
+# (LibGodot editor target, below) and unconditionally includes headers
+# whose real content is MD_USE_LIBGODOT-gated (window.h, libgodot_bridge.h,
+# imgui_impl_renderingserver.h) -- compiling empty/undeclared under the
+# SDL3 monkey_dust_editor target. Same trap as game/CMakeLists.txt's
+# main_libgodot.cpp exclusion.
+list(REMOVE_ITEM EDITOR_PANEL_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/editor/main_libgodot.cpp")
+# ui_smoke_tests.cpp needs imgui_test_engine/ include paths, only added
+# below under `if(MD_UI_TESTS ...)` -- this unconditional glob was
+# compiling it even with MD_UI_TESTS=OFF (the default), a real pre-
+# existing build break (found while verifying this segment's Крок 3
+# changes, unrelated to them). The MD_UI_TESTS block below re-adds this
+# file via target_sources() together with its required include dirs.
+list(REMOVE_ITEM EDITOR_PANEL_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/editor/ui_smoke_tests.cpp")
 
 set(EDITOR_IMGUI_SRC
     ${CMAKE_SOURCE_DIR}/tools/third_party/imgui/imgui.cpp
@@ -97,6 +111,7 @@ if(MONKEY_DUST_EDITOR_HOT_RELOAD)
     # and are pulled in transitively — no explicit listing needed.
     file(GLOB _EDITOR_PANELS_CPP CONFIGURE_DEPENDS "editor/*.cpp")
     list(REMOVE_ITEM _EDITOR_PANELS_CPP "${CMAKE_CURRENT_SOURCE_DIR}/editor/main.cpp")
+    list(REMOVE_ITEM _EDITOR_PANELS_CPP "${CMAKE_CURRENT_SOURCE_DIR}/editor/main_libgodot.cpp")
     # ui_smoke_tests.cpp (Phase 5) needs the imgui_test_engine include paths/
     # defines set up below under MD_UI_TESTS — those are only added to the
     # monkey_dust_editor target, not this hot-reload .so, so building this
@@ -301,3 +316,52 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
     target_compile_options(md_flare_demo PRIVATE -O2 -march=native)
 endif()
 endif() # MONKEY_DUST_TOOLS_NEED_SDL3 — md_flare_demo
+
+# ── monkey_dust_libgodot_editor ───────────────────────────────────────────────
+# LibGodot migration Крок 3a (task #537). Mirrors game/CMakeLists.txt's
+# monkey_dust_libgodot_game target: own target, own single entry-point
+# file (tools/editor/main_libgodot.cpp), does NOT touch monkey_dust_editor
+# (SDL3) at all -- fully independent of MONKEY_DUST_TOOLS_NEED_SDL3, no
+# SDL3 dependency whatsoever for this target.
+#
+# Deliberately NOT yet included (see main_libgodot.cpp's own header
+# comment for the full remaining-work list): the 68 editor_*.h/.cpp
+# panels (EDITOR_PANEL_SOURCES, defined above) and hot-reload. Adding
+# those is real, separate follow-up work -- several panels are known or
+# suspected to transitively reach render/scene_render.h (SDL_GPU-coupled)
+# per the master plan's own audit; pulling them in wholesale via GLOB
+# would surface those as compile errors needing per-file triage, same
+# as game/CMakeLists.txt's LIBGODOT_GAME_ECS_SOURCES filtering did for
+# the game target. This step only proves the CMake target + window/
+# LibGodotBridge/ImGui_ImplRenderingServer pipeline links and runs.
+if(USE_LIBGODOT AND LIBGODOT_SO)
+    add_executable(monkey_dust_libgodot_editor
+        editor/main_libgodot.cpp
+        ${CMAKE_SOURCE_DIR}/engine/src/vendor/stb_image_impl.cpp
+        ${CMAKE_SOURCE_DIR}/engine/src/render/cgltf_impl.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui/imgui.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui/imgui_draw.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui/imgui_tables.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui/imgui_widgets.cpp
+    )
+    target_link_libraries(monkey_dust_libgodot_editor PRIVATE
+        monkey_dust::engine
+        Recast Detour DetourCrowd)
+    target_include_directories(monkey_dust_libgodot_editor PRIVATE
+        editor/
+        "${LIBGODOT_ROOT}" "${LIBGODOT_ROOT}/platform/linuxbsd"
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui
+        ${CMAKE_SOURCE_DIR}/engine/third_party/recastnavigation/Recast/Include
+        ${CMAKE_SOURCE_DIR}/engine/third_party/recastnavigation/Detour/Include
+        ${CMAKE_SOURCE_DIR}/engine/third_party/recastnavigation/DetourCrowd/Include
+    )
+    set_target_properties(monkey_dust_libgodot_editor PROPERTIES
+        BUILD_RPATH "${LIBGODOT_ROOT}/bin")
+    add_custom_command(TARGET monkey_dust_libgodot_editor POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_SOURCE_DIR}/engine/data/libgodot_project_stub/project.godot"
+            "${CMAKE_SOURCE_DIR}/engine/data/libgodot_project_stub/main_scene.tscn"
+            "$<TARGET_FILE_DIR:monkey_dust_libgodot_editor>/"
+        COMMENT "[monkey_dust] copying libgodot_project_stub next to monkey_dust_libgodot_editor")
+    message(STATUS "[monkey_dust] USE_LIBGODOT: monkey_dust_libgodot_editor target enabled (Крок 3a)")
+endif()
