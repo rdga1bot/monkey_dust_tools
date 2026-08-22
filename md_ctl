@@ -16,6 +16,7 @@ Usage:
   tools/md_ctl state
   tools/md_ctl gc [--days N]
   tools/md_ctl editor-exec "<lua code>" [--timeout SECONDS]
+  tools/md_ctl gdscript-exec "<gdscript, must define func run()>" [--timeout SECONDS]
   tools/md_ctl doctor [--json]
   tools/md_ctl dash
 """
@@ -33,6 +34,7 @@ LOG_DIR   = REPO_ROOT / "tmp_" / "md_ctl_logs"
 SCENARIO_DATA_DIR = REPO_ROOT / "tmp_" / "scenario_data"
 FAILURES_DIR       = REPO_ROOT / "tmp_" / "failures"
 EDITOR_CMD_DIR     = REPO_ROOT / "tmp_" / "editor_cmd"
+GDSCRIPT_CMD_DIR   = REPO_ROOT / "tmp_" / "gdscript_cmd"
 
 SUBMODULES = ["engine", "tools"]
 
@@ -411,6 +413,58 @@ def cmd_editor_exec(args) -> int:
     return 124
 
 
+# ── gdscript-exec ────────────────────────────────────────────────────────────
+def cmd_gdscript_exec(args) -> int:
+    """Sends one GDScript snippet to an ALREADY RUNNING monkey_dust_libgodot_game
+    (or _editor) instance via the live command-file channel
+    (game/src/gdscript_bridge.cpp) -- same idea as editor-exec, but GDScript
+    with full engine access (SceneTree via Engine.get_main_loop(),
+    RenderingServer, any live Node) instead of Lua. The snippet MUST define
+    `func run(): ...` (implicitly extends RefCounted, no `extends` clause
+    needed); its return value is stringified into the result. Note: this
+    codebase's own scene is RID-based (direct RenderingServer calls), not
+    Node-based -- print_tree_pretty() on the SceneTree root will NOT show
+    terrain/props/NPCs (none of them are actual Nodes); query RenderingServer's
+    own singleton API (e.g. RenderingServer.get_rendering_info(...)) for real
+    introspection of this codebase's actual render state."""
+    GDSCRIPT_CMD_DIR.mkdir(parents=True, exist_ok=True)
+
+    seq_path = GDSCRIPT_CMD_DIR / "cmd.seq"
+    try:
+        last_seq = int(seq_path.read_text().strip()) if seq_path.exists() else 0
+    except ValueError:
+        last_seq = 0
+    seq = last_seq + 1
+
+    cmd_tmp = GDSCRIPT_CMD_DIR / "cmd.gd.tmp"
+    cmd_tmp.write_text(args.gdscript)
+    cmd_tmp.rename(GDSCRIPT_CMD_DIR / "cmd.gd")
+
+    seq_tmp = GDSCRIPT_CMD_DIR / "cmd.seq.tmp"
+    seq_tmp.write_text(str(seq))
+    seq_tmp.rename(seq_path)
+
+    result_path = GDSCRIPT_CMD_DIR / "result.json"
+    timeout = args.timeout or 10.0
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if result_path.exists():
+            try:
+                data = json.loads(result_path.read_text())
+            except (json.JSONDecodeError, OSError):
+                data = None
+            if data and data.get("seq") == seq:
+                ok = bool(data.get("ok"))
+                msg = data.get("result", data.get("error", ""))
+                print(f"[md_ctl gdscript-exec] {'OK' if ok else 'ERROR'} seq={seq}"
+                      + (f": {msg}" if msg else ""))
+                return 0 if ok else 1
+        time.sleep(0.05)
+    print(f"[md_ctl gdscript-exec] TIMEOUT after {timeout}s — is a monkey_dust_libgodot_* "
+          f"instance running and polling {GDSCRIPT_CMD_DIR}?")
+    return 124
+
+
 # ── doctor ─────────────────────────────────────────────────────────────────
 def cmd_doctor(args) -> int:
     """Runs tools/md_doctor.py (PROMPT_DOC_RESTRUCTURE.md Phase 1) -- the
@@ -507,6 +561,11 @@ def main() -> int:
     p.add_argument("lua")
     p.add_argument("--timeout", type=float, default=10.0)
     p.set_defaults(func=cmd_editor_exec)
+
+    p = sub.add_parser("gdscript-exec")
+    p.add_argument("gdscript")
+    p.add_argument("--timeout", type=float, default=10.0)
+    p.set_defaults(func=cmd_gdscript_exec)
 
     args = ap.parse_args()
     return args.func(args)
