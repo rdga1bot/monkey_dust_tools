@@ -22,6 +22,12 @@ list(REMOVE_ITEM EDITOR_PANEL_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/editor/main.c
 # SDL3 monkey_dust_editor target. Same trap as game/CMakeLists.txt's
 # main_libgodot.cpp exclusion.
 list(REMOVE_ITEM EDITOR_PANEL_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/editor/main_libgodot.cpp")
+# editor/editor_toolbar_libgodot_stub.cpp (task #537, panel-porting)
+# defines EditorToolbar::Draw/SpawnEntity + EditorReloadAllShaderPipelines
+# as no-ops for the libgodot editor target ONLY -- the SDL3 target
+# already has REAL definitions of these in editor_toolbar.cpp/main.cpp;
+# including both would be a duplicate-symbol link error.
+list(REMOVE_ITEM EDITOR_PANEL_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/editor/editor_toolbar_libgodot_stub.cpp")
 # ui_smoke_tests.cpp needs imgui_test_engine/ include paths, only added
 # below under `if(MD_UI_TESTS ...)` -- this unconditional glob was
 # compiling it even with MD_UI_TESTS=OFF (the default), a real pre-
@@ -112,6 +118,7 @@ if(MONKEY_DUST_EDITOR_HOT_RELOAD)
     file(GLOB _EDITOR_PANELS_CPP CONFIGURE_DEPENDS "editor/*.cpp")
     list(REMOVE_ITEM _EDITOR_PANELS_CPP "${CMAKE_CURRENT_SOURCE_DIR}/editor/main.cpp")
     list(REMOVE_ITEM _EDITOR_PANELS_CPP "${CMAKE_CURRENT_SOURCE_DIR}/editor/main_libgodot.cpp")
+    list(REMOVE_ITEM _EDITOR_PANELS_CPP "${CMAKE_CURRENT_SOURCE_DIR}/editor/editor_toolbar_libgodot_stub.cpp")
     # ui_smoke_tests.cpp (Phase 5) needs the imgui_test_engine include paths/
     # defines set up below under MD_UI_TESTS — those are only added to the
     # monkey_dust_editor target, not this hot-reload .so, so building this
@@ -324,19 +331,32 @@ endif() # MONKEY_DUST_TOOLS_NEED_SDL3 — md_flare_demo
 # (SDL3) at all -- fully independent of MONKEY_DUST_TOOLS_NEED_SDL3, no
 # SDL3 dependency whatsoever for this target.
 #
-# Deliberately NOT yet included (see main_libgodot.cpp's own header
-# comment for the full remaining-work list): the 68 editor_*.h/.cpp
-# panels (EDITOR_PANEL_SOURCES, defined above) and hot-reload. Adding
-# those is real, separate follow-up work -- several panels are known or
-# suspected to transitively reach render/scene_render.h (SDL_GPU-coupled)
-# per the master plan's own audit; pulling them in wholesale via GLOB
-# would surface those as compile errors needing per-file triage, same
-# as game/CMakeLists.txt's LIBGODOT_GAME_ECS_SOURCES filtering did for
-# the game target. This step only proves the CMake target + window/
-# LibGodotBridge/ImGui_ImplRenderingServer pipeline links and runs.
+# Панель-портування, перша реальна партія (2026-08-22): editor_core.cpp
+# (після SDL3-camera split, editor_camera_input_sdl3.cpp lives SDL3-side
+# only) + editor_console/editor_hierarchy/editor_std_commands/editor_
+# command_palette.cpp -- усі 5 верифіковано g++ -fsyntax-only проти
+# РЕАЛЬНИХ libgodot-таргет прапорів (не здогад) ПЕРЕД додаванням сюди.
+# editor_toolbar.cpp НАВМИСНО виключений -- напряму #include <SDL3/
+# SDL_events.h> + editor_map_view.h (3D viewport, SDL_GPU-специфічний).
+# Решта з 68 панелей -- той самий метод (syntax-only проти libgodot-
+# прапорів, ПОТІМ додати), не вгадувати наперед.
 if(USE_LIBGODOT AND LIBGODOT_SO)
     add_executable(monkey_dust_libgodot_editor
         editor/main_libgodot.cpp
+        editor/editor_core.cpp
+        editor/editor_console.cpp
+        editor/editor_hierarchy.cpp
+        editor/editor_std_commands.cpp
+        editor/editor_command_palette.cpp
+        editor/editor_node_graph.cpp
+        editor/editor_flowgraph_panel.cpp
+        editor/editor_toolbar_libgodot_stub.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/ImGuiColorTextEdit/TextEditor.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imnodes/imnodes.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-node-editor/imgui_node_editor.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-node-editor/imgui_node_editor_api.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-node-editor/imgui_canvas.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-node-editor/crude_json.cpp
         ${CMAKE_SOURCE_DIR}/engine/src/vendor/stb_image_impl.cpp
         ${CMAKE_SOURCE_DIR}/engine/src/render/cgltf_impl.cpp
         ${CMAKE_SOURCE_DIR}/tools/third_party/imgui/imgui.cpp
@@ -344,6 +364,8 @@ if(USE_LIBGODOT AND LIBGODOT_SO)
         ${CMAKE_SOURCE_DIR}/tools/third_party/imgui/imgui_tables.cpp
         ${CMAKE_SOURCE_DIR}/tools/third_party/imgui/imgui_widgets.cpp
     )
+    target_compile_definitions(monkey_dust_libgodot_editor PRIVATE
+        MONKEY_DUST_EDITOR MONKEY_DUST_STANDALONE_EDITOR)
     target_link_libraries(monkey_dust_libgodot_editor PRIVATE
         monkey_dust::engine
         Recast Detour DetourCrowd)
@@ -351,6 +373,11 @@ if(USE_LIBGODOT AND LIBGODOT_SO)
         editor/
         "${LIBGODOT_ROOT}" "${LIBGODOT_ROOT}/platform/linuxbsd"
         ${CMAKE_SOURCE_DIR}/tools/third_party/imgui
+        ${CMAKE_SOURCE_DIR}/tools/third_party/ImGuiColorTextEdit
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imnodes
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-node-editor
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imguizmo/src
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-flame-graph
         ${CMAKE_SOURCE_DIR}/engine/third_party/recastnavigation/Recast/Include
         ${CMAKE_SOURCE_DIR}/engine/third_party/recastnavigation/Detour/Include
         ${CMAKE_SOURCE_DIR}/engine/third_party/recastnavigation/DetourCrowd/Include
