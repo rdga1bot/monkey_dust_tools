@@ -477,6 +477,13 @@ bool EditorCore::IsSelected(MdEntity e) const {
 }
 
 // ── Editor Camera ─────────────────────────────────────────────
+// SDL3-specific input gathering ONLY -- everything else (movement math,
+// orbit mode) lives in UpdateEditorCameraFromInput() below, which has
+// zero platform dependency (task #537 panel-porting follow-up: this
+// split is what lets tools/editor/main_libgodot.cpp -- NOT a Rule-M-A
+// file, so it can't include platform/input.h itself indirectly here --
+// drive the same camera by gathering ITS OWN input in main_libgodot.cpp
+// and calling UpdateEditorCameraFromInput() with plain floats/bools).
 void EditorCore::UpdateEditorCamera(float dt, bool viewport_hovered) {
     (void)viewport_hovered;
 
@@ -496,31 +503,48 @@ void EditorCore::UpdateEditorCamera(float dt, bool viewport_hovered) {
     SDL_GetRelativeMouseState(&rdx, &rdy);
     if (!rmb_down) { rdx = 0.f; rdy = 0.f; }
 
+    const bool* kb = (const bool*)SDL_GetKeyboardState(nullptr);
+    bool shift = kb[SDL_SCANCODE_LSHIFT] || kb[SDL_SCANCODE_RSHIFT];
+    bool key_w = kb[SDL_SCANCODE_W]||kb[SDL_SCANCODE_UP];
+    bool key_s = kb[SDL_SCANCODE_S]||kb[SDL_SCANCODE_DOWN];
+    bool key_a = kb[SDL_SCANCODE_A];
+    bool key_d = kb[SDL_SCANCODE_D];
+    bool key_q = kb[SDL_SCANCODE_Q]||kb[SDL_SCANCODE_PAGEDOWN];
+    bool key_e = kb[SDL_SCANCODE_E]||kb[SDL_SCANCODE_PAGEUP];
+    // Use input_get_scroll_y() — io.MouseWheel is 0 here because
+    // UpdateEditorCamera() runs BEFORE imgui_new_frame() in the game loop.
+    float wheel = input_get_scroll_y();
+    if (wheel == 0.f) wheel = io.MouseWheel; // fallback for standalone editor
+
+    UpdateEditorCameraFromInput(dt, rmb_down, rdx, rdy, key_w, key_a, key_s, key_d,
+                                key_q, key_e, shift, wheel);
+}
+
+void EditorCore::UpdateEditorCameraFromInput(float dt, bool rmb_down, float rel_dx, float rel_dy,
+                                              bool key_w, bool key_a, bool key_s, bool key_d,
+                                              bool key_q, bool key_e, bool key_shift, float wheel) {
+    ImGuiIO& io = ImGui::GetIO();  // orbit mode below reads ImGui's own IO
+                                    // (backend-agnostic, not a platform dependency)
+
     if (cam_flying) {
         // ── Exact copy of editor_world_3d_sdlgpu handle_input() ──────────────
         // RMB = look; fly_yaw/fly_pitch in RADIANS (same as 3D World s_yaw/s_pitch)
         if (rmb_down) {
-            fly_yaw   -= rdx * 0.003f;
-            fly_pitch += rdy * 0.002f;
+            fly_yaw   -= rel_dx * 0.003f;
+            fly_pitch += rel_dy * 0.002f;
             if (fly_pitch < -0.3f) fly_pitch = -0.3f;
             if (fly_pitch >  1.3f) fly_pitch =  1.3f;
         }
         float sy = sinf(fly_yaw), cy2 = cosf(fly_yaw);
-        const bool* kb = (const bool*)SDL_GetKeyboardState(nullptr);
-        bool shift = kb[SDL_SCANCODE_LSHIFT] || kb[SDL_SCANCODE_RSHIFT];
         float sp = cam_speed * dt;
-        if (kb[SDL_SCANCODE_W]||kb[SDL_SCANCODE_UP])       { cam_target.x+=sp*sy; cam_target.z+=sp*cy2; }
-        if (kb[SDL_SCANCODE_S]||kb[SDL_SCANCODE_DOWN])     { cam_target.x-=sp*sy; cam_target.z-=sp*cy2; }
-        if (kb[SDL_SCANCODE_A])                            { cam_target.x+=sp*cy2; cam_target.z-=sp*sy; }
-        if (kb[SDL_SCANCODE_D])                            { cam_target.x-=sp*cy2; cam_target.z+=sp*sy; }
-        if (kb[SDL_SCANCODE_Q]||kb[SDL_SCANCODE_PAGEDOWN]) cam_target.y -= sp;
-        if (kb[SDL_SCANCODE_E]||kb[SDL_SCANCODE_PAGEUP])   cam_target.y += sp;
-        // Use input_get_scroll_y() — io.MouseWheel is 0 here because
-        // UpdateEditorCamera() runs BEFORE imgui_new_frame() in the game loop.
-        float wheel = input_get_scroll_y();
-        if (wheel == 0.f) wheel = io.MouseWheel; // fallback for standalone editor
+        if (key_w) { cam_target.x+=sp*sy; cam_target.z+=sp*cy2; }
+        if (key_s) { cam_target.x-=sp*sy; cam_target.z-=sp*cy2; }
+        if (key_a) { cam_target.x+=sp*cy2; cam_target.z-=sp*sy; }
+        if (key_d) { cam_target.x-=sp*cy2; cam_target.z+=sp*sy; }
+        if (key_q) cam_target.y -= sp;
+        if (key_e) cam_target.y += sp;
         if (wheel != 0.f) {
-            if (shift) {
+            if (key_shift) {
                 cam_speed = (wheel > 0)
                     ? fminf(cam_speed * 1.25f, 80000.f)
                     : fmaxf(cam_speed * 0.80f, 10.f);
@@ -546,8 +570,8 @@ void EditorCore::UpdateEditorCamera(float dt, bool viewport_hovered) {
     } else {
         // Orbit mode — unlimited yaw (360°), pitch clamped near-vertical.
         if (rmb_down) {
-            cam_yaw   -= rdx * 0.4f;
-            cam_pitch  += rdy * 0.4f;
+            cam_yaw   -= rel_dx * 0.4f;
+            cam_pitch  += rel_dy * 0.4f;
             if (cam_pitch >  89.f) cam_pitch =  89.f;
             if (cam_pitch < -89.f) cam_pitch = -89.f;
         }

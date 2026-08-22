@@ -79,6 +79,19 @@ public:
     bool     fly_rel_active = false;
 
     void UpdateEditorCamera(float dt, bool viewport_hovered);
+    // Plain-data core of UpdateEditorCamera (task #537, panel-porting
+    // follow-up) -- all the SDL3 calls (SDL_SetWindowRelativeMouseMode/
+    // SDL_GetRelativeMouseState/SDL_GetKeyboardState) live in
+    // UpdateEditorCamera's own body, which reads them and forwards here.
+    // This method itself has ZERO platform dependency, so it's the ONLY
+    // part of the camera-update path callable from a non-M-A file (e.g.
+    // tools/editor/main_libgodot.cpp, which reads its own input via
+    // platform/input.h and passes the results in as plain floats/bools)
+    // -- keeps Rule M-A intact (input.h stays main.cpp/EditorMain.cpp-only)
+    // instead of adding a parallel MD_USE_LIBGODOT branch to editor_core.cpp.
+    void UpdateEditorCameraFromInput(float dt, bool rmb_down, float rel_dx, float rel_dy,
+                                      bool key_w, bool key_a, bool key_s, bool key_d,
+                                      bool key_q, bool key_e, bool key_shift, float wheel);
     void FocusOnSelected();
 
     // ── History ───────────────────────────────────────────
