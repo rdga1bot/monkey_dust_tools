@@ -364,6 +364,7 @@ if(USE_LIBGODOT AND LIBGODOT_SO)
         editor/editor_animation_panel.cpp
         editor/editor_translator.cpp
         editor/editor_camera_panel.cpp
+        editor/lua_editor_automation_api.cpp
         ${CMAKE_SOURCE_DIR}/tools/third_party/ImGuiColorTextEdit/TextEditor.cpp
         ${CMAKE_SOURCE_DIR}/tools/third_party/imnodes/imnodes.cpp
         ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-flame-graph/imgui_widget_flamegraph.cpp
