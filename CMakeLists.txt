@@ -351,8 +351,24 @@ if(USE_LIBGODOT AND LIBGODOT_SO)
         editor/editor_node_graph.cpp
         editor/editor_flowgraph_panel.cpp
         editor/editor_toolbar_libgodot_stub.cpp
+        editor/editor_asset_browser.cpp
+        editor/editor_cmd_file.cpp
+        editor/editor_director_panel.cpp
+        editor/editor_flare_browser.cpp
+        editor/editor_gpu_profiler_panel.cpp
+        editor/editor_graphics_panel.cpp
+        editor/editor_reflect_inspector.cpp
+        editor/editor_scenario_driver.cpp
+        editor/editor_sequencer_panel.cpp
+        editor/editor_viewcone_panel.cpp
+        editor/editor_animation_panel.cpp
+        editor/editor_translator.cpp
+        editor/editor_camera_panel.cpp
         ${CMAKE_SOURCE_DIR}/tools/third_party/ImGuiColorTextEdit/TextEditor.cpp
         ${CMAKE_SOURCE_DIR}/tools/third_party/imnodes/imnodes.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-flame-graph/imgui_widget_flamegraph.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imguizmo/src/ImSequencer.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imguizmo/src/ImGradient.cpp
         ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-node-editor/imgui_node_editor.cpp
         ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-node-editor/imgui_node_editor_api.cpp
         ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-node-editor/imgui_canvas.cpp
@@ -365,7 +381,7 @@ if(USE_LIBGODOT AND LIBGODOT_SO)
         ${CMAKE_SOURCE_DIR}/tools/third_party/imgui/imgui_widgets.cpp
     )
     target_compile_definitions(monkey_dust_libgodot_editor PRIVATE
-        MONKEY_DUST_EDITOR MONKEY_DUST_STANDALONE_EDITOR)
+        MONKEY_DUST_EDITOR MONKEY_DUST_STANDALONE_EDITOR IMGUI_DEFINE_MATH_OPERATORS)
     target_link_libraries(monkey_dust_libgodot_editor PRIVATE
         monkey_dust::engine
         Recast Detour DetourCrowd)
