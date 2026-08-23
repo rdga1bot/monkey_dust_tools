@@ -28,6 +28,12 @@ list(REMOVE_ITEM EDITOR_PANEL_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/editor/main_l
 # already has REAL definitions of these in editor_toolbar.cpp/main.cpp;
 # including both would be a duplicate-symbol link error.
 list(REMOVE_ITEM EDITOR_PANEL_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/editor/editor_toolbar_libgodot_stub.cpp")
+# editor/editor_panels_entry_libgodot.cpp (parity gate blocker-6,
+# monkey_dust_libgodot_editor_panels hot-reload .so, below) defines the
+# same extern "C" editor_panels_init/build_ui/shutdown symbols as
+# editor_panels_entry.cpp -- same duplicate-symbol trap as the
+# editor_toolbar_libgodot_stub.cpp exclusion just above.
+list(REMOVE_ITEM EDITOR_PANEL_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/editor/editor_panels_entry_libgodot.cpp")
 # ui_smoke_tests.cpp needs imgui_test_engine/ include paths, only added
 # below under `if(MD_UI_TESTS ...)` -- this unconditional glob was
 # compiling it even with MD_UI_TESTS=OFF (the default), a real pre-
@@ -119,6 +125,10 @@ if(MONKEY_DUST_EDITOR_HOT_RELOAD)
     list(REMOVE_ITEM _EDITOR_PANELS_CPP "${CMAKE_CURRENT_SOURCE_DIR}/editor/main.cpp")
     list(REMOVE_ITEM _EDITOR_PANELS_CPP "${CMAKE_CURRENT_SOURCE_DIR}/editor/main_libgodot.cpp")
     list(REMOVE_ITEM _EDITOR_PANELS_CPP "${CMAKE_CURRENT_SOURCE_DIR}/editor/editor_toolbar_libgodot_stub.cpp")
+    # editor_panels_entry_libgodot.cpp -- same duplicate-symbol trap as
+    # the EDITOR_PANEL_SOURCES exclusion above; this .so uses the REAL
+    # editor_panels_entry.cpp (SDL3), not the LibGodot one.
+    list(REMOVE_ITEM _EDITOR_PANELS_CPP "${CMAKE_CURRENT_SOURCE_DIR}/editor/editor_panels_entry_libgodot.cpp")
     # ui_smoke_tests.cpp (Phase 5) needs the imgui_test_engine include paths/
     # defines set up below under MD_UI_TESTS — those are only added to the
     # monkey_dust_editor target, not this hot-reload .so, so building this
@@ -365,6 +375,19 @@ if(USE_LIBGODOT AND LIBGODOT_SO)
         editor/editor_translator.cpp
         editor/editor_camera_panel.cpp
         editor/lua_editor_automation_api.cpp
+        # Same file the hot-reload .so below also compiles (parity gate
+        # blocker-6). Statically including it here too is NOT dead weight:
+        # it's the ONLY thing in this executable that actually calls
+        # EcsReflectBridge::Init()/ComponentReflect::Get()/MdLogSetHook/
+        # RegisterStdEditorCommands -- without a reachable call site, the
+        # linker never pulls those symbols out of libmonkey_dust_engine.a
+        # in the first place, so -Wl,--export-dynamic below has nothing
+        # to export and the .so's dlopen(RTLD_NOW) fails on them at
+        # runtime ("undefined symbol: ...ComponentReflect3GetEv", real
+        # failure hit and fixed during this task's own verification).
+        # Exact same reason editor_panels_entry.cpp (SDL3) is NOT excluded
+        # from monkey_dust_editor's own EDITOR_PANEL_SOURCES above.
+        editor/editor_panels_entry_libgodot.cpp
         ${CMAKE_SOURCE_DIR}/tools/third_party/ImGuiColorTextEdit/TextEditor.cpp
         ${CMAKE_SOURCE_DIR}/tools/third_party/imnodes/imnodes.cpp
         ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-flame-graph/imgui_widget_flamegraph.cpp
@@ -408,4 +431,105 @@ if(USE_LIBGODOT AND LIBGODOT_SO)
             "$<TARGET_FILE_DIR:monkey_dust_libgodot_editor>/"
         COMMENT "[monkey_dust] copying libgodot_project_stub next to monkey_dust_libgodot_editor")
     message(STATUS "[monkey_dust] USE_LIBGODOT: monkey_dust_libgodot_editor target enabled (Крок 3a)")
+
+    # ── monkey_dust_libgodot_editor_panels hot-reload .so ─────────────────
+    # Parity gate blocker-6 (docs/LIBGODOT_MIGRATION_PARITY_CHECKLIST.md
+    # section E/F): mirrors the SDL3 monkey_dust_editor_panels recipe
+    # above (tools/CMakeLists.txt:107-178) as closely as possible —
+    # SAME panel source set monkey_dust_libgodot_editor already links
+    # statically (kept there too, deliberately NOT removed: v1 judgment
+    # call, see this block's own doc comment below), same "don't link
+    # monkey_dust::engine into the .so, resolve its symbols from the HOST
+    # exe at dlopen time via --export-dynamic + --allow-shlib-undefined"
+    # trick the SDL3 .so relies on for Registry::Get()/MdLogSetHook/etc
+    # (header-inline singletons — see engine/include/monkey_dust/hot/
+    # editor_module.h's Config doc comment for the exact mechanism).
+    # Output name distinct from the SDL3 .so (libeditor_panels.so) so
+    # both can coexist under build*/hot/ without collision.
+    #
+    # v1 judgment call: monkey_dust_libgodot_editor's OWN source list
+    # above keeps these 21 files statically linked too (not removed).
+    # They are not currently called from anywhere in main_libgodot.cpp
+    # (dead code, exactly as the pre-existing "Панель-портування" comment
+    # above already notes), so keeping both costs a slightly larger
+    # binary and nothing else — no duplicate-symbol risk since the
+    # executable and this .so never link together. Removing them from
+    # the executable would be free real estate but adds risk (must
+    # re-verify the syntax-only-per-file check this block's comment
+    # above references) for zero behavioural gain in v1. Revisit once
+    # more panels are wired through the hot-reload path.
+    set(_LIBGODOT_PANELS_CPP
+        editor/editor_core.cpp
+        editor/editor_console.cpp
+        editor/editor_hierarchy.cpp
+        editor/editor_std_commands.cpp
+        editor/editor_command_palette.cpp
+        editor/editor_node_graph.cpp
+        editor/editor_flowgraph_panel.cpp
+        editor/editor_toolbar_libgodot_stub.cpp
+        editor/editor_asset_browser.cpp
+        editor/editor_cmd_file.cpp
+        editor/editor_director_panel.cpp
+        editor/editor_flare_browser.cpp
+        editor/editor_gpu_profiler_panel.cpp
+        editor/editor_graphics_panel.cpp
+        editor/editor_reflect_inspector.cpp
+        editor/editor_scenario_driver.cpp
+        editor/editor_sequencer_panel.cpp
+        editor/editor_viewcone_panel.cpp
+        editor/editor_animation_panel.cpp
+        editor/editor_translator.cpp
+        editor/editor_camera_panel.cpp
+        editor/lua_editor_automation_api.cpp
+        editor/editor_panels_entry_libgodot.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/ImGuiColorTextEdit/TextEditor.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imnodes/imnodes.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-flame-graph/imgui_widget_flamegraph.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imguizmo/src/ImSequencer.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imguizmo/src/ImGradient.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-node-editor/imgui_node_editor.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-node-editor/imgui_node_editor_api.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-node-editor/imgui_canvas.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-node-editor/crude_json.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui/imgui.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui/imgui_draw.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui/imgui_tables.cpp
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui/imgui_widgets.cpp
+    )
+    add_library(monkey_dust_libgodot_editor_panels SHARED ${_LIBGODOT_PANELS_CPP})
+    target_compile_definitions(monkey_dust_libgodot_editor_panels PRIVATE
+        MONKEY_DUST_STANDALONE_EDITOR MONKEY_DUST_EDITOR
+        MD_SDL_GPU USE_SDL3 MD_USE_LIBGODOT
+        IMGUI_DEFINE_MATH_OPERATORS USE_GLM MD_LOG_NO_RAYLIB
+        DEBUG)  # MONKEY_DUST_EDITOR always enables DEBUG (see engine/CMakeLists.txt)
+    target_include_directories(monkey_dust_libgodot_editor_panels PRIVATE
+        editor/
+        "${LIBGODOT_ROOT}" "${LIBGODOT_ROOT}/platform/linuxbsd"
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-node-editor
+        ${CMAKE_SOURCE_DIR}/tools/third_party/ImGuiColorTextEdit
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imnodes
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imguizmo/src
+        ${CMAKE_SOURCE_DIR}/tools/third_party/imgui-flame-graph
+        ${CMAKE_SOURCE_DIR}/engine/include
+        ${CMAKE_SOURCE_DIR}/engine/src/vendor
+        ${CMAKE_SOURCE_DIR}/engine/src/render
+        ${CMAKE_SOURCE_DIR}/engine/src/audio
+        ${CMAKE_SOURCE_DIR}/engine/third_party/flecs
+        ${CMAKE_SOURCE_DIR}/engine/third_party/glm
+        ${CMAKE_SOURCE_DIR}/engine/third_party/JoltPhysics
+        ${CMAKE_SOURCE_DIR}/engine/third_party/ozz-animation/include
+        ${CMAKE_SOURCE_DIR}/engine/third_party/recastnavigation/Recast/Include
+        ${CMAKE_SOURCE_DIR}/engine/third_party/recastnavigation/Detour/Include
+        ${CMAKE_SOURCE_DIR}/engine/third_party/recastnavigation/DetourCrowd/Include
+    )
+    # Symbols resolved from host exe at dlopen time (host built with --export-dynamic).
+    target_link_options(monkey_dust_libgodot_editor_panels PRIVATE -Wl,--allow-shlib-undefined)
+    target_link_options(monkey_dust_libgodot_editor PRIVATE -Wl,--export-dynamic)
+    target_compile_definitions(monkey_dust_libgodot_editor PRIVATE MONKEY_DUST_EDITOR_HOT_RELOAD)
+    set_target_properties(monkey_dust_libgodot_editor_panels PROPERTIES
+        POSITION_INDEPENDENT_CODE ON
+        OUTPUT_NAME              "editor_panels_libgodot"
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/hot")
+    message(STATUS "[monkey_dust_libgodot_editor] hot-reload: libeditor_panels_libgodot.so → build/hot/")
 endif()
