@@ -145,8 +145,11 @@ static void s_rebuild_granite_hmap() {
         // (s_quadtree_renderer.Init() itself already ran earlier on this
         // same loader thread -- data-independent pipeline/mesh setup).
         if (!s_quadtree_ready && s_granite_ready) {
+            // #400 (2026-08-23): 3.0->2.0, matches scene_render.cpp's own
+            // tuned value -- see that call site's doc comment for the A/B
+            // measurement (-23% node count, no measurable FPS/visual cost).
             s_quadtree.Init(0.f, 0.f, s_granite_hmap.WorldExtent(), CHUNK_SIZE,
-                             /*max_depth=*/3, /*detail_multiplier=*/3.0f,
+                             /*max_depth=*/3, /*detail_multiplier=*/2.0f,
                              TerrainAtlas_SampleWorld);
             s_quadtree_ready = true;
         }
