@@ -18,7 +18,6 @@
 #include <monkey_dust/render/terrain_shading_projected.h>
 #include <monkey_dust/render/terrain_vt_page_cache.h>
 #include <monkey_dust/render/terrain_quadtree_renderer.h>
-#include <monkey_dust/render/terrain_height_clipmap.h>
 #include <monkey_dust/world/terrain_quadtree.h>
 #include <monkey_dust/render/prop_renderer.h>
 #include <monkey_dust/render/gpu_device.h>
@@ -107,15 +106,6 @@ static TerrainQuadtree         s_quadtree;
 static TerrainQuadtreeRenderer s_quadtree_renderer;
 static bool s_quadtree_ready = false;
 
-// #398 (2026-08-23): per-depth toroidal height+normal cache -- same
-// class the game side uses (game/src/render/scene_render.h's
-// terrain_height_clipmap_ field), Init'd once s_granite_hmap is ready,
-// recentered every frame in s_update_granite_terrain around the editor's
-// free-fly camera (already absolute Kenshi metres, see this file's own
-// doc comment above on why no local-to-absolute conversion is needed here).
-static TerrainHeightClipmap s_height_clipmap;
-static bool s_height_clipmap_ready = false;
-
 // Builds/rebuilds the static world heightmap from TerrainAtlas's CURRENT
 // contents -- called once at Init() and again whenever s_terrain_dirty's
 // debounce fires (terrain edited) or the R key forces a refresh, mirroring
@@ -153,25 +143,6 @@ static void s_rebuild_granite_hmap() {
                              TerrainAtlas_SampleWorld);
             s_quadtree_ready = true;
         }
-
-        // #398: clipmap Init needs s_granite_hmap ready (its fill shader's
-        // source texture) -- same one-shot guard as s_vt_cache_ready above.
-        if (!s_height_clipmap_ready && s_granite_ready) {
-            s_height_clipmap_ready = s_height_clipmap.Init(dev, s_granite_hmap);
-        }
-    }
-}
-
-// #398: recenters all 4 clipmap levels around the editor's free-fly
-// camera every frame -- MUST run outside any active render pass (opens
-// its own compute passes), same constraint as the game-side call site
-// (scene_render.cpp's UpdateGraniteTerrain).
-static void s_update_granite_terrain(SDL_GPUCommandBuffer* cmd,
-                                      float eye_x, float eye_y, float eye_z,
-                                      const float vp_m[16]) {
-    (void)eye_y; (void)vp_m;
-    if (s_height_clipmap_ready) {
-        s_height_clipmap.Recenter(cmd, eye_x, eye_z);
     }
 }
 
@@ -594,10 +565,6 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
     const auto& ls  = LightSystem::Get();
     static constexpr float kSkyR = 0.38f, kSkyG = 0.58f, kSkyB = 0.82f;
 
-    // Recenters the clipmap cache. MUST run before the render pass below
-    // opens (issues its own SDL_GPU compute passes on cmd).
-    s_update_granite_terrain(cmd, eye_x, eye_y, eye_z, vp.m);
-
     // Variant A G-buffer pass -- must run in its OWN render pass, BEFORE
     // the main color pass below (TerrainShadingProjected's doc comment).
     // Nothing else in this viewport draws into the shared depth before or
@@ -633,8 +600,7 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
             int qt_count = s_quadtree.SelectVisible(cam_pos, frustum_planes,
                                                       s_visible_nodes, TerrainQuadtree::kMaxNodesPublic);
             for (int i = 0; i < qt_count; ++i) {
-                s_quadtree_renderer.DrawNode(gbuf_pass, cmd, s_granite_hmap,
-                    s_height_clipmap, vp.m,
+                s_quadtree_renderer.DrawNode(gbuf_pass, cmd, s_granite_hmap, vp.m,
                     s_visible_nodes[i], eye_x, eye_y, eye_z);
             }
             SDL_EndGPURenderPass(gbuf_pass);
