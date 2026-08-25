@@ -269,19 +269,6 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
     target_compile_options(kenshi_navmesh_extract PRIVATE -O2)
 endif()
 
-# ── chunklod_bake ─────────────────────────────────────────
-# Standalone offline terrain chunk-LOD bake tool — no SDL3, no engine.
-# Direct C++ port of Thatcher Ulrich's public-domain heightfield_chunker.cpp
-# (tmp_/chunklod_reference/), verified against a Python spike
-# (tools/research/chunklod_spike.py, chunklod_mesh_spike.py) before this
-# port. See docs/TERRAIN_CHUNKLOD_PORT_PLAN.md for the full port plan.
-add_executable(chunklod_bake
-    chunklod_bake/main.cpp
-)
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    target_compile_options(chunklod_bake PRIVATE -O2)
-endif()
-
 if(MONKEY_DUST_TOOLS_NEED_SDL3)
 # ── md_flare_demo ─────────────────────────────────────────
 # Pure SDL_GPU demo: plain SDL3 window, no OpenGL context, no Raylib.
