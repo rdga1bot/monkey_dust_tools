@@ -426,6 +426,21 @@ def cmd_doctor(args) -> int:
     return code
 
 
+# ── kb-sync ────────────────────────────────────────────────────────────────
+def cmd_kb_sync(args) -> int:
+    """Runs tools/kb_graph_sync.py (docs/KNOWLEDGE_LIBRARY.md) -- parses
+    frontmatter from the knowledge-library corpus, writes docs/
+    KNOWLEDGE_LIBRARY_INDEX.md and tmp_/kb_graph_sync_output.json. Thin
+    wrapper, same contract as cmd_doctor: the script owns the logic, this
+    just logs + relays exit code. Does NOT itself write to mcp__memory --
+    see kb_graph_sync.py's own module doc comment for why that's a
+    separate, agent-driven step using the JSON this writes."""
+    code, log, tail = run_logged(["python3", "tools/kb_graph_sync.py"], tag="kb_sync", timeout=60)
+    print(tail)
+    print(f"[md_ctl kb-sync] exit={code}, log: {log}")
+    return code
+
+
 # ── dash ───────────────────────────────────────────────────────────────────
 def cmd_dash(args) -> int:
     """Runs tools/md_dash.py (PROMPT_DOC_RESTRUCTURE.md Phase 4) -- generates
@@ -500,6 +515,8 @@ def main() -> int:
 
     p = sub.add_parser("doctor"); p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_doctor)
+
+    p = sub.add_parser("kb-sync"); p.set_defaults(func=cmd_kb_sync)
 
     p = sub.add_parser("dash"); p.set_defaults(func=cmd_dash)
 

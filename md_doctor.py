@@ -28,6 +28,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import yaml
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # .md files in scope: main-repo root + docs/** (matches DOC_RECON.md Phase 0
@@ -315,6 +317,147 @@ def check_doc10_root_line_limit(limit):
     return []
 
 
+# ── Knowledge Library checks (DOC-11/12/13) ──────────────────────────────────
+# Broader corpus than _md_files() (root+docs/** only): the knowledge library
+# covers the full public+private corpus -- root, docs/**, re_docs/** (private
+# RE data; DOC-01..10 exclude it, but frontmatter/dedup checks are metadata-
+# only and don't touch its content) and each submodule's own root .md files.
+# See docs/KNOWLEDGE_LIBRARY.md for the schema these three checks validate.
+def _kb_files():
+    files = sorted(REPO_ROOT.glob("*.md"))
+    files += sorted((REPO_ROOT / "docs").rglob("*.md"))
+    files = [f for f in files if "re_assets" not in f.parts]
+    re_docs_dir = REPO_ROOT / "re_docs"
+    if re_docs_dir.exists():
+        files += sorted(re_docs_dir.rglob("*.md"))
+    for sub in ("engine", "tools"):
+        sub_dir = REPO_ROOT / sub
+        if sub_dir.exists():
+            files += sorted(sub_dir.glob("*.md"))
+    return files
+
+
+_FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
+
+def _parse_frontmatter(text):
+    """None = no frontmatter block at all (opt-in: DOC-11/12/13 silently
+    skip these, matching the knowledge library's incremental-rollout design
+    -- nobody is forced to migrate). {} (falsy, not None) = a --- block
+    exists but failed to parse as YAML, or parsed to a non-dict -- callers
+    must treat that as a real DOC-11 finding, not a skip."""
+    m = _FRONTMATTER_RE.match(text)
+    if not m:
+        return None
+    try:
+        data = yaml.safe_load(m.group(1))
+        return data if isinstance(data, dict) else {}
+    except yaml.YAMLError:
+        return {}
+
+
+# ── DOC-11: frontmatter completeness (opt-in per file -- see _parse_
+# frontmatter's own doc comment for why files with none are skipped, not
+# flagged) ────────────────────────────────────────────────────────────────
+_KB_REQUIRED_FIELDS = ("id", "type", "status", "date", "updated", "repo", "tags", "summary")
+_KB_TYPE_ENUM = {"investigation", "decision", "reference", "architecture", "research", "historical"}
+_KB_STATUS_ENUM = {"active", "archived", "superseded", "historical"}
+
+def check_doc11_frontmatter_complete(kb_files):
+    fails = []
+    for f in kb_files:
+        text = _read(f)
+        if not text.startswith("---\n"):
+            continue
+        fm = _parse_frontmatter(text)
+        if fm is None:
+            continue
+        rel = f.relative_to(REPO_ROOT)
+        if not fm:
+            fails.append(f"DOC-11: {rel} has a --- block that isn't valid YAML (or isn't a mapping)")
+            continue
+        missing = [field for field in _KB_REQUIRED_FIELDS if field not in fm or fm[field] in (None, "")]
+        if missing:
+            fails.append(f"DOC-11: {rel} frontmatter missing/empty required field(s): {missing}")
+        if "type" in fm and fm["type"] not in _KB_TYPE_ENUM:
+            fails.append(f"DOC-11: {rel} frontmatter 'type: {fm['type']}' not in {sorted(_KB_TYPE_ENUM)}")
+        if "status" in fm and fm["status"] not in _KB_STATUS_ENUM:
+            fails.append(f"DOC-11: {rel} frontmatter 'status: {fm['status']}' not in {sorted(_KB_STATUS_ENUM)}")
+    return fails
+
+
+# ── DOC-12: link integrity -- related/superseded_by targets exist on disk ───
+def check_doc12_link_integrity(kb_files):
+    fails = []
+    for f in kb_files:
+        text = _read(f)
+        if not text.startswith("---\n"):
+            continue
+        fm = _parse_frontmatter(text)
+        if not fm:
+            continue
+        rel = f.relative_to(REPO_ROOT)
+        for field in ("related", "superseded_by"):
+            val = fm.get(field)
+            if not val:
+                continue
+            targets = val if isinstance(val, list) else [val]
+            for t in targets:
+                if not isinstance(t, str) or "://" in t:
+                    continue  # not a string, or a URL not a repo path
+                if not (REPO_ROOT / t).exists():
+                    fails.append(f"DOC-12: {rel} frontmatter '{field}' references `{t}` which does not exist")
+    return fails
+
+
+# ── DOC-13: undetected-duplicate heuristic -- the actual gap this whole
+# schema exists to close. DOC-01..10 only ever check doc-vs-code drift;
+# nothing previously checked doc-vs-doc overlap (e.g. re_docs/AI/*.md
+# silently duplicating re_docs/kenshi/*.md under identical filenames with
+# no deprecation marker, found by hand this session -- this check is meant
+# to catch that class mechanically next time). Deliberately narrow and
+# heuristic (expected false positives -- see .claude/agents/doc-doctor.md's
+# own triage bucket for this check, same treatment as DOC-04/DOC-07):
+# among files WITH frontmatter and status=active, flag any pair sharing
+# >=2 tags with no related-link between them in EITHER direction. Umbrella/
+# methodology tags (broad enough that sharing them alone is not a duplication
+# signal -- confirmed noisy at 120-file corpus scale, doc-doctor triage
+# 2026-08-25: 467/493 findings were pairs sharing ONLY these) are excluded
+# from the threshold count; a pair must still share >=2 tags outside this
+# stoplist to fire. ───────────────────────────────────────────────────────
+_DOC13_STOPLIST_TAGS = {
+    "kenshi", "re", "reverse-engineering", "alien-isolation", "reference",
+    "impl-status", "research", "sweep-findings", "stale-warning", "deepseek",
+}
+
+
+def check_doc13_undetected_duplicates(kb_files):
+    entries = []
+    for f in kb_files:
+        text = _read(f)
+        if not text.startswith("---\n"):
+            continue
+        fm = _parse_frontmatter(text)
+        if not fm or fm.get("status") != "active":
+            continue
+        tags = fm.get("tags") or []
+        if not isinstance(tags, list) or len(tags) < 2:
+            continue
+        related = fm.get("related") or []
+        related = related if isinstance(related, list) else [related]
+        entries.append((str(f.relative_to(REPO_ROOT)), set(tags), set(related)))
+
+    fails = []
+    for i, (path_a, tags_a, related_a) in enumerate(entries):
+        for path_b, tags_b, related_b in entries[i + 1:]:
+            shared = (tags_a & tags_b) - _DOC13_STOPLIST_TAGS
+            if len(shared) < 2:
+                continue
+            if path_b in related_a or path_a in related_b:
+                continue  # already cross-referenced -- not undetected
+            fails.append(f"DOC-13: {path_a} and {path_b} share tags {sorted(shared)}, both status=active, no related-link between them -- possible undetected duplicate/overlap")
+    return fails
+
+
 CHECKS = [
     ("DOC-01", lambda md, bd, lim: check_doc01_paths_exist(md)),
     ("DOC-02", lambda md, bd, lim: check_doc02_no_external_refs(md)),
@@ -326,6 +469,9 @@ CHECKS = [
     ("DOC-08", lambda md, bd, lim: check_doc08_header_date(md)),
     ("DOC-09", lambda md, bd, lim: check_doc09_binary_formats(md)),
     ("DOC-10", lambda md, bd, lim: check_doc10_root_line_limit(lim)),
+    ("DOC-11", lambda md, bd, lim: check_doc11_frontmatter_complete(_kb_files())),
+    ("DOC-12", lambda md, bd, lim: check_doc12_link_integrity(_kb_files())),
+    ("DOC-13", lambda md, bd, lim: check_doc13_undetected_duplicates(_kb_files())),
 ]
 
 
