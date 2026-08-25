@@ -1,3 +1,14 @@
+---
+id: kb-tools-command-inventory
+type: reference
+status: active
+date: 2026-08-02
+updated: 2026-08-02
+repo: tools
+tags: [editor, commands, registry, undo, traceability]
+summary: "EDITOR_AUTOMATION_PLAN_v1 Phase 1.4 traceability: every EditorCmdRegistry command, args, undo status, reachable UI surfaces"
+---
+
 # EditorCmdRegistry Command Inventory
 
 EDITOR_AUTOMATION_PLAN_v1.md Phase 1.4 traceability artifact. Every command

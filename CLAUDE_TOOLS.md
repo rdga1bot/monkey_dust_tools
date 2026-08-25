@@ -1,3 +1,15 @@
+---
+id: kb-tools-claude-tools
+type: architecture
+status: active
+date: 2026-04-27
+updated: 2026-05-14
+repo: tools
+tags: [tools, editor, architecture, split-readiness, flare-convert]
+summary: "tools/ submodule router doc: editor/converter dependency rules, Flare convert-once pipeline, forbidden patterns"
+related: [tools/README.md]
+---
+
 # monkey_dust/tools — editor + Flare converters
 
 > **Головний документ проекту:** `CLAUDE_CONSTITUTION.md` у приватному репо `monkey_dust/`.

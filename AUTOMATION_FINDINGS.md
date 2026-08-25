@@ -1,3 +1,14 @@
+---
+id: kb-tools-automation-findings
+type: investigation
+status: active
+date: 2026-08-02
+updated: 2026-08-02
+repo: tools
+tags: [editor, automation, hot-reload, regression, crash-fix]
+summary: "EDITOR_AUTOMATION_PLAN_v1 Phase 4 findings: hot-reload shutdown race root-cause + WaitReloadReady fix"
+---
+
 # Phase 4 findings — EDITOR_AUTOMATION_PLAN_v1.md
 
 Regression suite: `tests/editor_scenarios/regress_*.lua` (main repo) +

@@ -1,3 +1,14 @@
+---
+id: kb-tools-readme
+type: reference
+status: active
+date: 2026-05-14
+updated: 2026-08-23
+repo: tools
+tags: [tools, readme, editor, public-repo, shader-hot-reload]
+summary: "Public tools/ README: editor panels, shader hot-reload, QA scripts, build targets, repo architecture"
+---
+
 # monkey_dust — Tools
 
 Editor, asset converter, terrain pipeline, and Flare demo viewer for the monkey_dust engine.
