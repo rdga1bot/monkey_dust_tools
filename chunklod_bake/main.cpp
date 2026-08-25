@@ -466,12 +466,72 @@ static void WriteEngineMesh(const char* path, const std::vector<EngineVertex>& v
     std::printf("[chunklod_bake] wrote engine mesh: %u verts, %u indices -> %s\n", vcount, icount, path);
 }
 
+// ── Phase 5: full-map bake ────────────────────────────────────────────────
+// Bakes all ATLAS_ZONES x ATLAS_ZONES zones' FINEST (level=0) mesh to
+// <out_dir>/zone_<zx>_<zy>.mesh (WriteEngineMesh format), for the game-side
+// ChunkLodWorld streaming manager to load on demand. No runtime distance-LOD
+// switching -- each zone is baked at ONE fixed max_error, same simplification
+// this whole phase has been honest about (docs/TERRAIN_CHUNKLOD_PORT_PLAN.md
+// Phase 5's own scope note): a real chunklod runtime keeps the WHOLE
+// activation-level node tree and switches nodes per-frame based on screen-space
+// error (chunklod.cpp's compute_lod); this spike bakes only the single
+// finest-LOD mesh per zone that Phase 2-4 already validated.
+static int BakeAll(const char* hmap_path, const char* out_dir, float max_error, float sample_spacing) {
+    char cmd[512];
+    std::snprintf(cmd, sizeof(cmd), "mkdir -p \"%s\"", out_dir);
+    if (std::system(cmd) != 0) { std::fprintf(stderr, "mkdir -p %s failed\n", out_dir); return 1; }
+
+    int64_t total_verts = 0, total_tris = 0, zones_written = 0;
+    for (int zy = 0; zy < hmap::ATLAS_ZONES; ++zy) {
+        for (int zx = 0; zx < hmap::ATLAS_ZONES; ++zx) {
+            auto grid = hmap::LoadZone(hmap_path, zx, zy);
+            if (grid.empty()) { std::fprintf(stderr, "[chunklod_bake] FAILED zone %d,%d -- aborting bake-all\n", zx, zy); return 1; }
+
+            Heightfield hf;
+            hf.Init(grid, hmap::ATLAS_VERTS, 1.0f);
+            hf.root_level = hf.log_size - 1;
+            int n = hf.size;
+            Update(hf, max_error, 0, n - 1, n - 1, n - 1, 0, 0);
+            Update(hf, max_error, n - 1, 0, 0, 0, n - 1, n - 1);
+            for (int i = 0; i < hf.log_size; ++i) {
+                PropagateActivationLevel(hf, n >> 1, n >> 1, hf.log_size - 1, i);
+                PropagateActivationLevel(hf, n >> 1, n >> 1, hf.log_size - 1, i);
+            }
+
+            Mesh mesh_finest = GenerateNodeMesh(hf, 0, 0, hf.log_size, 0);
+            auto tris_finest = StripToTriangles(mesh_finest);
+            auto engine_verts = ComputeSmoothNormals(mesh_finest, tris_finest, sample_spacing);
+
+            char path[600];
+            std::snprintf(path, sizeof(path), "%s/zone_%d_%d.mesh", out_dir, zx, zy);
+            FILE* f = std::fopen(path, "wb");
+            if (!f) { std::fprintf(stderr, "cannot write %s\n", path); return 1; }
+            uint32_t vcount = (uint32_t)engine_verts.size(), icount = (uint32_t)tris_finest.size() * 3;
+            std::fwrite(&vcount, sizeof(vcount), 1, f);
+            std::fwrite(&icount, sizeof(icount), 1, f);
+            std::fwrite(engine_verts.data(), sizeof(EngineVertex), engine_verts.size(), f);
+            std::fwrite(tris_finest.data(), sizeof(uint32_t), icount, f);
+            std::fclose(f);
+
+            total_verts += (int64_t)vcount;
+            total_tris  += (int64_t)tris_finest.size();
+            ++zones_written;
+        }
+        std::printf("[chunklod_bake] row %d/%d done (%lld zones, %lld verts, %lld tris so far)\n",
+                     zy + 1, hmap::ATLAS_ZONES, (long long)zones_written, (long long)total_verts, (long long)total_tris);
+    }
+    std::printf("[chunklod_bake] bake-all DONE: %lld zones -> %s (total %lld verts, %lld tris, max_error=%.2fm)\n",
+                (long long)zones_written, out_dir, (long long)total_verts, (long long)total_tris, max_error);
+    return 0;
+}
+
 int main(int argc, char** argv) {
     int zx = -1, zy = -1;
     float max_error = 2.0f;
     const char* hmap_path = "game/data/terrain/world_hmap.r16";
     const char* out_path = "/tmp/chunklod_bake_zone.bin";
     const char* mesh_out_path = nullptr;
+    const char* bake_all_dir = nullptr;
     // 3.6 m/span between ATLAS_VERTS samples -- NOT the raw 1.8 m/px TIF
     // resolution. world_hmap.r16's 129 verts/zone are a 2:1 downsample of
     // the raw 258x258 fetch (docs/kenshi/03_reconciled_model.md §2: "129x129
@@ -490,8 +550,13 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--hmap") && i + 1 < argc) { hmap_path = argv[++i]; }
         else if (!std::strcmp(argv[i], "--out") && i + 1 < argc) { out_path = argv[++i]; }
         else if (!std::strcmp(argv[i], "--write-mesh") && i + 1 < argc) { mesh_out_path = argv[++i]; }
+        else if (!std::strcmp(argv[i], "--bake-all") && i + 1 < argc) { bake_all_dir = argv[++i]; }
     }
-    if (zx < 0 || zy < 0) { std::fprintf(stderr, "usage: %s --zone ZX ZY [--max-error E] [--hmap path] [--out path]\n", argv[0]); return 1; }
+
+    if (bake_all_dir) return BakeAll(hmap_path, bake_all_dir, max_error, sample_spacing);
+
+    if (zx < 0 || zy < 0) { std::fprintf(stderr, "usage: %s --zone ZX ZY [--max-error E] [--hmap path] [--out path]\n"
+                                                   "   or: %s --bake-all OUT_DIR [--max-error E] [--hmap path]\n", argv[0], argv[0]); return 1; }
 
     std::printf("[chunklod_bake] loading zone %d,%d (max_error=%.2fm)...\n", zx, zy, max_error);
     auto grid = hmap::LoadZone(hmap_path, zx, zy);
