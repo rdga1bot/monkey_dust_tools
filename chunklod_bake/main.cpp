@@ -413,18 +413,83 @@ static bool ReadQuantFile(const char* path, std::vector<QuantVert>& verts, std::
     return ok;
 }
 
+// ── Engine-facing mesh export (Phase 4, runtime spike) ───────────────────
+// Real (non-quantized -- Phase 3 already proved quantization round-trips
+// correctly, this export exists to feed a live GPU comparison, not to
+// re-test compression) float32 position + per-vertex normal, in the
+// mesh's own LOCAL space (not tied to any real-world zone-origin
+// convention -- docs/kenshi/03_reconciled_model.md explicitly leaves the
+// world-space origin offset as [UNKNOWN], so this spike places the mesh
+// at a self-chosen debug location in the editor rather than attempting
+// to reverse-engineer that separately, per the port plan's Phase 4
+// scoping).
+struct EngineVertex { float x, y, z, nx, ny, nz; };
+
+static std::vector<EngineVertex> ComputeSmoothNormals(const Mesh& mesh, const std::vector<Tri>& tris, float sample_spacing) {
+    std::vector<EngineVertex> verts(mesh.vertices.size());
+    for (size_t i = 0; i < mesh.vertices.size(); ++i) {
+        auto& v = mesh.vertices[i];
+        verts[i] = {v.x * sample_spacing, (float)v.y, v.z * sample_spacing, 0, 0, 0};
+    }
+    for (auto& t : tris) {
+        float ax = verts[t.a].x, ay = verts[t.a].y, az = verts[t.a].z;
+        float bx = verts[t.b].x, by = verts[t.b].y, bz = verts[t.b].z;
+        float cx = verts[t.c].x, cy = verts[t.c].y, cz = verts[t.c].z;
+        float e1x = bx - ax, e1y = by - ay, e1z = bz - az;
+        float e2x = cx - ax, e2y = cy - ay, e2z = cz - az;
+        // Cross product e1 x e2 -- winding matches StripToTriangles' own
+        // (a,b,c)/(a,c,b) alternation, chosen so this points +Y (up) for
+        // a normal heightfield triangle.
+        float nx = e1y * e2z - e1z * e2y;
+        float ny = e1z * e2x - e1x * e2z;
+        float nz = e1x * e2y - e1y * e2x;
+        for (int idx : {t.a, t.b, t.c}) { verts[idx].nx += nx; verts[idx].ny += ny; verts[idx].nz += nz; }
+    }
+    for (auto& v : verts) {
+        float len = std::sqrt(v.nx * v.nx + v.ny * v.ny + v.nz * v.nz);
+        if (len > 1e-6f) { v.nx /= len; v.ny /= len; v.nz /= len; }
+        else { v.nx = 0; v.ny = 1; v.nz = 0; }
+        if (v.ny < 0) { v.nx = -v.nx; v.ny = -v.ny; v.nz = -v.nz; }  // heightfield: normal always points up
+    }
+    return verts;
+}
+
+static void WriteEngineMesh(const char* path, const std::vector<EngineVertex>& verts, const std::vector<Tri>& tris) {
+    FILE* f = std::fopen(path, "wb");
+    if (!f) { std::fprintf(stderr, "cannot write %s\n", path); return; }
+    uint32_t vcount = (uint32_t)verts.size(), icount = (uint32_t)tris.size() * 3;
+    std::fwrite(&vcount, sizeof(vcount), 1, f);
+    std::fwrite(&icount, sizeof(icount), 1, f);
+    std::fwrite(verts.data(), sizeof(EngineVertex), verts.size(), f);
+    std::fwrite(tris.data(), sizeof(uint32_t), icount, f);  // Tri{a,b,c} as 3 packed uint32 -- same layout
+    std::fclose(f);
+    std::printf("[chunklod_bake] wrote engine mesh: %u verts, %u indices -> %s\n", vcount, icount, path);
+}
+
 int main(int argc, char** argv) {
     int zx = -1, zy = -1;
     float max_error = 2.0f;
     const char* hmap_path = "game/data/terrain/world_hmap.r16";
     const char* out_path = "/tmp/chunklod_bake_zone.bin";
-    const float sample_spacing = 1.8f;  // real Kenshi m/texel, docs/kenshi/03_reconciled_model.md
+    const char* mesh_out_path = nullptr;
+    // 3.6 m/span between ATLAS_VERTS samples -- NOT the raw 1.8 m/px TIF
+    // resolution. world_hmap.r16's 129 verts/zone are a 2:1 downsample of
+    // the raw 258x258 fetch (docs/kenshi/03_reconciled_model.md §2: "129x129
+    // ... the PhysX heightfield collision resolution per zone, 3.6 m/span
+    // ... not the visual rendering resolution"). 128 spans * 3.6m = 460.8m
+    // = CHUNK_SIZE_M exactly. An earlier version of this tool (and the
+    // Phase 1/2 Python spikes) used 1.8 here -- harmless there since those
+    // never placed geometry in real editor world space, only checked
+    // relative topology/error-metric correctness, but a real bug once
+    // this mesh needs to align with TerrainQuadtreeRenderer's real footprint.
+    const float sample_spacing = 3.6f;
 
     for (int i = 1; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--zone") && i + 2 < argc) { zx = std::atoi(argv[++i]); zy = std::atoi(argv[++i]); }
         else if (!std::strcmp(argv[i], "--max-error") && i + 1 < argc) { max_error = (float)std::atof(argv[++i]); }
         else if (!std::strcmp(argv[i], "--hmap") && i + 1 < argc) { hmap_path = argv[++i]; }
         else if (!std::strcmp(argv[i], "--out") && i + 1 < argc) { out_path = argv[++i]; }
+        else if (!std::strcmp(argv[i], "--write-mesh") && i + 1 < argc) { mesh_out_path = argv[++i]; }
     }
     if (zx < 0 || zy < 0) { std::fprintf(stderr, "usage: %s --zone ZX ZY [--max-error E] [--hmap path] [--out path]\n", argv[0]); return 1; }
 
@@ -455,6 +520,11 @@ int main(int argc, char** argv) {
     auto tris_finest = StripToTriangles(mesh_finest);
     std::printf("[chunklod_bake] FINEST node (level=0): %zu verts, %d strip indices, %zu real triangles\n",
                 mesh_finest.vertices.size(), mesh_finest.IndexCount(), tris_finest.size());
+
+    if (mesh_out_path) {
+        auto engine_verts = ComputeSmoothNormals(mesh_finest, tris_finest, sample_spacing);
+        WriteEngineMesh(mesh_out_path, engine_verts, tris_finest);
+    }
 
     // ── Quantize + round-trip the FINEST mesh (most vertices = most
     // exposure to a real quantization bug) ──────────────────────────

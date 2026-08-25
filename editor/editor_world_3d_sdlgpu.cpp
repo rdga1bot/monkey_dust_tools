@@ -18,6 +18,7 @@
 #include <monkey_dust/render/terrain_shading_projected.h>
 #include <monkey_dust/render/terrain_vt_page_cache.h>
 #include <monkey_dust/render/terrain_quadtree_renderer.h>
+#include <monkey_dust/render/chunk_lod_renderer.h>
 #include <monkey_dust/world/terrain_quadtree.h>
 #include <monkey_dust/render/prop_renderer.h>
 #include <monkey_dust/render/gpu_device.h>
@@ -105,6 +106,19 @@ static bool s_vt_cache_ready = false;
 static TerrainQuadtree         s_quadtree;
 static TerrainQuadtreeRenderer s_quadtree_renderer;
 static bool s_quadtree_ready = false;
+
+// Chunklod runtime spike (Phase 4, docs/TERRAIN_CHUNKLOD_PORT_PLAN.md) --
+// dual-run debug draw ONLY, gated by MD_CHUNKLOD_DEBUG=1 (env var, not a
+// permanent Lua/UI toggle -- this is a one-off comparison spike, not a
+// shipped feature). Placed at a fixed debug offset far from the real
+// terrain footprint (docs/kenshi/03_reconciled_model.md leaves the real
+// zone world-origin convention [UNKNOWN], so no attempt is made to align
+// this with the live TerrainQuadtree's own zone (23,34) position -- the
+// gate compares GPU-ms/triangle-count at matched camera positions on each
+// system separately, not simultaneous on-screen overlap).
+static ChunkLodRenderer s_chunklod_renderer;
+static bool s_chunklod_debug_enabled = false;
+static const float kChunkLodDebugOrigin[3] = { 2000.0f, 0.0f, 2000.0f };
 
 // Builds/rebuilds the static world heightmap from TerrainAtlas's CURRENT
 // contents -- called once at Init() and again whenever s_terrain_dirty's
@@ -364,6 +378,18 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
         // data, never needs rebuilding, unlike the heightmap texture
         // (s_rebuild_granite_hmap).
         s_quadtree_renderer.Init(md::GpuDevice::Get().SDLDevice());
+        // Chunklod runtime spike -- see kChunkLodDebugOrigin's doc comment.
+        // MD_CHUNKLOD_DEBUG_MESH overrides the default path (produced by
+        // `./build/tools/chunklod_bake --zone ZX ZY --write-mesh <path>`).
+        s_chunklod_debug_enabled = std::getenv("MD_CHUNKLOD_DEBUG") != nullptr;
+        if (s_chunklod_debug_enabled) {
+            s_chunklod_renderer.Init(md::GpuDevice::Get().SDLDevice());
+            const char* mesh_path = std::getenv("MD_CHUNKLOD_DEBUG_MESH");
+            if (!mesh_path) mesh_path = "/tmp/chunklod_zone_23_34.mesh";
+            if (!s_chunklod_renderer.LoadMesh(md::GpuDevice::Get().SDLDevice(), mesh_path)) {
+                s_chunklod_debug_enabled = false;
+            }
+        }
         // Placeholder size -- DrawImGui's ensure_rtt-adjacent EnsureSize call
         // resizes this to the real viewport dims on the first frame the
         // panel is actually shown (this thread doesn't know the ImGui
@@ -602,6 +628,9 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
             for (int i = 0; i < qt_count; ++i) {
                 s_quadtree_renderer.DrawNode(gbuf_pass, cmd, s_granite_hmap, vp.m,
                     s_visible_nodes[i], eye_x, eye_y, eye_z);
+            }
+            if (s_chunklod_debug_enabled && s_chunklod_renderer.HasMesh()) {
+                s_chunklod_renderer.Draw(gbuf_pass, cmd, vp.m, kChunkLodDebugOrigin);
             }
             SDL_EndGPURenderPass(gbuf_pass);
         }
