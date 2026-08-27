@@ -74,10 +74,11 @@ inline bool Export(const char* path) {
 
         if ((reg.Handle(e).has<AIAgent>())) {
             const auto& ai = reg.Handle(e).get_mut<AIAgent>();
+            const auto& ts = reg.Handle(e).get_mut<AIAgentTickState>();
             fprintf(f, ",\n        \"ai\": {\"faction_id\":%u,\"lod_level\":%u,"
                        "\"bt_template_id\":%u,\"personal_relation\":%d}",
-                    ai.faction_id, (uint32_t)ai.lod_level,
-                    (uint32_t)ai.bt_template_id, (int)ai.personal_relation);
+                    ai.faction_id, (uint32_t)ts.lod_level,
+                    (uint32_t)ai.bt_template_id, (int)ts.personal_relation);
         }
 
         if ((reg.Handle(e).has<Combat>())) {
@@ -235,13 +236,15 @@ inline bool Import(const char* path) {
         const char* ai_pos = strstr(comp_pos, "\"ai\"");
         if (ai_pos) {
             reg.Handle(e).emplace<AIAgent>();
+            reg.Handle(e).emplace<AIAgentTickState>();
             auto& ai = reg.Handle(e).get_mut<AIAgent>();
+            auto& ts = reg.Handle(e).get_mut<AIAgentTickState>();
             int fi = 0, li = 0, ti = 0, pr = 0;
             SsParsInt(ai_pos, "\"faction_id\"",    fi); ai.faction_id    = (uint32_t)fi;
-            SsParsInt(ai_pos, "\"lod_level\"",     li); ai.lod_level     = (uint8_t)li;
+            SsParsInt(ai_pos, "\"lod_level\"",     li); ts.lod_level     = (uint8_t)li;
             SsParsInt(ai_pos, "\"bt_template_id\"",ti); ai.bt_template_id= (uint8_t)ti;
             SsParsInt(ai_pos, "\"personal_relation\"", pr);
-            ai.personal_relation = (int8_t)pr;
+            ts.personal_relation = (int8_t)pr;
         }
 
         // Combat

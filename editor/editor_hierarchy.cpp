@@ -47,8 +47,9 @@ void EditorHierarchy::EntityLabel(MdEntity e, char* buf, int len) const {
     uint32_t id = e.ToIntegral();
     if ((reg.Handle(e).has<AIAgent>())) {
         const auto& ai = reg.Handle(e).get_mut<AIAgent>();
+        const auto& ts = reg.Handle(e).get_mut<AIAgentTickState>();
         snprintf(buf, len, "%s Entity_%u [f%u LOD%u]",
-                 EntityIcon(e), id, ai.faction_id, (uint32_t)ai.lod_level);
+                 EntityIcon(e), id, ai.faction_id, (uint32_t)ts.lod_level);
     } else if ((reg.Handle(e).has<Building>())) {
         const auto& b = reg.Handle(e).get_mut<Building>();
         const BuildingDef* d = BuildSystem::Get().GetDef(b.def_id);
@@ -64,7 +65,7 @@ ImVec4 EditorHierarchy::EntityColor(MdEntity e) const {
     if ((reg.Handle(e).has<Combat>()) && reg.Handle(e).get_mut<Combat>().is_dead)
         return {1.0f, 0.3f, 0.3f, 1.0f}; // RED  = dead
     if ((reg.Handle(e).has<AIAgent>())) {
-        uint8_t lod = reg.Handle(e).get_mut<AIAgent>().lod_level;
+        uint8_t lod = reg.Handle(e).get_mut<AIAgentTickState>().lod_level;
         if (lod == 2) return {0.5f, 0.5f, 0.5f, 1.0f}; // GRAY   = FROZEN
         if (lod == 1) return {1.0f, 0.9f, 0.3f, 1.0f}; // YELLOW = LOW
         return {0.3f, 1.0f, 0.5f, 1.0f};                // GREEN  = HIGH
@@ -90,6 +91,7 @@ void EditorHierarchy::DrawContextMenu(MdEntity e) {
             tr.slot = TransformSoA::Get().Alloc(dst, tr.x, tr.z, (uint8_t)fid);
             // Copy all components present on source.
             if ((reg.Handle(e).has<AIAgent>()))       reg.Handle(dst).emplace<AIAgent>(reg.Handle(e).get_mut<AIAgent>());
+            if ((reg.Handle(e).has<AIAgentTickState>())) reg.Handle(dst).emplace<AIAgentTickState>(reg.Handle(e).get_mut<AIAgentTickState>());
             if ((reg.Handle(e).has<Health>()))         reg.Handle(dst).emplace<Health>(reg.Handle(e).get_mut<Health>());
             if ((reg.Handle(e).has<Combat>()))         reg.Handle(dst).emplace<Combat>(reg.Handle(e).get_mut<Combat>());
             if ((reg.Handle(e).has<Building>()))       reg.Handle(dst).emplace<Building>(reg.Handle(e).get_mut<Building>());
@@ -123,18 +125,18 @@ void EditorHierarchy::DrawContextMenu(MdEntity e) {
         }
     }
     if (ImGui::MenuItem("Freeze LOD")) {
-        if (reg.Valid(e) && (reg.Handle(e).has<AIAgent>()))
-            reg.Handle(e).get_mut<AIAgent>().lod_level = 2;
+        if (reg.Valid(e) && (reg.Handle(e).has<AIAgentTickState>()))
+            reg.Handle(e).get_mut<AIAgentTickState>().lod_level = 2;
     }
     if (ImGui::MenuItem("Unfreeze LOD")) {
-        if (reg.Valid(e) && (reg.Handle(e).has<AIAgent>()))
-            reg.Handle(e).get_mut<AIAgent>().lod_level = 0;
+        if (reg.Valid(e) && (reg.Handle(e).has<AIAgentTickState>()))
+            reg.Handle(e).get_mut<AIAgentTickState>().lod_level = 0;
     }
     ImGui::Separator();
     if (ImGui::BeginMenu("Add Component")) {
         if (ImGui::MenuItem("Health"))  { if (reg.Valid(e) && !(reg.Handle(e).has<Health>()))  reg.Handle(e).emplace<Health>(Health{100.f, 100.f}); }
         if (ImGui::MenuItem("Combat"))  { if (reg.Valid(e) && !(reg.Handle(e).has<Combat>()))  reg.Handle(e).emplace<Combat>(); }
-        if (ImGui::MenuItem("AIAgent")) { if (reg.Valid(e) && !(reg.Handle(e).has<AIAgent>())) reg.Handle(e).emplace<AIAgent>(); }
+        if (ImGui::MenuItem("AIAgent")) { if (reg.Valid(e) && !(reg.Handle(e).has<AIAgent>())) { reg.Handle(e).emplace<AIAgent>(); reg.Handle(e).emplace<AIAgentTickState>(); } }
         ImGui::EndMenu();
     }
 }

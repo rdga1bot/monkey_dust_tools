@@ -29,9 +29,10 @@ inline MdEntity SpawnFromArchetype(int idx) {
     tr.slot = TransformSoA::Get().Alloc(e, tr.x, tr.z, (uint8_t)d.faction_id);
 
     reg.Handle(e).emplace<AIAgent>();
+    reg.Handle(e).emplace<AIAgentTickState>();
     auto& ai = reg.Handle(e).get_mut<AIAgent>();
     ai.faction_id = d.faction_id;
-    ai.lod_level  = d.lod_level;
+    reg.Handle(e).get_mut<AIAgentTickState>().lod_level = d.lod_level;
 
     reg.Handle(e).set<Health>(LimbHealth::Make(d.health));
 

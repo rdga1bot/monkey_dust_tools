@@ -346,9 +346,9 @@ void EditorToolbar::SpawnEntity(const char* type) {
     tr.x = pos.x; tr.y = 0.f; tr.z = pos.z; tr.rot_y = 0.f;
     tr.slot = TransformSoA::Get().Alloc(e, pos.x, pos.z, faction);
     reg.Handle(e).emplace<AIAgent>();
+    reg.Handle(e).emplace<AIAgentTickState>();
     auto& ai = reg.Handle(e).get_mut<AIAgent>();
     ai.faction_id = faction;
-    ai.lod_level  = 0;
     reg.Handle(e).set<Health>(LimbHealth::Make(100.f));
     reg.Handle(e).emplace<Combat>();
     reg.Handle(e).emplace<Renderable>();

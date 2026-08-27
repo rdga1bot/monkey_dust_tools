@@ -36,6 +36,7 @@ CmdResult DuplicateSelectedCmd(const CmdArgs&, MdRegistry& reg, uint8_t[64]) {
     tr.slot = TransformSoA::Get().Alloc(dst, tr.x, tr.z, (uint8_t)fid);
     if (reg.Handle(src).has<Health>())     reg.Handle(dst).emplace<Health>(reg.Handle(src).get_mut<Health>());
     if (reg.Handle(src).has<AIAgent>())    reg.Handle(dst).emplace<AIAgent>(reg.Handle(src).get_mut<AIAgent>());
+    if (reg.Handle(src).has<AIAgentTickState>()) reg.Handle(dst).emplace<AIAgentTickState>(reg.Handle(src).get_mut<AIAgentTickState>());
     if (reg.Handle(src).has<Renderable>()) reg.Handle(dst).emplace<Renderable>(reg.Handle(src).get_mut<Renderable>());
     ec.Select(dst);
     CmdResult r;
@@ -150,6 +151,7 @@ CmdResult SpawnEntityCmd(const CmdArgs& args, MdRegistry& reg, uint8_t[64]) {
     auto& tr = reg.Handle(e).get_mut<WorldTransform>();
     tr.x = cx; tr.y = 0.f; tr.z = cz; tr.rot_y = 0.f;
     reg.Handle(e).emplace<AIAgent>();
+    reg.Handle(e).emplace<AIAgentTickState>();
     auto& ai = reg.Handle(e).get_mut<AIAgent>();
     ai.faction_id = (uint32_t)faction;
     reg.Handle(e).emplace<Health>(Health{100.f, 100.f});
