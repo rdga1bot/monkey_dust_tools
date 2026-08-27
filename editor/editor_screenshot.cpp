@@ -81,6 +81,10 @@ bool EditorScreenshot_CaptureAndSubmit(SDL_GPUDevice* dev, SDL_GPUCommandBuffer*
     bool sync_timing = md::GpuDevice::Get().SyncTiming();
     uint64_t t0 = sync_timing ? SDL_GetPerformanceCounter() : 0;
     SDL_GPUFence* fence = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
+    // This path submits `cmd` itself instead of going through GpuDevice::
+    // Submit() -- report completion so HasActiveCommandBuffer()'s frame-
+    // resize tripwire (gpu_device.h) doesn't stay stuck true afterward.
+    md::GpuDevice::Get().NotifyCommandBufferSubmitted();
     if (!fence) {
         fprintf(stderr, "[EditorScreenshot] SDL_SubmitGPUCommandBufferAndAcquireFence failed: %s\n", SDL_GetError());
         SDL_ReleaseGPUTransferBuffer(dev, tb);

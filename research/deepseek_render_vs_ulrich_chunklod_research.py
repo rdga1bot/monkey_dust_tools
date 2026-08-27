@@ -49,7 +49,10 @@ KEY_FILE = Path("/home/rdga1/rdga1bot-cli-md-deepseek.txt")
 
 API_URL = "https://api.deepseek.com/chat/completions"
 MODEL = "deepseek-reasoner"
-MAX_TOKENS = 8000
+MAX_TOKENS = 32000  # bumped from 8000: deepseek-reasoner's reasoning tokens
+# count against max_tokens too, and the "lod_selection_math" topic exhausted
+# 8000 on reasoning alone before emitting any content (finish_reason=length,
+# empty content) on 2026-08-26 -- same failure as the sibling Granite script
 MAX_CHARS_PER_SIDE = 20000  # Ulrich's real files are dense C++, give this pass more budget
 MAX_LINES_PER_FILE = 500
 
