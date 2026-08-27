@@ -414,6 +414,30 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
 // enough for main() to race ahead to shutdown before the load finishes.
 void Shutdown() {
     if (s_loader_thread.joinable()) s_loader_thread.join();
+
+    // audit S2 (2026-08-27, Phase 2 sanitizer follow-up): this used to only
+    // join the loader thread -- none of the GPU-resource-owning statics
+    // below ever had their Shutdown() called before editor_panels_shutdown()
+    // (this function's only caller) returns and EditorModule::Unload()
+    // dlclose()s this .so out from under them. LeakSanitizer measured a
+    // real, reproducible ~34KB/75-allocation leak per hot-reload cycle
+    // (textures/buffers/samplers from Init(), never freed), traced to
+    // exactly this gap. Order matters: the loader thread above must finish
+    // first (it can still be touching s_terrain/s_props), and GetSDLDevice()
+    // must still be valid (this runs before EditorModule::Unload()'s
+    // dlclose(), which is well before GpuDevice::Shutdown() at real process
+    // exit -- see this function's own doc comment above for that separate,
+    // already-fixed race).
+    SDL_GPUDevice* dev = md::GpuDevice::Get().SDLDevice();
+    s_quadtree_renderer.Shutdown(dev);
+    s_quadtree_ready = false;
+    s_vt_cache.Shutdown(dev);
+    s_vt_cache_ready = false;
+    s_terrain_shading.Shutdown();
+    s_props.Shutdown();
+    s_terrain.Shutdown();
+    s_granite_hmap.Shutdown(dev);
+    s_granite_ready = false;
 }
 
 // R key: force an immediate refresh of both terrain tiers (was "rebuild all
