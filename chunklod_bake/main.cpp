@@ -456,7 +456,7 @@ static std::vector<EngineVertex> ComputeSmoothNormals(const Mesh& mesh, const st
     return verts;
 }
 
-static void WriteEngineMesh(const char* path, const std::vector<EngineVertex>& verts, const std::vector<Tri>& tris) {
+static void WriteEngineMesh(const char* path, const std::vector<EngineVertex>& verts, const std::vector<Tri>& tris, bool verbose = true) {
     FILE* f = std::fopen(path, "wb");
     if (!f) { std::fprintf(stderr, "cannot write %s\n", path); return; }
     uint32_t vcount = (uint32_t)verts.size(), icount = (uint32_t)tris.size() * 3;
@@ -465,19 +465,34 @@ static void WriteEngineMesh(const char* path, const std::vector<EngineVertex>& v
     std::fwrite(verts.data(), sizeof(EngineVertex), verts.size(), f);
     std::fwrite(tris.data(), sizeof(uint32_t), icount, f);  // Tri{a,b,c} as 3 packed uint32 -- same layout
     std::fclose(f);
-    std::printf("[chunklod_bake] wrote engine mesh: %u verts, %u indices -> %s\n", vcount, icount, path);
+    // bake-all writes kNumLodLevels files x 4096 zones -- one print per file
+    // would flood stdout with 16K+ lines; bake-all has its own row-summary
+    // printf instead. Single-zone (--zone) mode keeps the per-file message.
+    if (verbose) {
+        std::printf("[chunklod_bake] wrote engine mesh: %u verts, %u indices -> %s\n", vcount, icount, path);
+    }
 }
 
-// ── Phase 5: full-map bake ────────────────────────────────────────────────
-// Bakes all ATLAS_ZONES x ATLAS_ZONES zones' FINEST (level=0) mesh to
-// <out_dir>/zone_<zx>_<zy>.mesh (WriteEngineMesh format), for the game-side
-// ChunkLodWorld streaming manager to load on demand. No runtime distance-LOD
-// switching -- each zone is baked at ONE fixed max_error, same simplification
-// this whole phase has been honest about (docs/TERRAIN_CHUNKLOD_PORT_PLAN.md
-// Phase 5's own scope note): a real chunklod runtime keeps the WHOLE
-// activation-level node tree and switches nodes per-frame based on screen-space
-// error (chunklod.cpp's compute_lod); this spike bakes only the single
-// finest-LOD mesh per zone that Phase 2-4 already validated.
+// ── Chunklod honest-retest Фаза 2: real per-node distance-LOD ─────────────
+// Bakes all ATLAS_ZONES x ATLAS_ZONES zones at kNumLodLevels discrete LOD
+// levels each, to <out_dir>/zone_<zx>_<zy>_lod<i>.mesh (i=0 finest..
+// kNumLodLevels-1 coarsest). Each zone's Update()/PropagateActivationLevel()
+// (the expensive error-annotation pass) runs ONCE per zone -- the same
+// annotated Heightfield already encodes every LOD level simultaneously
+// (activation_level per vertex), so GenerateNodeMesh(hf,...,level) for
+// several different `level` values is free reuse, not N separate bakes.
+// kLodActivationLevels chooses which of Ulrich's real activation levels
+// (0=finest..hf.log_size-1=coarsest, confirmed via the Phase 2 gate:
+// ATLAS_VERTS=129 -> log_size=7 -> level 6 = the 12-vert/10-tri root) map
+// to each of our 4 runtime LOD slots -- an engineering simplification of
+// "keep the whole node tree and pick the exact activation level" (real
+// chunklod.cpp) down to "precompute 4 representative levels, pick the
+// nearest one at runtime" (ChunkLodWorld::SelectLod), honestly not the
+// full per-node system, but a genuine distance-based LOD reduction where
+// there was none before -- see docs/TERRAIN_CHUNKLOD_PORT_PLAN.md's
+// reopened plan for why the previous "always finest" spike was rejected.
+static constexpr int kNumLodLevels = 4;
+static constexpr int kLodActivationLevels[kNumLodLevels] = {0, 2, 4, 6};
 // Recursive mkdir without a shell -- out_dir comes straight from argv
 // (CLI --bake-all argument), so interpolating it into a std::system()
 // command string (the previous approach here) is a real command-injection
@@ -518,23 +533,20 @@ static int BakeAll(const char* hmap_path, const char* out_dir, float max_error, 
                 PropagateActivationLevel(hf, n >> 1, n >> 1, hf.log_size - 1, i);
             }
 
-            Mesh mesh_finest = GenerateNodeMesh(hf, 0, 0, hf.log_size, 0);
-            auto tris_finest = StripToTriangles(mesh_finest);
-            auto engine_verts = ComputeSmoothNormals(mesh_finest, tris_finest, sample_spacing);
+            for (int lod = 0; lod < kNumLodLevels; ++lod) {
+                Mesh mesh = GenerateNodeMesh(hf, 0, 0, hf.log_size, kLodActivationLevels[lod]);
+                auto tris = StripToTriangles(mesh);
+                auto engine_verts = ComputeSmoothNormals(mesh, tris, sample_spacing);
 
-            char path[600];
-            std::snprintf(path, sizeof(path), "%s/zone_%d_%d.mesh", out_dir, zx, zy);
-            FILE* f = std::fopen(path, "wb");
-            if (!f) { std::fprintf(stderr, "cannot write %s\n", path); return 1; }
-            uint32_t vcount = (uint32_t)engine_verts.size(), icount = (uint32_t)tris_finest.size() * 3;
-            std::fwrite(&vcount, sizeof(vcount), 1, f);
-            std::fwrite(&icount, sizeof(icount), 1, f);
-            std::fwrite(engine_verts.data(), sizeof(EngineVertex), engine_verts.size(), f);
-            std::fwrite(tris_finest.data(), sizeof(uint32_t), icount, f);
-            std::fclose(f);
+                char path[600];
+                std::snprintf(path, sizeof(path), "%s/zone_%d_%d_lod%d.mesh", out_dir, zx, zy, lod);
+                WriteEngineMesh(path, engine_verts, tris, /*verbose=*/false);
 
-            total_verts += (int64_t)vcount;
-            total_tris  += (int64_t)tris_finest.size();
+                if (lod == 0) {
+                    total_verts += (int64_t)engine_verts.size();
+                    total_tris  += (int64_t)tris.size();
+                }
+            }
             ++zones_written;
         }
         std::printf("[chunklod_bake] row %d/%d done (%lld zones, %lld verts, %lld tris so far)\n",
