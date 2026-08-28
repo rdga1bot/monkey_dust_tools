@@ -36,6 +36,8 @@
 #include <map>
 #include <algorithm>
 #include <string>
+#include <cerrno>
+#include <sys/stat.h>
 
 // ── world_hmap.r16 reader — mirrors tools/md_hmap_io.py exactly ──────────
 namespace hmap {
@@ -476,10 +478,28 @@ static void WriteEngineMesh(const char* path, const std::vector<EngineVertex>& v
 // activation-level node tree and switches nodes per-frame based on screen-space
 // error (chunklod.cpp's compute_lod); this spike bakes only the single
 // finest-LOD mesh per zone that Phase 2-4 already validated.
+// Recursive mkdir without a shell -- out_dir comes straight from argv
+// (CLI --bake-all argument), so interpolating it into a std::system()
+// command string (the previous approach here) is a real command-injection
+// hole, the same class of bug FIX-1 already eliminated elsewhere in this
+// codebase (CLAUDE_HISTORY.md's "Security audit" entry: system() -> POSIX
+// mkdir). Creates each path component in turn; EEXIST on an already-
+// existing component is expected and not an error.
+static bool MkdirRecursive(const char* path) {
+    char buf[512];
+    std::snprintf(buf, sizeof(buf), "%s", path);
+    for (char* p = buf + 1; *p; ++p) {
+        if (*p == '/') {
+            *p = '\0';
+            if (mkdir(buf, 0755) != 0 && errno != EEXIST) return false;
+            *p = '/';
+        }
+    }
+    return mkdir(buf, 0755) == 0 || errno == EEXIST;
+}
+
 static int BakeAll(const char* hmap_path, const char* out_dir, float max_error, float sample_spacing) {
-    char cmd[512];
-    std::snprintf(cmd, sizeof(cmd), "mkdir -p \"%s\"", out_dir);
-    if (std::system(cmd) != 0) { std::fprintf(stderr, "mkdir -p %s failed\n", out_dir); return 1; }
+    if (!MkdirRecursive(out_dir)) { std::fprintf(stderr, "mkdir -p %s failed\n", out_dir); return 1; }
 
     int64_t total_verts = 0, total_tris = 0, zones_written = 0;
     for (int zy = 0; zy < hmap::ATLAS_ZONES; ++zy) {
