@@ -426,6 +426,30 @@ def cmd_doctor(args) -> int:
     return code
 
 
+# ── lint ───────────────────────────────────────────────────────────────────
+def cmd_lint(args) -> int:
+    """Runs scripts/lint_constitution.py (CLAUDE_CONSTITUTION.md §2.2/§3.6
+    mechanical checks) and, unless --skip-ratchet, scripts/audit/ratchet.sh
+    (fails if cppcheck/constitution counts regressed vs docs/audit/BASELINE.json).
+    Thin wrapper -- both scripts own their logic, this just logs + relays
+    the combined exit code, matching every other subcommand's contract."""
+    code1, log1, tail1 = run_logged(
+        ["python3", "scripts/lint_constitution.py"], tag="lint_constitution", timeout=120)
+    print(tail1)
+    print(f"[md_ctl lint] lint_constitution.py exit={code1}, log: {log1}")
+
+    if args.skip_ratchet:
+        return code1
+
+    ratchet_args = ["bash", "scripts/audit/ratchet.sh"]
+    if args.update_baseline:
+        ratchet_args.append("--update-baseline")
+    code2, log2, tail2 = run_logged(ratchet_args, tag="ratchet", timeout=600)
+    print(tail2)
+    print(f"[md_ctl lint] ratchet.sh exit={code2}, log: {log2}")
+    return code1 or code2
+
+
 # ── kb-sync ────────────────────────────────────────────────────────────────
 def cmd_kb_sync(args) -> int:
     """Runs tools/kb_graph_sync.py (docs/KNOWLEDGE_LIBRARY.md) -- parses
@@ -515,6 +539,13 @@ def main() -> int:
 
     p = sub.add_parser("doctor"); p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_doctor)
+
+    p = sub.add_parser("lint")
+    p.add_argument("--skip-ratchet", action="store_true",
+                    help="only run lint_constitution.py, skip the regression-vs-BASELINE.json check")
+    p.add_argument("--update-baseline", action="store_true",
+                    help="if the ratchet check finds improvements (fewer warnings), lock them into BASELINE.json")
+    p.set_defaults(func=cmd_lint)
 
     p = sub.add_parser("kb-sync"); p.set_defaults(func=cmd_kb_sync)
 
