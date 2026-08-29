@@ -15,6 +15,10 @@ endif()
 # All editor panel .cpp files (map_view + all wicked-style panels).
 file(GLOB EDITOR_PANEL_SOURCES "editor/*.cpp")
 list(REMOVE_ITEM EDITOR_PANEL_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/editor/main.cpp")
+# ui_smoke_tests.cpp needs the imgui_test_engine include paths added under
+# MD_UI_TESTS below (option declared later in this file, default OFF) —
+# re-added to monkey_dust_editor's sources there when MD_UI_TESTS=ON.
+list(REMOVE_ITEM EDITOR_PANEL_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/editor/ui_smoke_tests.cpp")
 
 set(EDITOR_IMGUI_SRC
     ${CMAKE_SOURCE_DIR}/tools/third_party/imgui/imgui.cpp
