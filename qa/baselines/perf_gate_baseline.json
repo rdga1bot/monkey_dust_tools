@@ -1,0 +1,55 @@
+{
+  "points": [
+    {
+      "zone_x": 28,
+      "zone_z": 8,
+      "pose": "horizon",
+      "pitch": 10.0
+    },
+    {
+      "zone_x": 20,
+      "zone_z": 12,
+      "pose": "horizon",
+      "pitch": 10.0
+    },
+    {
+      "zone_x": 20,
+      "zone_z": 12,
+      "pose": "gameplay",
+      "pitch": 40.0
+    },
+    {
+      "zone_x": 16,
+      "zone_z": 20,
+      "pose": "horizon",
+      "pitch": 10.0
+    },
+    {
+      "zone_x": 24,
+      "zone_z": 12,
+      "pose": "horizon",
+      "pitch": 10.0
+    },
+    {
+      "zone_x": 12,
+      "zone_z": 36,
+      "pose": "horizon",
+      "pitch": 10.0
+    },
+    {
+      "zone_x": 36,
+      "zone_z": 32,
+      "pose": "gameplay",
+      "pitch": 40.0
+    }
+  ],
+  "metrics": {
+    "28,8,horizon": 13.1233649253845,
+    "20,12,horizon": 12.834474563598501,
+    "20,12,gameplay": 12.979595661163,
+    "16,20,horizon": 14.0123624801635,
+    "24,12,horizon": 13.5184712409975,
+    "12,36,horizon": 14.518825054168499,
+    "36,32,gameplay": 13.848240375519
+  }
+}
