@@ -84,8 +84,28 @@ void EditorCameraPanel::DrawContent() {
                     cam.pos.x, cam.pos.y, cam.pos.z);
         ImGui::Text("Target:   (%.1f, %.1f, %.1f)",
                     ec.cam_target.x, ec.cam_target.y, ec.cam_target.z);
+        // 2026-08-28 ("елементарно не вмієш перевіряти за координатами" user
+        // report): this used to print ec.cam_yaw/ec.cam_pitch UNCONDITIONALLY,
+        // even in Flythrough mode -- but Flythrough's actual view direction
+        // comes from ec.fly_yaw/ec.fly_pitch (radians, editor_core.cpp's WASD/
+        // RMB-look handler), a COMPLETELY SEPARATE pair of fields from
+        // cam_yaw/cam_pitch (degrees, Orbit-mode-only). Whatever cam_yaw/
+        // cam_pitch happened to be left at (stale from a previous Orbit
+        // session, or its -45/25 default) was displayed as if it were the
+        // real Flythrough angle -- any bug report copy-pasting this readout's
+        // Yaw/Pitch into md.set_camera_pose() while in Flythrough mode
+        // reproduced an ARBITRARY, unrelated view direction, not the
+        // reported one. Root-caused by tracing editor_core.cpp's per-frame
+        // camera update: Flythrough sets editor_cam.pos = cam_target directly
+        // (line ~540) and derives view direction from fly_yaw/fly_pitch
+        // (~508-539); Orbit derives editor_cam.pos from cam_yaw/cam_pitch/
+        // cam_dist instead (~556-571) -- two disjoint code paths, and this
+        // panel only ever read the Orbit one.
+        bool flyMode = ec.cam_flying && !ec.cam_game_mode;
+        float shownYaw   = flyMode ? ec.fly_yaw   * (180.f / 3.14159265f) : ec.cam_yaw;
+        float shownPitch = flyMode ? ec.fly_pitch * (180.f / 3.14159265f) : ec.cam_pitch;
         ImGui::Text("Yaw: %.1f  Pitch: %.1f  Dist: %.1f",
-                    ec.cam_yaw, ec.cam_pitch, ec.cam_dist);
+                    shownYaw, shownPitch, ec.cam_dist);
         // Absolute Kenshi-world coords + zone -- see EditorCore::scene_world_dx's
         // doc comment. Position/Target above are session-local (tnoff-relative)
         // and meaningless outside this one running session; these are not.

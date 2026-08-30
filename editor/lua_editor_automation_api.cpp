@@ -168,14 +168,25 @@ int l_md_editor_selection(lua_State* L) {
     return 1;
 }
 
+// 2026-08-28 ("елементарно не вмієш перевіряти за координатами" user
+// report): this used to report ec.cam_yaw/ec.cam_pitch (Orbit-mode-only
+// degrees) UNCONDITIONALLY, even while Flythrough was active -- Flythrough's
+// real view direction is ec.fly_yaw/ec.fly_pitch (radians, a completely
+// separate pair of fields, see editor_camera_panel.cpp's own doc comment on
+// this exact bug). Any script reading md.editor.camera() while flying got a
+// stale/unrelated angle back. Now mode-aware, matching what the Camera
+// panel's Viewport Info actually shows.
 int l_md_editor_camera(lua_State* L) {
     auto& ec = EditorCore::Get();
+    bool flyMode = ec.cam_flying && !ec.cam_game_mode;
+    double yaw   = flyMode ? ec.fly_yaw   * (180.0 / 3.14159265358979) : ec.cam_yaw;
+    double pitch = flyMode ? ec.fly_pitch * (180.0 / 3.14159265358979) : ec.cam_pitch;
     lua_newtable(L);
     lua_pushnumber(L, ec.cam_target.x); lua_setfield(L, -2, "x");
     lua_pushnumber(L, ec.cam_target.y); lua_setfield(L, -2, "y");
     lua_pushnumber(L, ec.cam_target.z); lua_setfield(L, -2, "z");
-    lua_pushnumber(L, ec.cam_yaw);      lua_setfield(L, -2, "yaw");
-    lua_pushnumber(L, ec.cam_pitch);    lua_setfield(L, -2, "pitch");
+    lua_pushnumber(L, yaw);             lua_setfield(L, -2, "yaw");
+    lua_pushnumber(L, pitch);           lua_setfield(L, -2, "pitch");
     return 1;
 }
 
@@ -213,11 +224,14 @@ int l_md_editor_dump(lua_State* L) {
     static auto q = MdRegistry::Get().Raw().query<MdManagedTag>();
     q.each([&](flecs::entity, MdManagedTag) { ++entity_count; });
 
+    bool camFlyMode = ec.cam_flying && !ec.cam_game_mode;
+    double camYawDeg   = camFlyMode ? ec.fly_yaw   * (180.0 / 3.14159265358979) : ec.cam_yaw;
+    double camPitchDeg = camFlyMode ? ec.fly_pitch * (180.0 / 3.14159265358979) : ec.cam_pitch;
     fprintf(f, "[Status]\n");
     fprintf(f, "  entity_count=%d\n", entity_count);
     fprintf(f, "  selection_count=%d\n", ec.selected_count);
     fprintf(f, "  camera=(%.2f,%.2f,%.2f) yaw=%.2f pitch=%.2f\n",
-            ec.cam_target.x, ec.cam_target.y, ec.cam_target.z, ec.cam_yaw, ec.cam_pitch);
+            ec.cam_target.x, ec.cam_target.y, ec.cam_target.z, camYawDeg, camPitchDeg);
     fprintf(f, "  nav_ready=%d\n", NavSystem::Get().IsReady() ? 1 : 0);
     fprintf(f, "  fps=%.1f\n\n", ec.frame_fps);
 
