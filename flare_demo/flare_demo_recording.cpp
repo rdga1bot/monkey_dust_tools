@@ -49,44 +49,38 @@ void GenCamIcon(uint8_t* p, bool rec) {
 }
 
 // Create a BTN_SZ×BTN_SZ RGBA8 SDL_GPU texture from pixel data.
-SDL_GPUTexture* MakeCamTex(SDL_GPUDevice* dev, const uint8_t* pixels) {
-    SDL_GPUTextureCreateInfo ti {};
-    ti.type                 = SDL_GPU_TEXTURETYPE_2D;
-    ti.format               = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
-    ti.width                = (uint32_t)BTN_SZ;
-    ti.height               = (uint32_t)BTN_SZ;
-    ti.layer_count_or_depth = 1;
-    ti.num_levels           = 1;
-    ti.usage                = SDL_GPU_TEXTUREUSAGE_SAMPLER;
-    SDL_GPUTexture* tex = SDL_CreateGPUTexture(dev, &ti);
-    if (!tex) return nullptr;
+bool MakeCamTex(SDL_GPUDevice* dev, const uint8_t* pixels, GpuColorTexture& out) {
+    if (!out.Init(BTN_SZ, BTN_SZ, SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
+                   SDL_GPU_TEXTUREUSAGE_SAMPLER))
+        return false;
 
     SDL_GPUTransferBufferCreateInfo tbi {};
     tbi.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
     tbi.size  = (uint32_t)(BTN_SZ * BTN_SZ * 4);
     SDL_GPUTransferBuffer* tb = SDL_CreateGPUTransferBuffer(dev, &tbi);
-    if (!tb) { SDL_ReleaseGPUTexture(dev, tex); return nullptr; }
+    if (!tb) { out.Shutdown(); return false; }
 
     void* ptr = SDL_MapGPUTransferBuffer(dev, tb, false);
     if (ptr) memcpy(ptr, pixels, (size_t)(BTN_SZ * BTN_SZ * 4));
     SDL_UnmapGPUTransferBuffer(dev, tb);
 
-    SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(dev);
-    SDL_GPUCopyPass*      cp  = SDL_BeginGPUCopyPass(cmd);
+    SDL_GPUCommandBuffer* cmd = md::GpuDevice::Get().AcquireCommandBuffer();
+    GpuCopyPass cp;
+    cp.Begin(cmd);
     SDL_GPUTextureTransferInfo src {};
     src.transfer_buffer = tb;
     src.pixels_per_row  = (uint32_t)BTN_SZ;
     src.rows_per_layer  = (uint32_t)BTN_SZ;
     SDL_GPUTextureRegion dst {};
-    dst.texture = tex;
+    dst.texture = out.SDLTexture();
     dst.w = (uint32_t)BTN_SZ;
     dst.h = (uint32_t)BTN_SZ;
     dst.d = 1;
-    SDL_UploadToGPUTexture(cp, &src, &dst, false);
-    SDL_EndGPUCopyPass(cp);
-    SDL_SubmitGPUCommandBuffer(cmd);
+    cp.UploadTexture(src, dst, false);
+    cp.End();
+    md::GpuDevice::Get().Submit(cmd);
     SDL_ReleaseGPUTransferBuffer(dev, tb);
-    return tex;
+    return true;
 }
 
 void StartRecording() {

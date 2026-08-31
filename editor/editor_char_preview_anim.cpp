@@ -49,8 +49,8 @@ bool       s_breath_loaded = false;
 SliderAnim s_anim_postures;    // body[4]  Posture    → "postures"
 SliderAnim s_anim_neck_set;    // body[5]  Shoulder set → "neck set" (Kenshi naming)
 SliderAnim s_anim_shoulder_set;// body[6]  Neck pos   → "shoulder set"
-SDL_GPUTexture* s_color = nullptr;
-SDL_GPUTexture* s_depth = nullptr;
+GpuColorTexture s_color;
+GpuColorTexture s_depth;
 int s_rtt_w = 0;
 int s_rtt_h = 0;
 float s_yaw = 0.18f;
@@ -304,7 +304,7 @@ void ResetAnimPhase() { s_anim_epoch_ms = SDL_GetTicks(); }
 void DumpState(FILE* f) {
     fprintf(f, "[CharPreview]\n");
     fprintf(f, "  ok=%d  ni=%d  rtt=%dx%d\n", s_ok, s_ni, s_rtt_w, s_rtt_h);
-    fprintf(f, "  color_tex=%s  depth_tex=%s\n", s_color ? "ok" : "null", s_depth ? "ok" : "null");
+    fprintf(f, "  color_tex=%s  depth_tex=%s\n", s_color.SDLTexture() ? "ok" : "null", s_depth.SDLTexture() ? "ok" : "null");
     fprintf(f, "  yaw=%.4f  pit=%.4f  dist=%.4f\n", s_yaw, s_pit, s_dist);
     fprintf(f, "  skin=%.3f,%.3f,%.3f  str=%.3f\n", s_skin[0], s_skin[1], s_skin[2], s_str);
     fprintf(f, "  sat=%.3f  bri=%.3f  muscle=%.3f\n", s_sat, s_bri, s_muscle);

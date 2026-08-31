@@ -13,10 +13,12 @@ extern "C" {
 }
 
 // ── md.editor_open_panel(name) ────────────────────────────────────────────────
-// Etap 4 scope: only "3D World" is wired to actually force-select the tab
-// (that's the one VERIFY needs — teleport+screenshot happens there). Other
-// tab names are accepted (stored, no error) but do nothing yet; wire them
-// the same way if a future scenario needs them — don't pre-wrap every panel.
+// Etap 4 scope: "3D World" and "Characters" force-select their tab (the
+// latter added for M1 HAL-closure A/B coverage of editor_char_preview_
+// game.h's depth_discard_after pass — needs CharacterEditor::Draw to run
+// once so CharPreviewSDLGPU::Init actually loads a mesh). Other tab names
+// are accepted (stored, no error) but do nothing yet; wire them the same
+// way if a future scenario needs them — don't pre-wrap every panel.
 static char s_forced_tab[64] = {};
 
 static int l_md_editor_open_panel(lua_State* L) {

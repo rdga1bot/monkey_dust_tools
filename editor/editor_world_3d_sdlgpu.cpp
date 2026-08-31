@@ -633,21 +633,18 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
     }
 
     // ── Terrain render pass ──────────────────────────────────────────────────
-    SDL_GPUColorTargetInfo ct = {};
-    ct.texture     = s_color;
-    ct.load_op     = SDL_GPU_LOADOP_CLEAR;
-    ct.store_op    = SDL_GPU_STOREOP_STORE;
-    ct.clear_color = { kSkyR, kSkyG, kSkyB, 1.f };
-
-    SDL_GPUDepthStencilTargetInfo di = {};
-    di.texture          = s_depth;
-    di.clear_depth      = 1.f;
-    di.load_op          = SDL_GPU_LOADOP_CLEAR;
-    di.store_op         = SDL_GPU_STOREOP_STORE;
-    di.stencil_load_op  = SDL_GPU_LOADOP_DONT_CARE;
-    di.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
-
-    SDL_GPURenderPass* rp = SDL_BeginGPURenderPass(cmd, &ct, 1, &di);
+    GpuCommandBuffer cb;
+    GpuCommandBuffer::ColorPassDesc cpd;
+    cpd.cmd            = cmd;
+    cpd.color_tex      = s_color;
+    cpd.depth_tex      = s_depth;
+    cpd.clear_color[0] = kSkyR; cpd.clear_color[1] = kSkyG;
+    cpd.clear_color[2] = kSkyB; cpd.clear_color[3] = 1.f;
+    cpd.clear_depth    = 1.f;
+    cpd.load_color     = false; // CLEAR, matches original exactly
+    cpd.load_depth     = false; // CLEAR
+    cb.BeginColorPass(cpd);
+    SDL_GPURenderPass* rp = cb.SDLPass();
     if (rp) {
         // ── Sky — same shader + SkyUBO as game ───────────────────────────────
         if (s_sky_pipeline.SDLPipeline()) {
@@ -665,10 +662,11 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
             sky.horizon_col[2] = kSkyB;
             sky.fov_tan = tanf(0.80f * 0.5f);
             sky.aspect  = asp;
-            SDL_BindGPUGraphicsPipeline(rp, s_sky_pipeline.SDLPipeline());
-            SDL_PushGPUVertexUniformData(cmd, 0, &sky, sizeof(sky));
-            SDL_PushGPUFragmentUniformData(cmd, 0, &sky, sizeof(sky));
-            SDL_DrawGPUPrimitives(rp, 3, 1, 0, 0);
+            GpuPassView pv = GpuPassView::FromRaw(rp, cmd);
+            pv.BindPipeline(&s_sky_pipeline);
+            pv.PushVertexUniforms(0, &sky, sizeof(sky));
+            pv.PushFragmentUniforms(0, &sky, sizeof(sky));
+            pv.Draw(3, 1, 0, 0);
         }
 
         if (s_granite_ready && s_terrain.IsReady()) {
@@ -699,7 +697,7 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
                 s_terrain, s_vt_cache);
         }
 
-        SDL_EndGPURenderPass(rp);
+        cb.EndPass();
     }
 
     (void)dt;
@@ -849,8 +847,11 @@ int VtDebugFill() {
     // (separate command buffer) can never race the compute writes above --
     // isolates whether a visible-content bug is really about the dispatch
     // itself vs. cross-command-buffer ordering.
-    SDL_GPUFence* fence = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
-    if (fence) { SDL_WaitForGPUFences(dev, true, &fence, 1); SDL_ReleaseGPUFence(dev, fence); }
+    SDL_GPUFence* fence = md::GpuDevice::Get().SubmitAndAcquireFence(cmd);
+    if (fence) {
+        md::GpuDevice::Get().WaitForFence(fence);
+        md::GpuDevice::Get().ReleaseFence(fence);
+    }
     return s_vt_cache.ResidentCount();
 }
 

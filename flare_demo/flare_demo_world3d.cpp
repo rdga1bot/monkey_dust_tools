@@ -167,8 +167,12 @@ void World3DRender(int vp_w, int vp_h, float dt) {
         // Flare world-geometry view (flat tile extrusion). Terrain-mesh view
         // removed (see World3DInit's comment) -- always this path now.
         cb.BindPipeline(&s_w3d_pipeline);
-        SDL_GPUBufferBinding vb { s_w3d_vbuf.SDLBuffer(), 0u };
-        SDL_BindGPUVertexBuffers(cb.SDLPass(), 0, &vb, 1);
+        // s_w3d_vbuf is GpuStaticBuffer -- GpuCommandBuffer::BindVertexBuffer
+        // only overloads GpuVertexBuffer*, so route through GpuPassView
+        // (which has the GpuStaticBuffer overload, added in the M1 pilot)
+        // via its already-open pass rather than adding a redundant overload
+        // to GpuCommandBuffer for a single call site.
+        GpuPassView::FromRaw(cb.SDLPass(), cb.SDLCmd()).BindVertexBuffer(&s_w3d_vbuf);
         cb.PushVertexUniforms(0, mat4_ptr(mvp), 64);
         cb.Draw((uint32_t)(s_w3d_tri_count * 3));
     }

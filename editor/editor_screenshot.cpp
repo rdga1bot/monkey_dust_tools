@@ -1,6 +1,7 @@
 #include "editor_screenshot.h"
 #ifdef MD_SDL_GPU
 #include <monkey_dust/render/gpu_device.h>
+#include <monkey_dust/render/gpu_hal.h>
 #include <SDL3/SDL.h>
 #include <cstdio>
 #include <cstring>
@@ -49,8 +50,9 @@ bool EditorScreenshot_CaptureAndSubmit(SDL_GPUDevice* dev, SDL_GPUCommandBuffer*
         return false;
     }
 
-    SDL_GPUCopyPass* cp = SDL_BeginGPUCopyPass(cmd);
-    if (!cp) {
+    GpuCopyPass cp;
+    cp.Begin(cmd);
+    if (!cp.SDLPass()) {
         fprintf(stderr, "[EditorScreenshot] SDL_BeginGPUCopyPass failed: %s\n", SDL_GetError());
         SDL_ReleaseGPUTransferBuffer(dev, tb);
         return false;
@@ -62,8 +64,8 @@ bool EditorScreenshot_CaptureAndSubmit(SDL_GPUDevice* dev, SDL_GPUCommandBuffer*
     dst.transfer_buffer = tb;
     dst.pixels_per_row  = w;
     dst.rows_per_layer  = h;
-    SDL_DownloadFromGPUTexture(cp, &src, &dst);
-    SDL_EndGPUCopyPass(cp);
+    cp.DownloadTexture(src, dst);
+    cp.End();
 
     // Fence-waited submit — SDL docs' own documented pattern for
     // DownloadFromGPUTexture specifically (data not guaranteed copied until
@@ -80,7 +82,7 @@ bool EditorScreenshot_CaptureAndSubmit(SDL_GPUDevice* dev, SDL_GPUCommandBuffer*
     // must append its own copy-pass to `cmd` before submitting).
     bool sync_timing = md::GpuDevice::Get().SyncTiming();
     uint64_t t0 = sync_timing ? SDL_GetPerformanceCounter() : 0;
-    SDL_GPUFence* fence = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
+    SDL_GPUFence* fence = md::GpuDevice::Get().SubmitAndAcquireFence(cmd);
     // This path submits `cmd` itself instead of going through GpuDevice::
     // Submit() -- report completion so HasActiveCommandBuffer()'s frame-
     // resize tripwire (gpu_device.h) doesn't stay stuck true afterward.
@@ -90,14 +92,14 @@ bool EditorScreenshot_CaptureAndSubmit(SDL_GPUDevice* dev, SDL_GPUCommandBuffer*
         SDL_ReleaseGPUTransferBuffer(dev, tb);
         return false;
     }
-    bool waited = SDL_WaitForGPUFences(dev, true, &fence, 1);
+    bool waited = md::GpuDevice::Get().WaitForFence(fence);
     if (sync_timing) {
         uint64_t t1 = SDL_GetPerformanceCounter();
         uint64_t freq = SDL_GetPerformanceFrequency();
         md::GpuDevice::Get().RecordExternalGpuMs(
             freq ? (float)((double)(t1 - t0) * 1000.0 / (double)freq) : 0.f);
     }
-    SDL_ReleaseGPUFence(dev, fence);
+    md::GpuDevice::Get().ReleaseFence(fence);
     if (!waited) {
         fprintf(stderr, "[EditorScreenshot] SDL_WaitForGPUFences failed: %s\n", SDL_GetError());
         SDL_ReleaseGPUTransferBuffer(dev, tb);

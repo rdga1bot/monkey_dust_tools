@@ -18,21 +18,14 @@ int   s_cloth_sel[3]             = {0, 7, 0};   // Cargo Pants default
 float s_cloth_color[3][3]        = { {0.62f,0.59f,0.53f}, {0.28f,0.22f,0.14f}, {0.3f,0.3f,0.3f} };
 
 void ensure_rtt(int w, int h) {
-    if (w==s_rtt_w && h==s_rtt_h && s_color) return;
-    SDL_GPUDevice* dev = md::GpuDevice::Get().SDLDevice();
-    if (s_color) SDL_ReleaseGPUTexture(dev, s_color);
-    if (s_depth) SDL_ReleaseGPUTexture(dev, s_depth);
+    if (w==s_rtt_w && h==s_rtt_h && s_color.SDLTexture()) return;
+    s_color.Shutdown();
+    s_depth.Shutdown();
     s_rtt_w=w; s_rtt_h=h;
-    SDL_GPUTextureCreateInfo ci={};
-    ci.type=SDL_GPU_TEXTURETYPE_2D;
-    ci.format=SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
-    ci.usage=SDL_GPU_TEXTUREUSAGE_COLOR_TARGET|SDL_GPU_TEXTUREUSAGE_SAMPLER;
-    ci.width=(uint32_t)w; ci.height=(uint32_t)h;
-    ci.layer_count_or_depth=1; ci.num_levels=1;
-    s_color=SDL_CreateGPUTexture(dev,&ci);
-    ci.format=SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
-    ci.usage=SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
-    s_depth=SDL_CreateGPUTexture(dev,&ci);
+    s_color.Init(w, h, SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
+                 SDL_GPU_TEXTUREUSAGE_COLOR_TARGET|SDL_GPU_TEXTUREUSAGE_SAMPLER);
+    s_depth.Init(w, h, SDL_GPU_TEXTUREFORMAT_D32_FLOAT,
+                 SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET);
 }
 
 // ── LoadHairStyle: load a hair GLB as pos+norm static mesh ───────────────────
@@ -515,14 +508,15 @@ void s_load_textures(const char* tex_path) {
             if (tr) {
                 void* mp=SDL_MapGPUTransferBuffer(dev,tr,false);
                 if(mp){memcpy(mp,s_ws_mat,up_sz);SDL_UnmapGPUTransferBuffer(dev,tr);}
-                SDL_GPUCommandBuffer* uc=SDL_AcquireGPUCommandBuffer(dev);
+                SDL_GPUCommandBuffer* uc=md::GpuDevice::Get().AcquireCommandBuffer();
                 if (uc) {
-                    SDL_GPUCopyPass* cp=SDL_BeginGPUCopyPass(uc);
+                    GpuCopyPass cp;
+                    cp.Begin(uc);
                     SDL_GPUTextureTransferInfo src={tr,0,(uint32_t)120,(uint32_t)1};
                     SDL_GPUTextureRegion dst={s_bones_tex,0,0,0,0,0,120,1,1};
-                    SDL_UploadToGPUTexture(cp,&src,&dst,false);
-                    SDL_EndGPUCopyPass(cp);
-                    SDL_SubmitGPUCommandBuffer(uc);
+                    cp.UploadTexture(src,dst,false);
+                    cp.End();
+                    md::GpuDevice::Get().Submit(uc);
                 }
                 SDL_ReleaseGPUTransferBuffer(dev,tr);
             }

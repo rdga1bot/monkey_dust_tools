@@ -171,8 +171,8 @@ extern SliderAnim s_anim_shoulder_set;// body[6]  Neck pos   → "shoulder set"
 
 // ── Additional state (scattered later in the original single file: RTT dims,
 // camera orbit, morph target buffers, body/skin/hair sliders, portrait cfg) ──
-extern SDL_GPUTexture* s_color;
-extern SDL_GPUTexture* s_depth;
+extern GpuColorTexture s_color;
+extern GpuColorTexture s_depth;
 extern int s_rtt_w;
 extern int s_rtt_h;
 extern float s_yaw;

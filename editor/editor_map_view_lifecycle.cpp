@@ -37,7 +37,7 @@ void MapViewPanel::EnsureRT(int w, int h) {
 #else
     SDL_GPUDevice* dev = md::GpuDevice::Get().SDLDevice();
     if (rt_color_) { SDL_ReleaseGPUTexture(dev, rt_color_); rt_color_ = nullptr; }
-    if (rt_depth_) { SDL_ReleaseGPUTexture(dev, rt_depth_); rt_depth_ = nullptr; }
+    rt_depth_.Shutdown();
 
     SDL_GPUTextureCreateInfo ci = {};
     ci.type   = SDL_GPU_TEXTURETYPE_2D;
@@ -50,11 +50,12 @@ void MapViewPanel::EnsureRT(int w, int h) {
     ci.usage  = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
     rt_color_ = SDL_CreateGPUTexture(dev, &ci);
 
-    ci.format = SDL_GPU_TEXTUREFORMAT_D24_UNORM;
-    ci.usage  = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
-    rt_depth_ = SDL_CreateGPUTexture(dev, &ci);
+    // GpuDepthTexture, not raw D24_UNORM: D24_UNORM caused a GPU hang on
+    // Intel Gen9 (docs/HAL_CLOSURE_INVENTORY.md §5) -- this was the one
+    // depth texture in the codebase missing that fix.
+    rt_depth_.Init(w, h);
 
-    rt_ok_ = (rt_color_ != nullptr && rt_depth_ != nullptr);
+    rt_ok_ = (rt_color_ != nullptr && rt_depth_.SDLTexture() != nullptr);
 #endif
     rt_w_ = w;
     rt_h_ = h;
@@ -81,7 +82,7 @@ void MapViewPanel::Shutdown() {
 #else
     SDL_GPUDevice* dev = md::GpuDevice::Get().SDLDevice();
     if (rt_color_) { SDL_ReleaseGPUTexture(dev, rt_color_); rt_color_ = nullptr; }
-    if (rt_depth_) { SDL_ReleaseGPUTexture(dev, rt_depth_); rt_depth_ = nullptr; }
+    rt_depth_.Shutdown();
 #endif
     rt_ok_ = false;
     md::flare::TileMap2DRenderer::Get().Shutdown();
@@ -93,13 +94,14 @@ void MapViewPanel::Shutdown() {
 #ifdef MD_SDL_GPU
 void MapViewPanel::RenderFrame(SDL_GPUCommandBuffer* cmd) {
     if (!init_ || !loaded_ || !rt_ok_ || !rt_color_) return;
-    SDL_GPUColorTargetInfo ct = {};
-    ct.texture   = rt_color_;
-    ct.load_op   = SDL_GPU_LOADOP_CLEAR;
-    ct.store_op  = SDL_GPU_STOREOP_STORE;
-    ct.clear_color = { 20/255.f, 20/255.f, 30/255.f, 1.f };
-    SDL_GPURenderPass* rp = SDL_BeginGPURenderPass(cmd, &ct, 1, nullptr);
-    if (rp) SDL_EndGPURenderPass(rp);
+    GpuCommandBuffer clear_cb;
+    GpuCommandBuffer::ColorPassDesc clear_cpd;
+    clear_cpd.cmd = cmd;
+    clear_cpd.color_tex = rt_color_;
+    clear_cpd.clear_color[0] = 20/255.f; clear_cpd.clear_color[1] = 20/255.f;
+    clear_cpd.clear_color[2] = 30/255.f; clear_cpd.clear_color[3] = 1.f;
+    clear_cb.BeginColorPass(clear_cpd);
+    clear_cb.EndPass();
     md::flare::TileMap2DRenderer::Get().RenderToTarget(
         map_, now_s_,
         origin_x_, origin_y_, scale_,

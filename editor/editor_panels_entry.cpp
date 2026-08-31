@@ -339,7 +339,9 @@ uint32_t editor_panels_build_ui(float dt, float toolbar_h,
             }
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Characters")) { s_active_tab = 6;
+        ImGuiTabItemFlags characters_flags = (forced_tab && strcmp(forced_tab, "Characters") == 0)
+            ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+        if (ImGui::BeginTabItem("Characters", nullptr, characters_flags)) { s_active_tab = 6;
             flags |= (1u << 1);
             if (!CharacterEditor::g_detached) {
                 ImGui::Separator();

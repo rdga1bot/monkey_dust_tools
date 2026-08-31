@@ -12,6 +12,7 @@
 #include <monkey_dust/platform/window.h>
 #include <monkey_dust/platform/input.h>
 #include <monkey_dust/render/gpu_device.h>
+#include <monkey_dust/render/gpu_hal.h>
 #include <monkey_dust/ecs/registry.h>
 #include <monkey_dust/scripting/lua_system.h>
 
@@ -179,23 +180,28 @@ int RunUiSmokeTests(SDL_GPUDevice* gpu, SDL_GPUTextureFormat sc_fmt,
             uint32_t sw = 0, sh = 0;
             SDL_GPUTexture* sc = md::GpuDevice::Get().AcquireSwapchainTexture(cmd, &sw, &sh);
             if (sc) {
-                SDL_GPUColorTargetInfo ct = {};
-                ct.texture = sc; ct.load_op = SDL_GPU_LOADOP_CLEAR;
-                ct.store_op = SDL_GPU_STOREOP_STORE;
-                ct.clear_color = {0.10f, 0.10f, 0.13f, 1.f};
-                SDL_GPURenderPass* rp = SDL_BeginGPURenderPass(cmd, &ct, 1, nullptr);
-                if (rp) SDL_EndGPURenderPass(rp);
+                GpuCommandBuffer clear_cb;
+                GpuCommandBuffer::ColorPassDesc clear_cpd;
+                clear_cpd.cmd = cmd;
+                clear_cpd.color_tex = sc;
+                clear_cpd.clear_color[0] = 0.10f; clear_cpd.clear_color[1] = 0.10f;
+                clear_cpd.clear_color[2] = 0.13f; clear_cpd.clear_color[3] = 1.f;
+                clear_cb.BeginColorPass(clear_cpd);
+                clear_cb.EndPass();
                 ImDrawData* dd = ImGui::GetDrawData();
                 if (dd && dd->CmdListsCount > 0) {
                     ImGui_ImplSDLGPU3_PrepareDrawData(dd, cmd);
-                    SDL_GPUColorTargetInfo ict = {};
-                    ict.texture = sc; ict.load_op = SDL_GPU_LOADOP_LOAD;
-                    ict.store_op = SDL_GPU_STOREOP_STORE;
-                    SDL_GPURenderPass* irp = SDL_BeginGPURenderPass(cmd, &ict, 1, nullptr);
-                    if (irp) { ImGui_ImplSDLGPU3_RenderDrawData(dd, cmd, irp); SDL_EndGPURenderPass(irp); }
+                    GpuCommandBuffer imgui_cb;
+                    GpuCommandBuffer::ColorPassDesc imgui_cpd;
+                    imgui_cpd.cmd = cmd;
+                    imgui_cpd.color_tex = sc;
+                    imgui_cpd.load_color = true;
+                    imgui_cb.BeginColorPass(imgui_cpd);
+                    if (imgui_cb.SDLPass()) ImGui_ImplSDLGPU3_RenderDrawData(dd, cmd, imgui_cb.SDLPass());
+                    imgui_cb.EndPass();
                 }
             }
-            SDL_SubmitGPUCommandBuffer(cmd);
+            md::GpuDevice::Get().Submit(cmd);
         }
         window_end_frame();
         prev_flags = new_flags;

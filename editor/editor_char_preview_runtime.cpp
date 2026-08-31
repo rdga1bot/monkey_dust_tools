@@ -23,7 +23,7 @@ bool Init(const char* glb_path, const char* tex_path) {
 
 // ── RenderFrame: render T-pose to RTT (call before ImGui render) ──────────────
 void RenderFrame(SDL_GPUCommandBuffer* cmd) {
-    if (!s_ok||!s_color||s_rtt_w<4||s_rtt_h<4) return;
+    if (!s_ok||!s_color.SDLTexture()||s_rtt_w<4||s_rtt_h<4) return;
 
     // Upload morphed vertex positions if any blend shape weights changed
     if (s_morphs_dirty && s_base_verts_cpu && s_morph_count > 0 && s_vbo.SDLBuffer()) {
@@ -48,11 +48,12 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd) {
         if (mtr) {
             void* mp=SDL_MapGPUTransferBuffer(dev,mtr,false);
             if (mp){memcpy(mp,s_mbuf,up_sz);SDL_UnmapGPUTransferBuffer(dev,mtr);}
-            SDL_GPUCopyPass* cp=SDL_BeginGPUCopyPass(cmd);
+            GpuCopyPass cp;
+            cp.Begin(cmd);
             SDL_GPUTransferBufferLocation msrc={mtr,0};
             SDL_GPUBufferRegion mdst={s_vbo.SDLBuffer(),0,up_sz};
-            SDL_UploadToGPUBuffer(cp,&msrc,&mdst,false);
-            SDL_EndGPUCopyPass(cp);
+            cp.UploadBuffer(msrc,mdst,false);
+            cp.End();
             SDL_ReleaseGPUTransferBuffer(dev,mtr);
         }
         s_morphs_dirty = false;
@@ -67,11 +68,12 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd) {
         SDL_GPUTransferBuffer* tr=SDL_CreateGPUTransferBuffer(dev,&tb);
         void* mp=SDL_MapGPUTransferBuffer(dev,tr,false);
         if(mp){memcpy(mp,s_ws_mat,up_sz);SDL_UnmapGPUTransferBuffer(dev,tr);}
-        SDL_GPUCopyPass* cp=SDL_BeginGPUCopyPass(cmd);
+        GpuCopyPass cp;
+        cp.Begin(cmd);
         SDL_GPUTextureTransferInfo src={tr,0,(uint32_t)120,(uint32_t)1};
         SDL_GPUTextureRegion dst={s_bones_tex,0,0,0,0,0,120,1,1};
-        SDL_UploadToGPUTexture(cp,&src,&dst,false);
-        SDL_EndGPUCopyPass(cp);
+        cp.UploadTexture(src,dst,false);
+        cp.End();
         SDL_ReleaseGPUTransferBuffer(dev,tr);
     }
 
@@ -108,23 +110,25 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd) {
     }
 
     // Render pass on RTT
-    SDL_GPUColorTargetInfo ct={};
-    ct.texture=s_color; ct.load_op=SDL_GPU_LOADOP_CLEAR;
-    ct.store_op=SDL_GPU_STOREOP_STORE;
-    ct.clear_color={0.0f,0.0f,0.0f,1.f};  // bg pipeline overwrites this
-
-    SDL_GPUDepthStencilTargetInfo di={};
-    di.texture=s_depth; di.clear_depth=1.f;
-    di.load_op=SDL_GPU_LOADOP_CLEAR; di.store_op=SDL_GPU_STOREOP_STORE;
-    di.stencil_load_op=SDL_GPU_LOADOP_DONT_CARE;
-    di.stencil_store_op=SDL_GPU_STOREOP_DONT_CARE;
-
-    SDL_GPURenderPass* rp=SDL_BeginGPURenderPass(cmd,&ct,1,&di);
+    GpuCommandBuffer cb;
+    GpuCommandBuffer::ColorPassDesc cpd;
+    cpd.cmd            = cmd;
+    cpd.color_tex      = s_color.SDLTexture();
+    cpd.depth_tex      = s_depth.SDLTexture();
+    cpd.clear_color[0] = 0.f; cpd.clear_color[1] = 0.f;
+    cpd.clear_color[2] = 0.f; cpd.clear_color[3] = 1.f; // bg pipeline overwrites this
+    cpd.clear_depth    = 1.f;
+    cpd.load_color     = false; // CLEAR
+    cpd.load_depth     = false; // CLEAR
+    cb.BeginColorPass(cpd);
+    SDL_GPURenderPass* rp = cb.SDLPass();
     if (!rp) return;
+
+    GpuPassView pv = GpuPassView::FromRaw(rp, cmd);
 
     // ── Background: sky + perspective ground plane ───────────────────────────
     if (s_bg_pipeline.SDLPipeline()) {
-        SDL_BindGPUGraphicsPipeline(rp, s_bg_pipeline.SDLPipeline());
+        pv.BindPipeline(&s_bg_pipeline);
 
         // Compute camera world-space vectors from view matrix inverse
         float inv_view[16]; m4inv_rigid(inv_view, view.m);
@@ -143,28 +147,26 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd) {
         bgu.fwd[0]=-inv_view[8];  bgu.fwd[1]=-inv_view[9];  bgu.fwd[2]=-inv_view[10];
         bgu.fwd[3] = -(s_height*0.95f);  // ground_y in world = model offset (feet at Y=0)
         bgu.eye[0]=inv_view[12];  bgu.eye[1]=inv_view[13];  bgu.eye[2]=inv_view[14];  bgu.eye[3]=0;
-        SDL_PushGPUFragmentUniformData(cmd, 0, &bgu, sizeof(bgu));
+        GpuPushFragmentUniforms(cmd, 0, &bgu, sizeof(bgu));
         // Bind desert ground textures (set=2, bindings 0 and 1)
         if (s_bg_sand.SDLTexture() && s_bg_dune.SDLTexture()) {
             SDL_GPUTextureSamplerBinding bg_tex[2] = {
                 {s_bg_sand.SDLTexture(), s_bg_sand.SDLSampler()},
                 {s_bg_dune.SDLTexture(), s_bg_dune.SDLSampler()}
             };
-            SDL_BindGPUFragmentSamplers(rp, 0, bg_tex, 2);
+            pv.BindFragmentSamplers(0, bg_tex, 2);
         }
-        SDL_DrawGPUPrimitives(rp, 3, 1, 0, 0);
+        pv.Draw(3, 1, 0, 0);
     }
 
     // ── Scene geometry: anthropometer pole ──────────────────────────────────────
     if (s_scene_pipeline.SDLPipeline() && s_scene_vbo.SDLBuffer() && s_scene_ni > 0) {
-        SDL_BindGPUGraphicsPipeline(rp, s_scene_pipeline.SDLPipeline());
-        SDL_GPUBufferBinding svb{s_scene_vbo.SDLBuffer(),0u};
-        SDL_BindGPUVertexBuffers(rp,0,&svb,1);
-        SDL_GPUBufferBinding sib{s_scene_ibo.SDLBuffer(),0u};
-        SDL_BindGPUIndexBuffer(rp,&sib,SDL_GPU_INDEXELEMENTSIZE_32BIT);
+        pv.BindPipeline(&s_scene_pipeline);
+        pv.BindVertexBuffer(&s_scene_vbo);
+        pv.BindIndexBuffer(&s_scene_ibo, SDL_GPU_INDEXELEMENTSIZE_32BIT);
         VU svu; memcpy(svu.mvp, mvp.m, 64);
-        SDL_PushGPUVertexUniformData(cmd,0,&svu,sizeof(svu));
-        SDL_DrawGPUIndexedPrimitives(rp,s_scene_ni,1,0,0,0);
+        pv.PushVertexUniforms(0, &svu, sizeof(svu));
+        pv.DrawIndexed(s_scene_ni, 1, 0, 0, 0);
     }
 
     if (!s_pipeline.SDLPipeline() || !s_vbo.SDLBuffer() || !s_ibo.SDLBuffer() ||
@@ -172,26 +174,22 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd) {
         !s_tex_head.SDLTexture()   || !s_tex_head.SDLSampler()   ||
         !s_tex_muscle.SDLTexture() || !s_tex_muscle.SDLSampler() ||
         !s_tex_blood.SDLTexture()  || !s_tex_blood.SDLSampler()) {
-        SDL_EndGPURenderPass(rp); return;
+        cb.EndPass(); return;
     }
 
-    SDL_BindGPUGraphicsPipeline(rp, s_pipeline.SDLPipeline());
-
-    SDL_GPUBufferBinding vb{s_vbo.SDLBuffer(),0u};
-    SDL_BindGPUVertexBuffers(rp,0,&vb,1);
-
-    SDL_GPUBufferBinding ib{s_ibo.SDLBuffer(),0u};
-    SDL_BindGPUIndexBuffer(rp,&ib,SDL_GPU_INDEXELEMENTSIZE_32BIT);
+    pv.BindPipeline(&s_pipeline);
+    pv.BindVertexBuffer(&s_vbo);
+    pv.BindIndexBuffer(&s_ibo, SDL_GPU_INDEXELEMENTSIZE_32BIT);
 
     VU vu; memcpy(vu.mvp, char_mvp.m, 64);
-    SDL_PushGPUVertexUniformData(cmd,0,&vu,sizeof(vu));
-    SDL_PushGPUVertexUniformData(cmd,1,s_ws_mat,sizeof(s_ws_mat));
+    pv.PushVertexUniforms(0, &vu, sizeof(vu));
+    pv.PushVertexUniforms(1, s_ws_mat, sizeof(s_ws_mat));
 
     FU fu{};
     fu.skin[0]=s_skin[0]; fu.skin[1]=s_skin[1]; fu.skin[2]=s_skin[2];
     fu.str=s_str; fu.sat=s_sat; fu.bri=s_bri; fu.muscle=s_muscle;
     fu.hair[0]=s_hair[0]; fu.hair[1]=s_hair[1]; fu.hair[2]=s_hair[2];
-    SDL_PushGPUFragmentUniformData(cmd,0,&fu,sizeof(fu));
+    pv.PushFragmentUniforms(0, &fu, sizeof(fu));
 
     SDL_GPUTextureSamplerBinding ftb[4] = {
         { s_tex.SDLTexture(),        s_tex.SDLSampler()        },
@@ -199,55 +197,51 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd) {
         { s_tex_muscle.SDLTexture(), s_tex_muscle.SDLSampler() },
         { s_tex_blood.SDLTexture(),  s_tex_blood.SDLSampler()  },
     };
-    SDL_BindGPUFragmentSamplers(rp,0,ftb,4);
+    pv.BindFragmentSamplers(0, ftb, 4);
 
-    SDL_DrawGPUIndexedPrimitives(rp,(uint32_t)s_ni,1,0,0,0);
+    pv.DrawIndexed((uint32_t)s_ni, 1, 0, 0, 0);
 
     // ── Clothing render (after body, before hair) ─────────────────────────────
     if (s_clothes_visible && s_cloth_pipeline.SDLPipeline()) {
         for (int sl = 0; sl < 3; ++sl) {
             if (!s_cloth[sl].loaded || s_cloth[sl].ni == 0) continue;
-            SDL_BindGPUGraphicsPipeline(rp, s_cloth_pipeline.SDLPipeline());
-            SDL_GPUBufferBinding cvb{s_cloth[sl].vbo.SDLBuffer(), 0u};
-            SDL_BindGPUVertexBuffers(rp, 0, &cvb, 1);
-            SDL_GPUBufferBinding cib{s_cloth[sl].ibo.SDLBuffer(), 0u};
-            SDL_BindGPUIndexBuffer(rp, &cib, SDL_GPU_INDEXELEMENTSIZE_16BIT);
+            pv.BindPipeline(&s_cloth_pipeline);
+            pv.BindVertexBuffer(&s_cloth[sl].vbo);
+            pv.BindIndexBuffer(&s_cloth[sl].ibo, SDL_GPU_INDEXELEMENTSIZE_16BIT);
             VU cvu; memcpy(cvu.mvp, char_mvp.m, 64);
-            SDL_PushGPUVertexUniformData(cmd, 0, &cvu, sizeof(cvu));
-            SDL_PushGPUVertexUniformData(cmd, 1, s_ws_mat, sizeof(s_ws_mat));
+            pv.PushVertexUniforms(0, &cvu, sizeof(cvu));
+            pv.PushVertexUniforms(1, s_ws_mat, sizeof(s_ws_mat));
             ClothFU cfu;
             cfu.color[0]=s_cloth_color[sl][0]; cfu.color[1]=s_cloth_color[sl][1];
             cfu.color[2]=s_cloth_color[sl][2]; cfu.pad=0;
-            SDL_PushGPUFragmentUniformData(cmd, 0, &cfu, sizeof(cfu));
-            SDL_DrawGPUIndexedPrimitives(rp, (uint32_t)s_cloth[sl].ni, 1, 0, 0, 0);
+            pv.PushFragmentUniforms(0, &cfu, sizeof(cfu));
+            pv.DrawIndexed((uint32_t)s_cloth[sl].ni, 1, 0, 0, 0);
         }
     }
 
     // ── Hair render (same render pass, after character) ───────────────────────
     if (s_hair_pipeline.SDLPipeline() && s_hair_vbo.SDLBuffer() &&
         s_hair_ibo.SDLBuffer() && s_hair_ni > 0) {
-        SDL_BindGPUGraphicsPipeline(rp, s_hair_pipeline.SDLPipeline());
+        pv.BindPipeline(&s_hair_pipeline);
         // Vertex: bone matrices texture (same as character)
         SDL_GPUTextureSamplerBinding hvtb = { s_bones_tex, s_bones_sampler };
-        SDL_BindGPUVertexSamplers(rp, 0, &hvtb, 1);
+        pv.BindVertexSamplers(0, &hvtb, 1);
         // Vertex uniform: MVP only (64 bytes — safe on Intel HD 520).
         // eye_pos is passed in model space via frag UB so no second matrix needed.
         VU hvu; memcpy(hvu.mvp, char_mvp.m, 64);
-        SDL_PushGPUVertexUniformData(cmd, 0, &hvu, sizeof(hvu));
+        pv.PushVertexUniforms(0, &hvu, sizeof(hvu));
         // Fragment uniform slot 0: hair color
         HairFU hfu; hfu.hair[0]=s_hair[0]; hfu.hair[1]=s_hair[1]; hfu.hair[2]=s_hair[2]; hfu.pad=0;
-        SDL_PushGPUFragmentUniformData(cmd, 0, &hfu, sizeof(hfu));
+        pv.PushFragmentUniforms(0, &hfu, sizeof(hfu));
         // Fragment uniform slot 1: hair shading params (eye_pos updated each frame above)
-        SDL_PushGPUFragmentUniformData(cmd, 1, &HairShading::g_params, sizeof(HairShadingFU));
+        pv.PushFragmentUniforms(1, &HairShading::g_params, sizeof(HairShadingFU));
         // Geometry
-        SDL_GPUBufferBinding hvb{s_hair_vbo.SDLBuffer(), 0u};
-        SDL_BindGPUVertexBuffers(rp, 0, &hvb, 1);
-        SDL_GPUBufferBinding hib{s_hair_ibo.SDLBuffer(), 0u};
-        SDL_BindGPUIndexBuffer(rp, &hib, SDL_GPU_INDEXELEMENTSIZE_16BIT);
-        SDL_DrawGPUIndexedPrimitives(rp, (uint32_t)s_hair_ni, 1, 0, 0, 0);
+        pv.BindVertexBuffer(&s_hair_vbo);
+        pv.BindIndexBuffer(&s_hair_ibo, SDL_GPU_INDEXELEMENTSIZE_16BIT);
+        pv.DrawIndexed((uint32_t)s_hair_ni, 1, 0, 0, 0);
     }
 
-    SDL_EndGPURenderPass(rp);
+    cb.EndPass();
 }
 
 // ── Hot-reload: recreate all char-preview pipelines from current SPV files ───
@@ -563,9 +557,9 @@ void DrawInImGui(float W, float H,
     }
 
     // Display RTT (UV Y not flipped — SDL_GPU origin is top-left)
-    if (s_color)
+    if (s_color.SDLTexture())
         ImGui::GetWindowDrawList()->AddImage(
-            (ImTextureID)s_color, origin, {origin.x+W,origin.y+H});
+            (ImTextureID)s_color.SDLTexture(), origin, {origin.x+W,origin.y+H});
     else
         ImGui::GetWindowDrawList()->AddRectFilled(origin,{origin.x+W,origin.y+H},
             IM_COL32(20,20,28,255));

@@ -23,13 +23,13 @@ int main(int argc, char** argv) {
     fprintf(stderr, "[demo] GPU: %s\n", md::GpuDevice::Get().DriverName());
 
     // Camera-button textures (idle + recording state).
-    SDL_GPUDevice*  sdl_dev      = md::GpuDevice::Get().SDLDevice();
-    SDL_GPUTexture* cam_idle_tex = nullptr;
-    SDL_GPUTexture* cam_rec_tex  = nullptr;
+    SDL_GPUDevice*  sdl_dev = md::GpuDevice::Get().SDLDevice();
+    GpuColorTexture cam_idle_tex;
+    GpuColorTexture cam_rec_tex;
     {
         uint8_t px[BTN_SZ * BTN_SZ * 4] = {};
-        GenCamIcon(px, false); cam_idle_tex = MakeCamTex(sdl_dev, px);
-        GenCamIcon(px, true);  cam_rec_tex  = MakeCamTex(sdl_dev, px);
+        GenCamIcon(px, false); MakeCamTex(sdl_dev, px, cam_idle_tex);
+        GenCamIcon(px, true);  MakeCamTex(sdl_dev, px, cam_rec_tex);
     }
 
     if (!SenseRegistry::Get().Load(SENSE_JSON))
@@ -583,10 +583,10 @@ int main(int argc, char** argv) {
 
                 // ── Pass: overlay (camera button + UI) ────────────────────────
                 if (rpg.IsEnabled("overlay")) {
-                    void* btn_tex = (void*)cam_idle_tex;
+                    void* btn_tex = (void*)cam_idle_tex.SDLTexture();
                     if (s_recording)
                         btn_tex = ((now_ms / 500) & 1)
-                                  ? (void*)cam_idle_tex : (void*)cam_rec_tex;
+                                  ? (void*)cam_idle_tex.SDLTexture() : (void*)cam_rec_tex.SDLTexture();
                     tmr2d.SetOverlayBlit(0, btn_tex,
                                           vp_w - BTN_SZ - BTN_MARGIN,
                                           vp_h - BTN_SZ - BTN_MARGIN,
@@ -611,9 +611,9 @@ int main(int argc, char** argv) {
     WaitRecordingChild();   // block until demo_capture.py finishes; banner prints here
     World3DShutdown();
     tmr2d.ClearOverlayBlit(0);
-    SDL_WaitForGPUIdle(sdl_dev);
-    if (cam_idle_tex) SDL_ReleaseGPUTexture(sdl_dev, cam_idle_tex);
-    if (cam_rec_tex)  SDL_ReleaseGPUTexture(sdl_dev, cam_rec_tex);
+    md::GpuDevice::Get().WaitForIdle();
+    cam_idle_tex.Shutdown();
+    cam_rec_tex.Shutdown();
     HotReload::Get().Stop();
     HotReload::Get().Unwatch(BT_JSON_PATH);
     DestroyDemoEntities();
