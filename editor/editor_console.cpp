@@ -34,7 +34,6 @@ static void s_register_cvars() {
     CVarRegistry::Get().RegisterFloat("resolution_scale", &gs.resolution_scale);
     CVarRegistry::Get().RegisterFloat("ibl_intensity", &gs.ibl_intensity);
     CVarRegistry::Get().RegisterBool("ssao_enabled", &gs.ssao_enabled);
-    CVarRegistry::Get().RegisterBool("smaa_enabled", &gs.smaa_enabled);
 }
 
 void EditorConsole::Init() {
