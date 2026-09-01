@@ -506,8 +506,8 @@ void s_load_textures(const char* tex_path) {
             tb.usage=SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD; tb.size=up_sz;
             SDL_GPUTransferBuffer* tr=SDL_CreateGPUTransferBuffer(dev,&tb);
             if (tr) {
-                void* mp=SDL_MapGPUTransferBuffer(dev,tr,false);
-                if(mp){memcpy(mp,s_ws_mat,up_sz);SDL_UnmapGPUTransferBuffer(dev,tr);}
+                void* mp=GpuMapTransfer(tr,false);
+                if(mp){memcpy(mp,s_ws_mat,up_sz);GpuUnmapTransfer(tr);}
                 SDL_GPUCommandBuffer* uc=md::GpuDevice::Get().AcquireCommandBuffer();
                 if (uc) {
                     GpuCopyPass cp;

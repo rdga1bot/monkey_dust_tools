@@ -46,8 +46,8 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd) {
         mtb.usage=SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD; mtb.size=up_sz;
         SDL_GPUTransferBuffer* mtr=SDL_CreateGPUTransferBuffer(dev,&mtb);
         if (mtr) {
-            void* mp=SDL_MapGPUTransferBuffer(dev,mtr,false);
-            if (mp){memcpy(mp,s_mbuf,up_sz);SDL_UnmapGPUTransferBuffer(dev,mtr);}
+            void* mp=GpuMapTransfer(mtr,false);
+            if (mp){memcpy(mp,s_mbuf,up_sz);GpuUnmapTransfer(mtr);}
             GpuCopyPass cp;
             cp.Begin(cmd);
             SDL_GPUTransferBufferLocation msrc={mtr,0};
@@ -66,8 +66,8 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd) {
         SDL_GPUTransferBufferCreateInfo tb={};
         tb.usage=SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD; tb.size=up_sz;
         SDL_GPUTransferBuffer* tr=SDL_CreateGPUTransferBuffer(dev,&tb);
-        void* mp=SDL_MapGPUTransferBuffer(dev,tr,false);
-        if(mp){memcpy(mp,s_ws_mat,up_sz);SDL_UnmapGPUTransferBuffer(dev,tr);}
+        void* mp=GpuMapTransfer(tr,false);
+        if(mp){memcpy(mp,s_ws_mat,up_sz);GpuUnmapTransfer(tr);}
         GpuCopyPass cp;
         cp.Begin(cmd);
         SDL_GPUTextureTransferInfo src={tr,0,(uint32_t)120,(uint32_t)1};

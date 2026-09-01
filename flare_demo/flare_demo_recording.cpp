@@ -60,9 +60,9 @@ bool MakeCamTex(SDL_GPUDevice* dev, const uint8_t* pixels, GpuColorTexture& out)
     SDL_GPUTransferBuffer* tb = SDL_CreateGPUTransferBuffer(dev, &tbi);
     if (!tb) { out.Shutdown(); return false; }
 
-    void* ptr = SDL_MapGPUTransferBuffer(dev, tb, false);
+    void* ptr = GpuMapTransfer(tb, false);
     if (ptr) memcpy(ptr, pixels, (size_t)(BTN_SZ * BTN_SZ * 4));
-    SDL_UnmapGPUTransferBuffer(dev, tb);
+    GpuUnmapTransfer(tb);
 
     SDL_GPUCommandBuffer* cmd = md::GpuDevice::Get().AcquireCommandBuffer();
     GpuCopyPass cp;
