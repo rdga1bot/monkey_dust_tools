@@ -57,7 +57,7 @@ bool MakeCamTex(SDL_GPUDevice* dev, const uint8_t* pixels, GpuColorTexture& out)
     SDL_GPUTransferBufferCreateInfo tbi {};
     tbi.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
     tbi.size  = (uint32_t)(BTN_SZ * BTN_SZ * 4);
-    SDL_GPUTransferBuffer* tb = SDL_CreateGPUTransferBuffer(dev, &tbi);
+    SDL_GPUTransferBuffer* tb = GpuCreateTransferBuffer(dev, &tbi);
     if (!tb) { out.Shutdown(); return false; }
 
     void* ptr = GpuMapTransfer(tb, false);
@@ -79,7 +79,7 @@ bool MakeCamTex(SDL_GPUDevice* dev, const uint8_t* pixels, GpuColorTexture& out)
     cp.UploadTexture(src, dst, false);
     cp.End();
     md::GpuDevice::Get().Submit(cmd);
-    SDL_ReleaseGPUTransferBuffer(dev, tb);
+    GpuReleaseTransferBuffer(dev, tb);
     return true;
 }
 

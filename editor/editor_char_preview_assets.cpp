@@ -504,7 +504,7 @@ void s_load_textures(const char* tex_path) {
             uint32_t up_sz=120*4*4; // 120 texels × 4 channels × 4 bytes
             SDL_GPUTransferBufferCreateInfo tb={};
             tb.usage=SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD; tb.size=up_sz;
-            SDL_GPUTransferBuffer* tr=SDL_CreateGPUTransferBuffer(dev,&tb);
+            SDL_GPUTransferBuffer* tr=GpuCreateTransferBuffer(dev,&tb);
             if (tr) {
                 void* mp=GpuMapTransfer(tr,false);
                 if(mp){memcpy(mp,s_ws_mat,up_sz);GpuUnmapTransfer(tr);}
@@ -518,7 +518,7 @@ void s_load_textures(const char* tex_path) {
                     cp.End();
                     md::GpuDevice::Get().Submit(uc);
                 }
-                SDL_ReleaseGPUTransferBuffer(dev,tr);
+                GpuReleaseTransferBuffer(dev,tr);
             }
         }
     }

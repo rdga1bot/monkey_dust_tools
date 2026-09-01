@@ -44,7 +44,7 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd) {
         uint32_t up_sz = (uint32_t)(vc * sizeof(Vtx));
         SDL_GPUTransferBufferCreateInfo mtb={};
         mtb.usage=SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD; mtb.size=up_sz;
-        SDL_GPUTransferBuffer* mtr=SDL_CreateGPUTransferBuffer(dev,&mtb);
+        SDL_GPUTransferBuffer* mtr=GpuCreateTransferBuffer(dev,&mtb);
         if (mtr) {
             void* mp=GpuMapTransfer(mtr,false);
             if (mp){memcpy(mp,s_mbuf,up_sz);GpuUnmapTransfer(mtr);}
@@ -54,7 +54,7 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd) {
             SDL_GPUBufferRegion mdst={s_vbo.SDLBuffer(),0,up_sz};
             cp.UploadBuffer(msrc,mdst,false);
             cp.End();
-            SDL_ReleaseGPUTransferBuffer(dev,mtr);
+            GpuReleaseTransferBuffer(dev,mtr);
         }
         s_morphs_dirty = false;
     }
@@ -65,7 +65,7 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd) {
         uint32_t up_sz=120*4*4;
         SDL_GPUTransferBufferCreateInfo tb={};
         tb.usage=SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD; tb.size=up_sz;
-        SDL_GPUTransferBuffer* tr=SDL_CreateGPUTransferBuffer(dev,&tb);
+        SDL_GPUTransferBuffer* tr=GpuCreateTransferBuffer(dev,&tb);
         void* mp=GpuMapTransfer(tr,false);
         if(mp){memcpy(mp,s_ws_mat,up_sz);GpuUnmapTransfer(tr);}
         GpuCopyPass cp;
@@ -74,7 +74,7 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd) {
         SDL_GPUTextureRegion dst={s_bones_tex,0,0,0,0,0,120,1,1};
         cp.UploadTexture(src,dst,false);
         cp.End();
-        SDL_ReleaseGPUTransferBuffer(dev,tr);
+        GpuReleaseTransferBuffer(dev,tr);
     }
 
     // Hierarchical bone propagation (sl[12] *= parent[0]) already moves origins —
