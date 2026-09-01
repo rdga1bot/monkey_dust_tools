@@ -153,7 +153,7 @@ void World3DRender(int vp_w, int vp_h, float dt) {
     GpuCommandBuffer cb;
     GpuCommandBuffer::ColorPassDesc cpd;
     cpd.cmd            = cmd;
-    cpd.color_tex      = scene_target;
+    cpd.color_tex[0]      = scene_target;
     cpd.depth_tex      = scene_depth;
     cpd.clear_color[0] = 0.12f;
     cpd.clear_color[1] = 0.16f;

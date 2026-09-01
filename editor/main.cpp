@@ -429,7 +429,7 @@ int main(int argc, char** argv) {
                     GpuCommandBuffer clear_cb;
                     GpuCommandBuffer::ColorPassDesc clear_cpd;
                     clear_cpd.cmd = cmd;
-                    clear_cpd.color_tex = sc;
+                    clear_cpd.color_tex[0] = sc;
                     clear_cpd.clear_color[0] = 0.10f; clear_cpd.clear_color[1] = 0.10f;
                     clear_cpd.clear_color[2] = 0.13f; clear_cpd.clear_color[3] = 1.f;
                     clear_cb.BeginColorPass(clear_cpd);
@@ -440,7 +440,7 @@ int main(int argc, char** argv) {
                         GpuCommandBuffer imgui_cb;
                         GpuCommandBuffer::ColorPassDesc imgui_cpd;
                         imgui_cpd.cmd = cmd;
-                        imgui_cpd.color_tex = sc;
+                        imgui_cpd.color_tex[0] = sc;
                         imgui_cpd.load_color = true;
                         imgui_cb.BeginColorPass(imgui_cpd);
                         if (imgui_cb.SDLPass()) ImGui_ImplSDLGPU3_RenderDrawData(dd,cmd,imgui_cb.SDLPass());

@@ -113,7 +113,7 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd) {
     GpuCommandBuffer cb;
     GpuCommandBuffer::ColorPassDesc cpd;
     cpd.cmd            = cmd;
-    cpd.color_tex      = s_color.SDLTexture();
+    cpd.color_tex[0]      = s_color.SDLTexture();
     cpd.depth_tex      = s_depth.SDLTexture();
     cpd.clear_color[0] = 0.f; cpd.clear_color[1] = 0.f;
     cpd.clear_color[2] = 0.f; cpd.clear_color[3] = 1.f; // bg pipeline overwrites this

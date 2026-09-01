@@ -636,7 +636,7 @@ void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
     GpuCommandBuffer cb;
     GpuCommandBuffer::ColorPassDesc cpd;
     cpd.cmd            = cmd;
-    cpd.color_tex      = s_color;
+    cpd.color_tex[0]      = s_color;
     cpd.depth_tex      = s_depth;
     cpd.clear_color[0] = kSkyR; cpd.clear_color[1] = kSkyG;
     cpd.clear_color[2] = kSkyB; cpd.clear_color[3] = 1.f;

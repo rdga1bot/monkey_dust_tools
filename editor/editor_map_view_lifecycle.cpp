@@ -97,7 +97,7 @@ void MapViewPanel::RenderFrame(SDL_GPUCommandBuffer* cmd) {
     GpuCommandBuffer clear_cb;
     GpuCommandBuffer::ColorPassDesc clear_cpd;
     clear_cpd.cmd = cmd;
-    clear_cpd.color_tex = rt_color_;
+    clear_cpd.color_tex[0] = rt_color_;
     clear_cpd.clear_color[0] = 20/255.f; clear_cpd.clear_color[1] = 20/255.f;
     clear_cpd.clear_color[2] = 30/255.f; clear_cpd.clear_color[3] = 1.f;
     clear_cb.BeginColorPass(clear_cpd);

@@ -183,7 +183,7 @@ int RunUiSmokeTests(SDL_GPUDevice* gpu, SDL_GPUTextureFormat sc_fmt,
                 GpuCommandBuffer clear_cb;
                 GpuCommandBuffer::ColorPassDesc clear_cpd;
                 clear_cpd.cmd = cmd;
-                clear_cpd.color_tex = sc;
+                clear_cpd.color_tex[0] = sc;
                 clear_cpd.clear_color[0] = 0.10f; clear_cpd.clear_color[1] = 0.10f;
                 clear_cpd.clear_color[2] = 0.13f; clear_cpd.clear_color[3] = 1.f;
                 clear_cb.BeginColorPass(clear_cpd);
@@ -194,7 +194,7 @@ int RunUiSmokeTests(SDL_GPUDevice* gpu, SDL_GPUTextureFormat sc_fmt,
                     GpuCommandBuffer imgui_cb;
                     GpuCommandBuffer::ColorPassDesc imgui_cpd;
                     imgui_cpd.cmd = cmd;
-                    imgui_cpd.color_tex = sc;
+                    imgui_cpd.color_tex[0] = sc;
                     imgui_cpd.load_color = true;
                     imgui_cb.BeginColorPass(imgui_cpd);
                     if (imgui_cb.SDLPass()) ImGui_ImplSDLGPU3_RenderDrawData(dd, cmd, imgui_cb.SDLPass());
