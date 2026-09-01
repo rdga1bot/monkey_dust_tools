@@ -1,5 +1,6 @@
 #include "editor_char_preview_sdlgpu_internal.h"
 #ifdef MD_SDL_GPU
+#include <monkey_dust/render/gpu_hal.h>
 
 // Public API state (extern-declared in editor_char_preview_sdlgpu.h, accessed
 // directly by character_editor.h) -- definitions live here, hair/clothing-
@@ -489,7 +490,7 @@ void s_load_textures(const char* tex_path) {
         ti.format=SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;
         ti.usage=SDL_GPU_TEXTUREUSAGE_SAMPLER;
         ti.width=120; ti.height=1; ti.layer_count_or_depth=1; ti.num_levels=1;
-        s_bones_tex=SDL_CreateGPUTexture(dev,&ti);
+        s_bones_tex=GpuCreateTexture(dev,&ti);
         if (!s_bones_tex) {
             fprintf(stderr,"[CharPreview] bone mat tex create failed: %s\n",SDL_GetError());
         }
@@ -499,7 +500,7 @@ void s_load_textures(const char* tex_path) {
         si.address_mode_u=SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
         si.address_mode_v=SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
         si.address_mode_w=SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
-        s_bones_sampler=SDL_CreateGPUSampler(dev,&si);
+        s_bones_sampler=GpuCreateSampler(dev,&si);
         if (s_bones_tex) {
             uint32_t up_sz=120*4*4; // 120 texels × 4 channels × 4 bytes
             SDL_GPUTransferBufferCreateInfo tb={};

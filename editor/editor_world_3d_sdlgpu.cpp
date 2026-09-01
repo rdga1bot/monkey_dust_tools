@@ -308,8 +308,8 @@ void UploadTerrainHeightmap(const float* /*hmap*/, int /*W*/, int /*H*/,
 static void ensure_rtt(int w, int h) {
     if (w == s_rtt_w && h == s_rtt_h) return;
     SDL_GPUDevice* dev = md::GpuDevice::Get().SDLDevice();
-    if (s_color) SDL_ReleaseGPUTexture(dev, s_color);
-    if (s_depth) SDL_ReleaseGPUTexture(dev, s_depth);
+    if (s_color) GpuReleaseTexture(dev, s_color);
+    if (s_depth) GpuReleaseTexture(dev, s_depth);
     s_rtt_w = w; s_rtt_h = h;
 
     SDL_GPUTextureCreateInfo ci = {};
@@ -318,11 +318,11 @@ static void ensure_rtt(int w, int h) {
     ci.usage       = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
     ci.width       = (uint32_t)w; ci.height = (uint32_t)h;
     ci.layer_count_or_depth = 1; ci.num_levels = 1;
-    s_color = SDL_CreateGPUTexture(dev, &ci);
+    s_color = GpuCreateTexture(dev, &ci);
 
     ci.format = SDL_GPU_TEXTUREFORMAT_D32_FLOAT;   // D32_FLOAT — D24_UNORM causes GPU hang on Intel Gen9
     ci.usage   = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
-    s_depth = SDL_CreateGPUTexture(dev, &ci);
+    s_depth = GpuCreateTexture(dev, &ci);
 
     fprintf(stdout, "[W3D-SDLGPU] RTT %dx%d\n", w, h);
 }

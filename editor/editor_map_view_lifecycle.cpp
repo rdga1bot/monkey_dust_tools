@@ -1,6 +1,8 @@
 #include "editor_map_view.h"
 #ifndef MD_SDL_GPU
 #  include "glad.h"
+#else
+#  include <monkey_dust/render/gpu_hal.h>
 #endif
 #include <monkey_dust/flare/tile_map.h>
 
@@ -36,7 +38,7 @@ void MapViewPanel::EnsureRT(int w, int h) {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 #else
     SDL_GPUDevice* dev = md::GpuDevice::Get().SDLDevice();
-    if (rt_color_) { SDL_ReleaseGPUTexture(dev, rt_color_); rt_color_ = nullptr; }
+    if (rt_color_) { GpuReleaseTexture(dev, rt_color_); rt_color_ = nullptr; }
     rt_depth_.Shutdown();
 
     SDL_GPUTextureCreateInfo ci = {};
@@ -48,7 +50,7 @@ void MapViewPanel::EnsureRT(int w, int h) {
     ci.sample_count = SDL_GPU_SAMPLECOUNT_1;
     ci.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
     ci.usage  = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
-    rt_color_ = SDL_CreateGPUTexture(dev, &ci);
+    rt_color_ = GpuCreateTexture(dev, &ci);
 
     // GpuDepthTexture, not raw D24_UNORM: D24_UNORM caused a GPU hang on
     // Intel Gen9 (docs/HAL_CLOSURE_INVENTORY.md §5) -- this was the one
@@ -81,7 +83,7 @@ void MapViewPanel::Shutdown() {
     }
 #else
     SDL_GPUDevice* dev = md::GpuDevice::Get().SDLDevice();
-    if (rt_color_) { SDL_ReleaseGPUTexture(dev, rt_color_); rt_color_ = nullptr; }
+    if (rt_color_) { GpuReleaseTexture(dev, rt_color_); rt_color_ = nullptr; }
     rt_depth_.Shutdown();
 #endif
     rt_ok_ = false;
