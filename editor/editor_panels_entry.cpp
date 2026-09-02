@@ -423,7 +423,7 @@ uint32_t editor_panels_build_ui(float dt, float toolbar_h,
 // ── Render — RTT renders before ImGui present ─────────────────────────────────
 // active_flags: bitmask from PREVIOUS frame's BuildUI call (1-frame lag OK)
 void editor_panels_render(void* cmd_ptr, float dt, uint32_t active_flags) {
-    auto* cmd = static_cast<SDL_GPUCommandBuffer*>(cmd_ptr);
+    auto* cmd = static_cast<md::GpuCommandBufferHandle>(cmd_ptr);
     if ((active_flags >> 0) & 1) WorldEditor3D_SDLGPU::RenderFrame(cmd, dt, (active_flags >> 0) & 1);
     if ((active_flags >> 1) & 1) CharPreviewSDLGPU::RenderFrame(cmd);
     if ((active_flags >> 3) & 1) MapViewPanel::Get().RenderFrame(cmd);

@@ -420,7 +420,7 @@ int main(int argc, char** argv) {
             uint32_t prev_flags = s_active_flags;
             s_active_flags = new_flags;
             ImGui::Render();
-            SDL_GPUCommandBuffer* cmd = md::GpuDevice::Get().AcquireCommandBuffer();
+            md::GpuCommandBufferHandle cmd = md::GpuDevice::Get().AcquireCommandBuffer();
             if (cmd) {
                 EditorModule::Get().Render(cmd, dt, prev_flags);
                 uint32_t sw=0, sh=0;
@@ -536,7 +536,7 @@ int main(int argc, char** argv) {
         ImGui::Render();
 
         // ── SDL_GPU: render terrain RTT + ImGui to swapchain ─────────────────
-        SDL_GPUCommandBuffer* cmd = md::GpuDevice::Get().AcquireCommandBuffer();
+        md::GpuCommandBufferHandle cmd = md::GpuDevice::Get().AcquireCommandBuffer();
         if (cmd) {
             // 1. Render character preview + tile map to off-screen RTTs
             if (s_charpreview_active) CharPreviewSDLGPU::RenderFrame(cmd);

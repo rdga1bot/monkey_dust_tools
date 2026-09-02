@@ -138,7 +138,7 @@ void World3DRender(int vp_w, int vp_h, float dt) {
     if (use_cas) s_cas.Resize(vp_w, vp_h);
 
     // Acquire command buffer + swapchain texture.
-    SDL_GPUCommandBuffer* cmd = md::GpuDevice::Get().AcquireCommandBuffer();
+    md::GpuCommandBufferHandle cmd = md::GpuDevice::Get().AcquireCommandBuffer();
     SDL_GPUTexture* swap = nullptr;
     if (!SDL_AcquireGPUSwapchainTexture(cmd, s_w3d_window, &swap, nullptr, nullptr)
         || !swap) {

@@ -174,7 +174,7 @@ int RunUiSmokeTests(SDL_GPUDevice* gpu, SDL_GPUTextureFormat sc_fmt,
                                                       status_msg, &status_timer);
 
         ImGui::Render();
-        SDL_GPUCommandBuffer* cmd = md::GpuDevice::Get().AcquireCommandBuffer();
+        md::GpuCommandBufferHandle cmd = md::GpuDevice::Get().AcquireCommandBuffer();
         if (cmd) {
             editor_panels_render(cmd, dt, prev_flags);
             uint32_t sw = 0, sh = 0;

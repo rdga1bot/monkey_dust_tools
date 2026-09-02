@@ -1,6 +1,7 @@
 #pragma once
 #ifdef MD_SDL_GPU
 #include <SDL3/SDL_gpu.h>
+#include <monkey_dust/render/gpu_device.h>
 #include <cstdio>
 
 // editor_char_preview_sdlgpu — SDL_GPU character preview RTT for the standalone editor.
@@ -11,7 +12,7 @@
 namespace CharPreviewSDLGPU {
 
 bool Init(const char* glb_path, const char* tex_path);
-void RenderFrame(SDL_GPUCommandBuffer* cmd);
+void RenderFrame(md::GpuCommandBufferHandle cmd);
 void DrawInImGui(float W, float H,
                  float height_scale, float bulk_scale,
                  const float skin_rgb[3], float skin_str,

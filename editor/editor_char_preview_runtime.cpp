@@ -22,7 +22,7 @@ bool Init(const char* glb_path, const char* tex_path) {
 }
 
 // ── RenderFrame: render T-pose to RTT (call before ImGui render) ──────────────
-void RenderFrame(SDL_GPUCommandBuffer* cmd) {
+void RenderFrame(md::GpuCommandBufferHandle cmd) {
     if (!s_ok||!s_color.SDLTexture()||s_rtt_w<4||s_rtt_h<4) return;
 
     // Upload morphed vertex positions if any blend shape weights changed

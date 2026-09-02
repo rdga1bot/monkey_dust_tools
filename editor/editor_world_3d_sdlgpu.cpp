@@ -527,7 +527,7 @@ static void handle_input(float dt) {
 
 // ── Render terrain to RTT (call AFTER ImGui build, BEFORE ImGui present) ────────
 // ensure_rtt() is called from DrawImGui (during ImGui build) so s_color is stable.
-void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active) {
+void RenderFrame(md::GpuCommandBufferHandle cmd, float dt, bool tab_active) {
     if (!tab_active) return;
     if (!s_master_ready.load() || !s_color) return;
     int w = s_rtt_w, h = s_rtt_h;  // use already-created RTT dimensions
@@ -840,7 +840,7 @@ int VtDebugFill() {
         for (int dx = -3; dx <= 3; ++dx)
             s_vt_cache.RequestPage(ix0 + dx, iz0 + dz, /*tier=*/0);
 
-    SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(dev);
+    md::GpuCommandBufferHandle cmd = SDL_AcquireGPUCommandBuffer(dev);
     if (!cmd) return -1;
     s_vt_cache.FlushFillQueue(dev, cmd, s_granite_hmap, s_terrain);
     // Debug-only diagnostic: fence-wait so a subsequent VtDebugDump call

@@ -509,7 +509,7 @@ void s_load_textures(const char* tex_path) {
             if (tr) {
                 void* mp=GpuMapTransfer(tr,false);
                 if(mp){memcpy(mp,s_ws_mat,up_sz);GpuUnmapTransfer(tr);}
-                SDL_GPUCommandBuffer* uc=md::GpuDevice::Get().AcquireCommandBuffer();
+                md::GpuCommandBufferHandle uc=md::GpuDevice::Get().AcquireCommandBuffer();
                 if (uc) {
                     GpuCopyPass cp;
                     cp.Begin(uc);

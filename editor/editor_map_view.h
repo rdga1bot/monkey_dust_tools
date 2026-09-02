@@ -28,7 +28,7 @@ public:
 
 #ifdef MD_SDL_GPU
     // Call once per frame before ImGui render (from main.cpp), same cmd buffer.
-    void RenderFrame(SDL_GPUCommandBuffer* cmd);
+    void RenderFrame(md::GpuCommandBufferHandle cmd);
 #endif
 
     // Load/Save/New — called from menu bar in main.cpp.

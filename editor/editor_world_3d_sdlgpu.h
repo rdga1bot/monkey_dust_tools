@@ -1,6 +1,7 @@
 #pragma once
 #ifdef MD_SDL_GPU
 #include <SDL3/SDL_gpu.h>
+#include <monkey_dust/render/gpu_device.h>
 
 // editor_world_3d_sdlgpu — 3D world viewport for the standalone SDL_GPU editor.
 // Renders Kenshi terrain + props to an RTT; display via ImGui::Image().
@@ -13,7 +14,7 @@ bool Init(const char* overlay_path, int zone_ox = 28, int zone_oz = 28);
 // before GpuDevice::Shutdown() — see this header's Init() doc and the
 // definition site in editor_world_3d_sdlgpu.cpp for the race this fixes.
 void Shutdown();
-void RenderFrame(SDL_GPUCommandBuffer* cmd, float dt, bool tab_active = false);
+void RenderFrame(md::GpuCommandBufferHandle cmd, float dt, bool tab_active = false);
 void DrawImGui(float W, float H, float dt);
 void UploadTerrainHeightmap(const float* hmap, int W, int H,
                             float world_size_m, int chunk_x, int chunk_z);

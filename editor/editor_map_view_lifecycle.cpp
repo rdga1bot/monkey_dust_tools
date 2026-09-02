@@ -94,7 +94,7 @@ void MapViewPanel::Shutdown() {
 // ── SDL_GPU: render tile map to RTT (called from main.cpp before ImGui) ───────
 
 #ifdef MD_SDL_GPU
-void MapViewPanel::RenderFrame(SDL_GPUCommandBuffer* cmd) {
+void MapViewPanel::RenderFrame(md::GpuCommandBufferHandle cmd) {
     if (!init_ || !loaded_ || !rt_ok_ || !rt_color_) return;
     GpuCommandBuffer clear_cb;
     GpuCommandBuffer::ColorPassDesc clear_cpd;
