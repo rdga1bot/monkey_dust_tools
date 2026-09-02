@@ -224,8 +224,8 @@ static void s_build_prop_positions() {
 }
 
 // RTT
-static SDL_GPUTexture* s_color = nullptr;
-static SDL_GPUTexture* s_depth = nullptr;
+static md::GpuTextureHandle s_color = nullptr;
+static md::GpuTextureHandle s_depth = nullptr;
 static int             s_rtt_w = 0, s_rtt_h = 0;
 static int             s_last_w = 1280, s_last_h = 720;  // use prev frame size
 

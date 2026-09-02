@@ -27,7 +27,7 @@ bool EditorScreenshot_ConsumePending(char* out_path, int out_path_size) {
 }
 
 bool EditorScreenshot_CaptureAndSubmit(md::GpuDeviceHandle dev, md::GpuCommandBufferHandle cmd,
-                                       SDL_GPUTexture* swapchain_tex,
+                                       md::GpuTextureHandle swapchain_tex,
                                        uint32_t w, uint32_t h,
                                        SDL_GPUTextureFormat fmt,
                                        const char* out_path) {

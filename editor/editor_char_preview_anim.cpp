@@ -16,7 +16,7 @@ GpuTexture      s_tex;
 GpuTexture      s_tex_head;    // head/face diffuse (V<0 UV island)
 GpuTexture      s_tex_muscle;  // 1×1 neutral muscle mask
 GpuTexture      s_tex_blood;   // 1×1 clear blood overlay
-SDL_GPUTexture* s_bones_tex     = nullptr;
+md::GpuTextureHandle s_bones_tex     = nullptr;
 SDL_GPUSampler* s_bones_sampler = nullptr;
 int             s_ni  = 0;
 bool            s_ok  = false;

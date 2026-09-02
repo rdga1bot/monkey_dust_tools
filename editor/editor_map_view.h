@@ -72,7 +72,7 @@ private:
     GLuint rt_tex_   = 0;
     GLuint rt_depth_ = 0;
 #else
-    SDL_GPUTexture* rt_color_ = nullptr;
+    md::GpuTextureHandle rt_color_ = nullptr;
     // GpuDepthTexture, not a raw SDL_GPUTexture*: defaults to D32_FLOAT.
     // The prior raw D24_UNORM here was a GPU-hang risk on Intel Gen9, unlike
     // every other depth texture in the codebase (docs/HAL_CLOSURE_INVENTORY.md §5).

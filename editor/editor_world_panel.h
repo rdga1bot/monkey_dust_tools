@@ -66,7 +66,7 @@ static float g_status_t     = 0.f;
 static unsigned int    g_maptex = 0;
 #else
 static GpuTexture      g_maptex_gpu;
-static SDL_GPUTexture* g_maptex = nullptr;
+static md::GpuTextureHandle g_maptex = nullptr;
 #endif
 static int    g_mapw = 0, g_maph = 0;
 static bool   g_map_tried   = false;

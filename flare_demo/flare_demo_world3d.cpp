@@ -139,15 +139,15 @@ void World3DRender(int vp_w, int vp_h, float dt) {
 
     // Acquire command buffer + swapchain texture.
     md::GpuCommandBufferHandle cmd = md::GpuDevice::Get().AcquireCommandBuffer();
-    SDL_GPUTexture* swap = nullptr;
+    md::GpuTextureHandle swap = nullptr;
     if (!SDL_AcquireGPUSwapchainTexture(cmd, s_w3d_window, &swap, nullptr, nullptr)
         || !swap) {
         md::GpuDevice::Get().Submit(cmd);
         return;
     }
 
-    SDL_GPUTexture* scene_target = use_cas ? s_cas.SceneTex() : swap;
-    SDL_GPUTexture* scene_depth  = use_cas ? s_cas.DepthTex() : s_w3d_depth.SDLTexture();
+    md::GpuTextureHandle scene_target = use_cas ? s_cas.SceneTex() : swap;
+    md::GpuTextureHandle scene_depth  = use_cas ? s_cas.DepthTex() : s_w3d_depth.SDLTexture();
 
     // Scene render pass.
     GpuCommandBuffer cb;

@@ -178,7 +178,7 @@ int RunUiSmokeTests(md::GpuDeviceHandle gpu, SDL_GPUTextureFormat sc_fmt,
         if (cmd) {
             editor_panels_render(cmd, dt, prev_flags);
             uint32_t sw = 0, sh = 0;
-            SDL_GPUTexture* sc = md::GpuDevice::Get().AcquireSwapchainTexture(cmd, &sw, &sh);
+            md::GpuTextureHandle sc = md::GpuDevice::Get().AcquireSwapchainTexture(cmd, &sw, &sh);
             if (sc) {
                 GpuCommandBuffer clear_cb;
                 GpuCommandBuffer::ColorPassDesc clear_cpd;

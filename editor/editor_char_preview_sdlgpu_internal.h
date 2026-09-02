@@ -61,7 +61,7 @@ extern GpuTexture      s_tex_head;    // head/face diffuse (V<0 UV island)
 extern GpuTexture      s_tex_muscle;  // 1×1 neutral muscle mask
 extern GpuTexture      s_tex_blood;   // 1×1 clear blood overlay
 // Bone scale texture: 30×1 RGBA32F — raw SDL_GPU (GpuTexture only supports RGBA8)
-extern SDL_GPUTexture* s_bones_tex;
+extern md::GpuTextureHandle s_bones_tex;
 extern SDL_GPUSampler* s_bones_sampler;
 extern int             s_ni;
 extern bool            s_ok;

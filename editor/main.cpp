@@ -424,7 +424,7 @@ int main(int argc, char** argv) {
             if (cmd) {
                 EditorModule::Get().Render(cmd, dt, prev_flags);
                 uint32_t sw=0, sh=0;
-                SDL_GPUTexture* sc = md::GpuDevice::Get().AcquireSwapchainTexture(cmd, &sw, &sh);
+                md::GpuTextureHandle sc = md::GpuDevice::Get().AcquireSwapchainTexture(cmd, &sw, &sh);
                 if (sc) {
                     GpuCommandBuffer clear_cb;
                     GpuCommandBuffer::ColorPassDesc clear_cpd;
@@ -544,7 +544,7 @@ int main(int argc, char** argv) {
 
             // 2. Acquire swapchain + clear + ImGui
             uint32_t sw=0, sh=0;
-            SDL_GPUTexture* sc = md::GpuDevice::Get().AcquireSwapchainTexture(cmd, &sw, &sh);
+            md::GpuTextureHandle sc = md::GpuDevice::Get().AcquireSwapchainTexture(cmd, &sw, &sh);
             if (sc) {
                 SDL_GPUColorTargetInfo ct={};
                 ct.texture=sc; ct.load_op=SDL_GPU_LOADOP_CLEAR;

@@ -45,7 +45,7 @@ bool EditorScreenshot_HasPending();
 // false (logs the SDL_GetError()) on any failure — never silently drops a
 // requested screenshot without saying why.
 bool EditorScreenshot_CaptureAndSubmit(md::GpuDeviceHandle dev, md::GpuCommandBufferHandle cmd,
-                                       SDL_GPUTexture* swapchain_tex,
+                                       md::GpuTextureHandle swapchain_tex,
                                        uint32_t w, uint32_t h,
                                        SDL_GPUTextureFormat fmt,
                                        const char* out_path);
