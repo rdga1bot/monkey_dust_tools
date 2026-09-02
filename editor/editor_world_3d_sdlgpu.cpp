@@ -847,7 +847,7 @@ int VtDebugFill() {
     // (separate command buffer) can never race the compute writes above --
     // isolates whether a visible-content bug is really about the dispatch
     // itself vs. cross-command-buffer ordering.
-    SDL_GPUFence* fence = md::GpuDevice::Get().SubmitAndAcquireFence(cmd);
+    md::GpuFenceHandle fence = md::GpuDevice::Get().SubmitAndAcquireFence(cmd);
     if (fence) {
         md::GpuDevice::Get().WaitForFence(fence);
         md::GpuDevice::Get().ReleaseFence(fence);

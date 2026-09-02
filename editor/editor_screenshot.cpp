@@ -82,7 +82,7 @@ bool EditorScreenshot_CaptureAndSubmit(md::GpuDeviceHandle dev, md::GpuCommandBu
     // must append its own copy-pass to `cmd` before submitting).
     bool sync_timing = md::GpuDevice::Get().SyncTiming();
     uint64_t t0 = sync_timing ? SDL_GetPerformanceCounter() : 0;
-    SDL_GPUFence* fence = md::GpuDevice::Get().SubmitAndAcquireFence(cmd);
+    md::GpuFenceHandle fence = md::GpuDevice::Get().SubmitAndAcquireFence(cmd);
     // This path submits `cmd` itself instead of going through GpuDevice::
     // Submit() -- report completion so HasActiveCommandBuffer()'s frame-
     // resize tripwire (gpu_device.h) doesn't stay stuck true afterward.
