@@ -13,5 +13,5 @@
 // any test failed. Caller (main.cpp) must have already completed the
 // normal GPU/window/ImGui setup and NOT called EditorModule::Get().Init()
 // — this function owns editor_panels_init/shutdown itself.
-int RunUiSmokeTests(SDL_GPUDevice* gpu, SDL_GPUTextureFormat sc_fmt,
+int RunUiSmokeTests(md::GpuDeviceHandle gpu, SDL_GPUTextureFormat sc_fmt,
                      float overlay_top, const char* layout_path);

@@ -484,7 +484,7 @@ void s_load_textures(const char* tex_path) {
             memset(s_ws_mat[i],0,64);
             s_ws_mat[i][0]=s_ws_mat[i][5]=s_ws_mat[i][10]=s_ws_mat[i][15]=1.f;
         }
-        SDL_GPUDevice* dev = md::GpuDevice::Get().SDLDevice();
+        md::GpuDeviceHandle dev = md::GpuDevice::Get().SDLDevice();
         SDL_GPUTextureCreateInfo ti={};
         ti.type=SDL_GPU_TEXTURETYPE_2D;
         ti.format=SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;

@@ -115,7 +115,7 @@ static bool s_quadtree_ready = false;
 // texture is that this is the ONLY rebuild needed, no window/mesh to
 // also re-triangulate.
 static void s_rebuild_granite_hmap() {
-    SDL_GPUDevice* dev = md::GpuDevice::Get().SDLDevice();
+    md::GpuDeviceHandle dev = md::GpuDevice::Get().SDLDevice();
     s_granite_hmap.Shutdown(dev);
     bool hmap_ok = s_granite_hmap.Init(dev);
     s_granite_ready = hmap_ok;
@@ -307,7 +307,7 @@ void UploadTerrainHeightmap(const float* /*hmap*/, int /*W*/, int /*H*/,
 // ── RTT management ─────────────────────────────────────────────────────────────
 static void ensure_rtt(int w, int h) {
     if (w == s_rtt_w && h == s_rtt_h) return;
-    SDL_GPUDevice* dev = md::GpuDevice::Get().SDLDevice();
+    md::GpuDeviceHandle dev = md::GpuDevice::Get().SDLDevice();
     if (s_color) GpuReleaseTexture(dev, s_color);
     if (s_depth) GpuReleaseTexture(dev, s_depth);
     s_rtt_w = w; s_rtt_h = h;
@@ -428,7 +428,7 @@ void Shutdown() {
     // dlclose(), which is well before GpuDevice::Shutdown() at real process
     // exit -- see this function's own doc comment above for that separate,
     // already-fixed race).
-    SDL_GPUDevice* dev = md::GpuDevice::Get().SDLDevice();
+    md::GpuDeviceHandle dev = md::GpuDevice::Get().SDLDevice();
     s_quadtree_renderer.Shutdown(dev);
     s_quadtree_ready = false;
     s_vt_cache.Shutdown(dev);
@@ -820,7 +820,7 @@ void SetCameraPos(float x, float y, float z, float yaw, float pitch) {
 
 int VtDebugFill() {
     if (!s_granite_ready) return -1;
-    SDL_GPUDevice* dev = md::GpuDevice::Get().SDLDevice();
+    md::GpuDeviceHandle dev = md::GpuDevice::Get().SDLDevice();
     if (!dev) return -1;
     if (!s_vt_cache_ready) {
         s_vt_cache_ready = s_vt_cache.Init(dev, kGranitePatchSize, s_granite_hmap);
@@ -857,7 +857,7 @@ int VtDebugFill() {
 
 bool VtDebugDump(const char* out_png_path) {
     if (!s_vt_cache_ready) return false;
-    SDL_GPUDevice* dev = md::GpuDevice::Get().SDLDevice();
+    md::GpuDeviceHandle dev = md::GpuDevice::Get().SDLDevice();
     if (!dev) return false;
     return s_vt_cache.DebugDumpAtlas(dev, out_png_path);
 }

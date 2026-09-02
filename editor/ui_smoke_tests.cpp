@@ -111,7 +111,7 @@ void RegisterPanelSmokeTests(ImGuiTestEngine* engine) {
 
 } // namespace
 
-int RunUiSmokeTests(SDL_GPUDevice* gpu, SDL_GPUTextureFormat sc_fmt,
+int RunUiSmokeTests(md::GpuDeviceHandle gpu, SDL_GPUTextureFormat sc_fmt,
                      float overlay_top, const char* /*layout_path*/) {
     // Deliberately ignore the caller's real layout_path (data/editor_layout.json)
     // and pass nullptr instead -- editor_panels_init/shutdown both skip

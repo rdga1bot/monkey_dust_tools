@@ -37,7 +37,7 @@ void MapViewPanel::EnsureRT(int w, int h) {
     rt_ok_ = (glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 #else
-    SDL_GPUDevice* dev = md::GpuDevice::Get().SDLDevice();
+    md::GpuDeviceHandle dev = md::GpuDevice::Get().SDLDevice();
     if (rt_color_) { GpuReleaseTexture(dev, rt_color_); rt_color_ = nullptr; }
     rt_depth_.Shutdown();
 
@@ -82,7 +82,7 @@ void MapViewPanel::Shutdown() {
         rt_fbo_ = rt_tex_ = rt_depth_ = 0;
     }
 #else
-    SDL_GPUDevice* dev = md::GpuDevice::Get().SDLDevice();
+    md::GpuDeviceHandle dev = md::GpuDevice::Get().SDLDevice();
     if (rt_color_) { GpuReleaseTexture(dev, rt_color_); rt_color_ = nullptr; }
     rt_depth_.Shutdown();
 #endif

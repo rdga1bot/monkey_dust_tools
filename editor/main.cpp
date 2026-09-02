@@ -140,7 +140,7 @@ int main(int argc, char** argv) {
     // rendering normally internally. No-op if the window is already
     // shown by the time this runs.
     SDL_ShowWindow(_wnd::ptr());
-    SDL_GPUDevice* gpu = md::GpuDevice::Get().SDLDevice();
+    md::GpuDeviceHandle gpu = md::GpuDevice::Get().SDLDevice();
     SDL_GPUTextureFormat sc_fmt = SDL_GetGPUSwapchainTextureFormat(gpu, _wnd::ptr());
 
     // ── ImGui ─────────────────────────────────────────────────────────────────

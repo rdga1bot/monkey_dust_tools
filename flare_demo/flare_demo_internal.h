@@ -139,7 +139,7 @@ bool IsPassable(const md::flare::FlareMap& map, float x, float z);
 uint32_t RandU();
 int RandRange(int lo, int hi);
 void GenCamIcon(uint8_t* p, bool rec);
-bool MakeCamTex(SDL_GPUDevice* dev, const uint8_t* pixels, GpuColorTexture& out);
+bool MakeCamTex(md::GpuDeviceHandle dev, const uint8_t* pixels, GpuColorTexture& out);
 void StartRecording();
 void StopRecording();
 void WaitRecordingChild();

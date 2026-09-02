@@ -23,7 +23,7 @@ int main(int argc, char** argv) {
     fprintf(stderr, "[demo] GPU: %s\n", md::GpuDevice::Get().DriverName());
 
     // Camera-button textures (idle + recording state).
-    SDL_GPUDevice*  sdl_dev = md::GpuDevice::Get().SDLDevice();
+    md::GpuDeviceHandle  sdl_dev = md::GpuDevice::Get().SDLDevice();
     GpuColorTexture cam_idle_tex;
     GpuColorTexture cam_rec_tex;
     {

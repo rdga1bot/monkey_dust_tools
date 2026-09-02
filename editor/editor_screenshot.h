@@ -44,7 +44,7 @@ bool EditorScreenshot_HasPending();
 // via stb_image_write, and cleans up all GPU resources it created. Returns
 // false (logs the SDL_GetError()) on any failure — never silently drops a
 // requested screenshot without saying why.
-bool EditorScreenshot_CaptureAndSubmit(SDL_GPUDevice* dev, md::GpuCommandBufferHandle cmd,
+bool EditorScreenshot_CaptureAndSubmit(md::GpuDeviceHandle dev, md::GpuCommandBufferHandle cmd,
                                        SDL_GPUTexture* swapchain_tex,
                                        uint32_t w, uint32_t h,
                                        SDL_GPUTextureFormat fmt,

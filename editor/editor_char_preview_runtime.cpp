@@ -40,7 +40,7 @@ void RenderFrame(md::GpuCommandBufferHandle cmd) {
                 s_mbuf[v].pz += w * dl[v*3+2];
             }
         }
-        SDL_GPUDevice* dev = md::GpuDevice::Get().SDLDevice();
+        md::GpuDeviceHandle dev = md::GpuDevice::Get().SDLDevice();
         uint32_t up_sz = (uint32_t)(vc * sizeof(Vtx));
         SDL_GPUTransferBufferCreateInfo mtb={};
         mtb.usage=SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD; mtb.size=up_sz;
@@ -61,7 +61,7 @@ void RenderFrame(md::GpuCommandBufferHandle cmd) {
 
     // Upload bone world-scale matrices (120×1 texture) via copy pass
     if (s_bones_tex) {
-        SDL_GPUDevice* dev=md::GpuDevice::Get().SDLDevice();
+        md::GpuDeviceHandle dev=md::GpuDevice::Get().SDLDevice();
         uint32_t up_sz=120*4*4;
         SDL_GPUTransferBufferCreateInfo tb={};
         tb.usage=SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD; tb.size=up_sz;

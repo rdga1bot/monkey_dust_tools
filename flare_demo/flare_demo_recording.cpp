@@ -49,7 +49,7 @@ void GenCamIcon(uint8_t* p, bool rec) {
 }
 
 // Create a BTN_SZ×BTN_SZ RGBA8 SDL_GPU texture from pixel data.
-bool MakeCamTex(SDL_GPUDevice* dev, const uint8_t* pixels, GpuColorTexture& out) {
+bool MakeCamTex(md::GpuDeviceHandle dev, const uint8_t* pixels, GpuColorTexture& out) {
     if (!out.Init(BTN_SZ, BTN_SZ, SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
                    SDL_GPU_TEXTUREUSAGE_SAMPLER))
         return false;
