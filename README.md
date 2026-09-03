@@ -16,7 +16,7 @@ Depends on [monkey\_dust\_engine](https://github.com/rdga1bot/monkey_dust_engine
 
 All tool names use the `md_` prefix (no proprietary asset branding in public repos).
 
-> **Render backend: SDL3/SDL_GPU, permanently.** An embedded LibGodot RenderingServer replacement for the editor's `monkey_dust_editor`/`monkey_dust_editor_panels` targets was explored but **rejected 2026-08-23** after a measured ~50% GPU perf regression on target hardware. See the parent [`monkey_dust`](https://github.com/rdga1bot/monkey_dust) repo's `docs/SDL3_TO_LIBGODOT_MIGRATION_AUDIT.md` for status.
+> **Render backend: SDL3/SDL_GPU, permanently.** An embedded LibGodot RenderingServer replacement for the editor's `monkey_dust_editor`/`monkey_dust_editor_panels` targets was explored but **rejected 2026-08-23** after a measured ~50% GPU perf regression on target hardware. See the parent [`monkey_dust`](https://github.com/rdga1bot/monkey_dust) repo's `docs/SDL3_TO_LIBGODOT_MIGRATION_AUDIT.md` for status. All LibGodot code was fully removed 2026-09-03.
 
 > **Full documentation →** [rdga1bot.github.io/monkey\_dust\_engine/monkey\_dust\_docs.html](https://rdga1bot.github.io/monkey_dust_engine/monkey_dust_docs.html)
 
