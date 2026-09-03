@@ -33,7 +33,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # .md files in scope: main-repo root + docs/** (matches DOC_RECON.md Phase 0
-# item 1's own scope -- NOT re_docs/, tmp_/, private/, docs/re_assets/,
+# item 1's own scope -- NOT re/re_docs/, tmp_/, private/, docs/re_assets/,
 # which are out of the prompt's §0/§2 perimeter).
 def _md_files():
     files = sorted(REPO_ROOT.glob("*.md"))
@@ -319,7 +319,7 @@ def check_doc10_root_line_limit(limit):
 
 # ── Knowledge Library checks (DOC-11/12/13) ──────────────────────────────────
 # Broader corpus than _md_files() (root+docs/** only): the knowledge library
-# covers the full public+private corpus -- root, docs/**, re_docs/** (private
+# covers the full public+private corpus -- root, docs/**, re/re_docs/** (private
 # RE data; DOC-01..10 exclude it, but frontmatter/dedup checks are metadata-
 # only and don't touch its content) and each submodule's own root .md files.
 # See docs/KNOWLEDGE_LIBRARY.md for the schema these three checks validate.
@@ -327,7 +327,7 @@ def _kb_files():
     files = sorted(REPO_ROOT.glob("*.md"))
     files += sorted((REPO_ROOT / "docs").rglob("*.md"))
     files = [f for f in files if "re_assets" not in f.parts]
-    re_docs_dir = REPO_ROOT / "re_docs"
+    re_docs_dir = REPO_ROOT / "re" / "re_docs"
     if re_docs_dir.exists():
         files += sorted(re_docs_dir.rglob("*.md"))
     for sub in ("engine", "tools"):
@@ -411,8 +411,8 @@ def check_doc12_link_integrity(kb_files):
 
 # ── DOC-13: undetected-duplicate heuristic -- the actual gap this whole
 # schema exists to close. DOC-01..10 only ever check doc-vs-code drift;
-# nothing previously checked doc-vs-doc overlap (e.g. re_docs/AI/*.md
-# silently duplicating re_docs/kenshi/*.md under identical filenames with
+# nothing previously checked doc-vs-doc overlap (e.g. re/re_docs/AI/*.md
+# silently duplicating re/re_docs/kenshi/*.md under identical filenames with
 # no deprecation marker, found by hand this session -- this check is meant
 # to catch that class mechanically next time). Deliberately narrow and
 # heuristic (expected false positives -- see .claude/agents/doc-doctor.md's

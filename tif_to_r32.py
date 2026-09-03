@@ -11,7 +11,7 @@ Atlas: 64×64 zones, 129×129 verts/zone, raw uint16 (no compression — was
 Step:  256/128 = 2 px per vert — exact, no interpolation needed. Matches
        Kenshi's own real in-engine resolution (RE-confirmed: raw 258x258
        tile fetch downsampled internally to 129x129/zone,
-       re_docs/kenshi/terrain.md) — was 65 verts/zone, coarser than Kenshi.
+       re/re_docs/kenshi/terrain.md) — was 65 verts/zone, coarser than Kenshi.
 
 Usage:
   python3 tools/tif_to_r32.py                            # defaults

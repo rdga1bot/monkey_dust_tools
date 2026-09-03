@@ -121,7 +121,7 @@ Baselines stored in `tools/qa/baselines/char_preview/`. Threshold: RMSE < 0.02.
 Used to build `world_hmap.r32` from `fullmap.tif`, but with a stale
 `HEIGHT_MAX = 300.0` constant that conflicted with the real, current value
 (`980.0`, real Kenshi scale — see
-`re_docs/kenshi/impl_status/CLAUDE_KEN_TERRAIN_SCALE_FIX.md`). Two
+`re/re_docs/kenshi/impl_status/CLAUDE_KEN_TERRAIN_SCALE_FIX.md`). Two
 competing, simultaneously-documented ways to build the same artifact was
 a confirmed real risk (`docs/ENGINE_AUDIT.md` §1/§2) — deleted rather than
 left deprecated-in-place, per the resolved decision in

@@ -18,7 +18,7 @@ dirt->road), each layer at its OWN real per-biome tiling scale (FCS
 "tiling X/Y <layer>" fields, extracted by private/md_gen_biome_table.py)
 on top of a shared world/5000 base coordinate. An earlier version of this
 file used dominant-weight/argmax selection instead, believing that was
-Kenshi's real scheme (re_docs/kenshi/terrain.md Subsystem 4) -- reading
+Kenshi's real scheme (re/re_docs/kenshi/terrain.md Subsystem 4) -- reading
 the actual shader source this session showed that belief was wrong: real
 Kenshi lerps. The "muddy wash" that motivated the argmax detour came from
 THIS PROJECT'S own missing details (one global UV scale for every layer +
@@ -449,7 +449,7 @@ def main():
             # confirmed against the actual shipped HLSL source, not a
             # decompile) is an ORDINARY SEQUENTIAL LERP CHAIN, not dominant-
             # weight/argmax -- the earlier belief that Kenshi uses per-texel
-            # argmax for flat ground (re_docs/kenshi/terrain.md Subsystem 4)
+            # argmax for flat ground (re/re_docs/kenshi/terrain.md Subsystem 4)
             # was a misreading; this session found the real shader and it
             # lerps straight through:
             #   albedo = lerp(cBase,  cGrass, map.r)
