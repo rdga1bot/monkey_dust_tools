@@ -153,13 +153,14 @@ static void s_rebuild_granite_hmap() {
 // any per-batch flag (the old use_zone_lookup toggle belonged to the now-
 // removed dead draw pipeline, see terrain_renderer.h's class doc comment).
 static void s_build_zone_ground_layers() {
-    // Stride 9 (was 8, task terrain-brightness) -- see scene_render.cpp's
-    // matching loop for slot 8 (brightness_fix) rationale.
-    static uint32_t s_layers[64 * 64 * 9];
+    // Stride 17 (was 9, task #12 "ground-texture realism") -- see
+    // scene_render.cpp's matching loop for slots 9..16 (per-layer real UV
+    // tiling) rationale.
+    static uint32_t s_layers[64 * 64 * 17];
     for (int zy = 0; zy < 64; ++zy) {
         for (int zx = 0; zx < 64; ++zx) {
             const BiomeDef& b = TerrainGen_ResolveBiome(zx, zy);
-            int idx = (zy * 64 + zx) * 9;
+            int idx = (zy * 64 + zx) * 17;
             s_layers[idx + 0] = (uint32_t)b.tex_base;
             s_layers[idx + 1] = (uint32_t)b.tex_slope;
             s_layers[idx + 2] = (uint32_t)b.tex_cliff;
@@ -171,13 +172,25 @@ static void s_build_zone_ground_layers() {
             memcpy(&s_layers[idx + 7], &cty, sizeof(uint32_t));
             float bf = b.brightness_fix;
             memcpy(&s_layers[idx + 8], &bf, sizeof(uint32_t));
+            float tbx = b.tile_base_x,  tby = b.tile_base_y;
+            float tgx = b.tile_grass_x, tgy = b.tile_grass_y;
+            float tdx = b.tile_dirt_x,  tdy = b.tile_dirt_y;
+            float trx = b.tile_road_x,  try_ = b.tile_road_y;
+            memcpy(&s_layers[idx + 9],  &tbx, sizeof(uint32_t));
+            memcpy(&s_layers[idx + 10], &tby, sizeof(uint32_t));
+            memcpy(&s_layers[idx + 11], &tgx, sizeof(uint32_t));
+            memcpy(&s_layers[idx + 12], &tgy, sizeof(uint32_t));
+            memcpy(&s_layers[idx + 13], &tdx, sizeof(uint32_t));
+            memcpy(&s_layers[idx + 14], &tdy, sizeof(uint32_t));
+            memcpy(&s_layers[idx + 15], &trx, sizeof(uint32_t));
+            memcpy(&s_layers[idx + 16], &try_, sizeof(uint32_t));
         }
     }
-    s_terrain.UploadZoneGroundLayers(s_layers, 64 * 64 * 9);
+    s_terrain.UploadZoneGroundLayers(s_layers, 64 * 64 * 17);
     // Sanity log — cross-check a few zones by hand against terrain_config.txt.
     fprintf(stdout, "[W3D-SDLGPU] zone ground-layer LUT built (4096 zones); "
                      "zone(0,0)=base%u zone(32,32)=base%u zone(63,63)=base%u\n",
-            s_layers[(0*64+0)*6], s_layers[(32*64+32)*6], s_layers[(63*64+63)*6]);
+            s_layers[(0*64+0)*17], s_layers[(32*64+32)*17], s_layers[(63*64+63)*17]);
 }
 
 static GpuPipeline        s_sky_pipeline;
