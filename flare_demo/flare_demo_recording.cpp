@@ -50,37 +50,7 @@ void GenCamIcon(uint8_t* p, bool rec) {
 
 // Create a BTN_SZ×BTN_SZ RGBA8 SDL_GPU texture from pixel data.
 bool MakeCamTex(md::GpuDeviceHandle dev, const uint8_t* pixels, GpuColorTexture& out) {
-    if (!out.Init(BTN_SZ, BTN_SZ, SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
-                   SDL_GPU_TEXTUREUSAGE_SAMPLER))
-        return false;
-
-    SDL_GPUTransferBufferCreateInfo tbi {};
-    tbi.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
-    tbi.size  = (uint32_t)(BTN_SZ * BTN_SZ * 4);
-    SDL_GPUTransferBuffer* tb = GpuCreateTransferBuffer(dev, &tbi);
-    if (!tb) { out.Shutdown(); return false; }
-
-    void* ptr = GpuMapTransfer(tb, false);
-    if (ptr) memcpy(ptr, pixels, (size_t)(BTN_SZ * BTN_SZ * 4));
-    GpuUnmapTransfer(tb);
-
-    md::GpuCommandBufferHandle cmd = md::GpuDevice::Get().AcquireCommandBuffer();
-    GpuCopyPass cp;
-    cp.Begin(cmd);
-    SDL_GPUTextureTransferInfo src {};
-    src.transfer_buffer = tb;
-    src.pixels_per_row  = (uint32_t)BTN_SZ;
-    src.rows_per_layer  = (uint32_t)BTN_SZ;
-    SDL_GPUTextureRegion dst {};
-    dst.texture = out.SDLTexture();
-    dst.w = (uint32_t)BTN_SZ;
-    dst.h = (uint32_t)BTN_SZ;
-    dst.d = 1;
-    cp.UploadTexture(src, dst, false);
-    cp.End();
-    md::GpuDevice::Get().Submit(cmd);
-    GpuReleaseTransferBuffer(dev, tb);
-    return true;
+    return MdUploadSquareRGBA8ToGpuColorTexture(dev, pixels, BTN_SZ, out);
 }
 
 void StartRecording() {

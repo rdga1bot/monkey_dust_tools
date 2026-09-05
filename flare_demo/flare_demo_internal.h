@@ -19,6 +19,7 @@
 #include <monkey_dust/flare/tile_collision.h>
 #include <monkey_dust/render/gpu_device.h>
 #include <monkey_dust/render/gpu_hal.h>
+#include <monkey_dust/render/md_texture.h>
 #include <monkey_dust/render/render_pass_graph.h>
 #include <monkey_dust/render/cas_pass.h>
 #include <monkey_dust/render/moc_culler.h>

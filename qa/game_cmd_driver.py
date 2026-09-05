@@ -137,12 +137,19 @@ class Driver:
             return None, "%s (raw=%r)" % (e, val_str)
 
     def screenshot(self, out_path, camera=None, editor_open=False, settle_s=1.0):
-        """camera: (x, y, z, yaw_deg, pitch_deg) or None to leave as-is.
+        """camera: (world_x, world_y, world_z, yaw_deg, pitch_deg) or None to
+        leave as-is -- these are ABSOLUTE Kenshi world metres (the same
+        "Abs World" reading the F3 Camera panel shows), NOT the local
+        tnoff-relative coords md.set_camera_pose expects raw. Routed through
+        md.set_camera_pose_world (2026-09-05) specifically so callers of
+        this wrapper can never hit the world-vs-local mixup that cost a full
+        debugging session before it was fixed at the engine layer instead of
+        just documented here.
         editor_open=False clears the F3 panel (set_camera_pose forces it
         true as a side effect, so this is applied AFTER positioning, same
         order bug found live this session -- see module doc)."""
         if camera is not None:
-            ok, r = self.send("md.set_camera_pose(%s)" % ", ".join(str(c) for c in camera))
+            ok, r = self.send("md.set_camera_pose_world(%s)" % ", ".join(str(c) for c in camera))
             if not ok:
                 return False, r
         ok, r = self.send("md.set_editor_open(%s)" % ("true" if editor_open else "false"))

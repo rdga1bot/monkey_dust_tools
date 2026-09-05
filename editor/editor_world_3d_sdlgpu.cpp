@@ -130,16 +130,13 @@ static void s_rebuild_granite_hmap() {
         if (!s_vt_cache_ready) s_vt_cache_ready = s_vt_cache.Init(dev, kGranitePatchSize, s_granite_hmap);
         s_granite_ready = s_granite_ready && s_quadtree_renderer.IsReady();
 
-        // Ogre-quadtree needs real height data (relief-based skirt depth),
-        // so Init here alongside the rest of the heightmap-dependent setup
-        // (s_quadtree_renderer.Init() itself already ran earlier on this
-        // same loader thread -- data-independent pipeline/mesh setup).
+        // Fixed-depth tiling needs real height data for the distance-cull
+        // sampler, so Init here alongside the rest of the heightmap-
+        // dependent setup (s_quadtree_renderer.Init() itself already ran
+        // earlier on this same loader thread -- data-independent pipeline/
+        // mesh setup).
         if (!s_quadtree_ready && s_granite_ready) {
-            // #400 (2026-08-23): 3.0->2.0, matches scene_render.cpp's own
-            // tuned value -- see that call site's doc comment for the A/B
-            // measurement (-23% node count, no measurable FPS/visual cost).
             s_quadtree.Init(0.f, 0.f, s_granite_hmap.WorldExtent(), CHUNK_SIZE,
-                             /*max_depth=*/3, /*detail_multiplier=*/2.0f,
                              TerrainAtlas_SampleWorld);
             s_quadtree_ready = true;
         }
@@ -153,14 +150,15 @@ static void s_rebuild_granite_hmap() {
 // any per-batch flag (the old use_zone_lookup toggle belonged to the now-
 // removed dead draw pipeline, see terrain_renderer.h's class doc comment).
 static void s_build_zone_ground_layers() {
-    // Stride 17 (was 9, task #12 "ground-texture realism") -- see
+    // Stride 19 (was 17 -- "wavy cliff lines" distortion, 2026-09-04; was 9
+    // before that, task #12 "ground-texture realism") -- see
     // scene_render.cpp's matching loop for slots 9..16 (per-layer real UV
-    // tiling) rationale.
-    static uint32_t s_layers[64 * 64 * 17];
+    // tiling) and 17..18 (distortion amplitude/wavelength) rationale.
+    static uint32_t s_layers[64 * 64 * 19];
     for (int zy = 0; zy < 64; ++zy) {
         for (int zx = 0; zx < 64; ++zx) {
             const BiomeDef& b = TerrainGen_ResolveBiome(zx, zy);
-            int idx = (zy * 64 + zx) * 17;
+            int idx = (zy * 64 + zx) * 19;
             s_layers[idx + 0] = (uint32_t)b.tex_base;
             s_layers[idx + 1] = (uint32_t)b.tex_slope;
             s_layers[idx + 2] = (uint32_t)b.tex_cliff;
@@ -184,9 +182,12 @@ static void s_build_zone_ground_layers() {
             memcpy(&s_layers[idx + 14], &tdy, sizeof(uint32_t));
             memcpy(&s_layers[idx + 15], &trx, sizeof(uint32_t));
             memcpy(&s_layers[idx + 16], &try_, sizeof(uint32_t));
+            float da = b.distort_amplitude, dw = b.distort_wavelength;
+            memcpy(&s_layers[idx + 17], &da, sizeof(uint32_t));
+            memcpy(&s_layers[idx + 18], &dw, sizeof(uint32_t));
         }
     }
-    s_terrain.UploadZoneGroundLayers(s_layers, 64 * 64 * 17);
+    s_terrain.UploadZoneGroundLayers(s_layers, 64 * 64 * 19);
     // Sanity log — cross-check a few zones by hand against terrain_config.txt.
     fprintf(stdout, "[W3D-SDLGPU] zone ground-layer LUT built (4096 zones); "
                      "zone(0,0)=base%u zone(32,32)=base%u zone(63,63)=base%u\n",
