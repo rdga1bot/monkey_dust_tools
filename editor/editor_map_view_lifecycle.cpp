@@ -69,6 +69,14 @@ void MapViewPanel::Init() {
     if (init_) return;
     md::flare::TileMap2DRenderer::Get().Init();
     LoadMap(path_buf_);
+#ifdef MD_SDL_GPU
+    backend_ = std::make_unique<md::render_backend::SdlGpuBackend>();
+    backend_->SetGBufferPassCallback(
+        [](void* user, const md::render_backend::RenderFrameParams& params) {
+            static_cast<MapViewPanel*>(user)->DrawMapView(params.cmd);
+        },
+        this);
+#endif
     init_ = true;
 }
 
@@ -94,8 +102,7 @@ void MapViewPanel::Shutdown() {
 // ── SDL_GPU: render tile map to RTT (called from main.cpp before ImGui) ───────
 
 #ifdef MD_SDL_GPU
-void MapViewPanel::RenderFrame(md::GpuCommandBufferHandle cmd) {
-    if (!init_ || !loaded_ || !rt_ok_ || !rt_color_) return;
+void MapViewPanel::DrawMapView(md::GpuCommandBufferHandle cmd) {
     GpuCommandBuffer clear_cb;
     GpuCommandBuffer::ColorPassDesc clear_cpd;
     clear_cpd.cmd = cmd;
@@ -109,6 +116,17 @@ void MapViewPanel::RenderFrame(md::GpuCommandBufferHandle cmd) {
         origin_x_, origin_y_, scale_,
         rt_w_, rt_h_, LayerMask(),
         cmd, rt_color_);
+}
+
+// RENDER-BACKEND-STAGE-2g: call site перенесено на backend_->
+// RenderGBufferPass(), яка викликає зареєстрований callback (DrawMapView
+// above) -- та сама логіка, нова точка виклику.
+void MapViewPanel::RenderFrame(md::GpuCommandBufferHandle cmd) {
+    if (!init_ || !loaded_ || !rt_ok_ || !rt_color_) return;
+    md::render_backend::RenderFrameParams rbp;
+    rbp.cmd = cmd;
+    backend_->SetFrameParams(rbp);
+    backend_->RenderGBufferPass();
 }
 #endif
 

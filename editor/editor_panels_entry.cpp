@@ -257,7 +257,9 @@ uint32_t editor_panels_build_ui(float dt, float toolbar_h,
             }
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Map")) { s_active_tab = 2;
+        ImGuiTabItemFlags map_flags = (forced_tab && strcmp(forced_tab, "Map") == 0)
+            ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+        if (ImGui::BeginTabItem("Map", nullptr, map_flags)) { s_active_tab = 2;
             flags |= (1u << 3);
             auto draw_map = [&]() {
                 ImGuiIO& mio = ImGui::GetIO();

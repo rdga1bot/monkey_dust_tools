@@ -6,7 +6,9 @@
 #else
 #  include <monkey_dust/render/gpu_device.h>
 #  include <monkey_dust/render/gpu_hal.h>
+#  include <monkey_dust/render/backend/sdl_gpu_backend.h>
 #  include <SDL3/SDL_gpu.h>
+#  include <memory>
 #endif
 #include "imgui.h"
 #include <monkey_dust/flare/tile_map.h>
@@ -81,6 +83,19 @@ private:
     int    rt_w_ = 0, rt_h_ = 0;
     bool   rt_ok_= false;
     void   EnsureRT(int w, int h);
+
+#ifdef MD_SDL_GPU
+    // RENDER-BACKEND-STAGE-2g (docs/RENDER_BACKEND_ABSTRACTION.md §5.4):
+    // this panel's OWN SdlGpuBackend instance, independent of NpcRender's/
+    // WorldEditor3D_SDLGPU's/CharPreviewSDLGPU's -- a 2D tile-map renderer,
+    // no 3D camera or content overlap with the other viewports. RenderFrame
+    // is a clear pass + one TileMap2DRenderer::RenderToTarget call, no
+    // natural G-buffer/deferred split -- wired through RenderGBufferPass()
+    // as a single callback (same "doesn't split cleanly, fold into one"
+    // precedent as game/'s DrawScene / char_preview's whole RenderFrame).
+    std::unique_ptr<md::render_backend::SdlGpuBackend> backend_;
+    void DrawMapView(md::GpuCommandBufferHandle cmd);
+#endif
 
     float  now_s_ = 0.0f;
 
