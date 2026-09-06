@@ -42,7 +42,13 @@ def frames_for(capture_id: str) -> list[Path]:
         d = CAPTURES_DIR / capture_id
     if not d.exists():
         return []
-    return sorted(d.glob("frame_*.png")) or sorted(d.glob("cap_*.png"))
+    # "frame_*"/"cap_*" — older manual-capture naming conventions.
+    # "[0-9]*.png" — scripts/game_capture.py's real output (ffmpeg -i demo.mkv
+    # ... frames/%04d.png -> 0001.png), confirmed live 2026-09-06: qa_run.sh's
+    # own capture pipeline and this matcher had silently drifted out of sync
+    # (a real capture with 1015 extracted frames read as "no frames").
+    return (sorted(d.glob("frame_*.png")) or sorted(d.glob("cap_*.png"))
+            or sorted(d.glob("[0-9]*.png")))
 
 
 def latest_baseline() -> Optional[str]:
