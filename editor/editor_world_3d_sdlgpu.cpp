@@ -150,15 +150,18 @@ static void s_rebuild_granite_hmap() {
 // any per-batch flag (the old use_zone_lookup toggle belonged to the now-
 // removed dead draw pipeline, see terrain_renderer.h's class doc comment).
 static void s_build_zone_ground_layers() {
-    // Stride 19 (was 17 -- "wavy cliff lines" distortion, 2026-09-04; was 9
-    // before that, task #12 "ground-texture realism") -- see
+    // Stride 28, 27 used (was 24 -- CLIFF blend band, task #13 follow-up,
+    // 2026-09-06; was 19 before that -- slope layer, task #13, 2026-09-05;
+    // was 17 before that -- "wavy cliff lines" distortion, 2026-09-04; was
+    // 9 before that, task #12 "ground-texture realism") -- see
     // scene_render.cpp's matching loop for slots 9..16 (per-layer real UV
-    // tiling) and 17..18 (distortion amplitude/wavelength) rationale.
-    static uint32_t s_layers[64 * 64 * 19];
+    // tiling), 17..18 (distortion amplitude/wavelength), 19..23 (slope
+    // tiling + blend band), and 24..26 (cliff blend band) rationale.
+    static uint32_t s_layers[64 * 64 * 28];
     for (int zy = 0; zy < 64; ++zy) {
         for (int zx = 0; zx < 64; ++zx) {
             const BiomeDef& b = TerrainGen_ResolveBiome(zx, zy);
-            int idx = (zy * 64 + zx) * 19;
+            int idx = (zy * 64 + zx) * 28;
             s_layers[idx + 0] = (uint32_t)b.tex_base;
             s_layers[idx + 1] = (uint32_t)b.tex_slope;
             s_layers[idx + 2] = (uint32_t)b.tex_cliff;
@@ -185,13 +188,26 @@ static void s_build_zone_ground_layers() {
             float da = b.distort_amplitude, dw = b.distort_wavelength;
             memcpy(&s_layers[idx + 17], &da, sizeof(uint32_t));
             memcpy(&s_layers[idx + 18], &dw, sizeof(uint32_t));
+            float tsx = b.tile_slope_x, tsy = b.tile_slope_y;
+            memcpy(&s_layers[idx + 19], &tsx, sizeof(uint32_t));
+            memcpy(&s_layers[idx + 20], &tsy, sizeof(uint32_t));
+            float smn = b.slope_min, smx = b.slope_max, sfd = b.slope_fade;
+            memcpy(&s_layers[idx + 21], &smn, sizeof(uint32_t));
+            memcpy(&s_layers[idx + 22], &smx, sizeof(uint32_t));
+            memcpy(&s_layers[idx + 23], &sfd, sizeof(uint32_t));
+            float cmn = b.cliff_min, cmx = b.cliff_max, cfd = b.cliff_fade;
+            memcpy(&s_layers[idx + 24], &cmn, sizeof(uint32_t));
+            memcpy(&s_layers[idx + 25], &cmx, sizeof(uint32_t));
+            memcpy(&s_layers[idx + 26], &cfd, sizeof(uint32_t));
+            // task БОРГ-VISUAL-3 (2026-09-06): plain int, NOT bit-cast.
+            s_layers[idx + 27] = (uint32_t)b.biome_id;
         }
     }
-    s_terrain.UploadZoneGroundLayers(s_layers, 64 * 64 * 19);
+    s_terrain.UploadZoneGroundLayers(s_layers, 64 * 64 * 28);
     // Sanity log — cross-check a few zones by hand against terrain_config.txt.
     fprintf(stdout, "[W3D-SDLGPU] zone ground-layer LUT built (4096 zones); "
                      "zone(0,0)=base%u zone(32,32)=base%u zone(63,63)=base%u\n",
-            s_layers[(0*64+0)*17], s_layers[(32*64+32)*17], s_layers[(63*64+63)*17]);
+            s_layers[(0*64+0)*28], s_layers[(32*64+32)*28], s_layers[(63*64+63)*28]);
 }
 
 static GpuPipeline        s_sky_pipeline;
@@ -378,6 +394,12 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
         // data, never needs rebuilding, unlike the heightmap texture
         // (s_rebuild_granite_hmap).
         s_quadtree_renderer.Init(md::GpuDevice::Get().SDLDevice());
+        // task БОРГ-VISUAL-3 follow-up (2026-09-06): batched instanced
+        // draw path -- see RenderFrame's own comment for why the per-node
+        // DrawNode loop this viewport used before was a real 6 FPS
+        // regression once the aerial view's true (tens-of-thousands) tile
+        // count stopped being silently truncated.
+        s_quadtree_renderer.InitBatched(md::GpuDevice::Get().SDLDevice());
         // Placeholder size -- DrawImGui's ensure_rtt-adjacent EnsureSize call
         // resizes this to the real viewport dims on the first frame the
         // panel is actually shown (this thread doesn't know the ImGui
@@ -613,33 +635,83 @@ void RenderFrame(md::GpuCommandBufferHandle cmd, float dt, bool tab_active) {
     // 1.0 when the resolve pass below runs, so its gl_FragDepth-forwarded
     // depth test trivially passes everywhere real terrain exists.
     if (s_granite_ready && s_terrain.IsReady()) {
+        // Minimal-variant Part B (per-tile culling): same Gribb &
+        // Hartmann plane extraction as MdCamera::FrustumPlanes
+        // (engine/include/monkey_dust/render/md_camera.h) applied
+        // directly to this viewport's already-built vp.m -- no
+        // MdCamera object exists here (eye_x/y/z + vp.m is this
+        // file's own camera representation), so inlined rather than
+        // constructing one just to call that method.
+        float frustum_planes[16];
+        {
+            const float* m = vp.m;
+            frustum_planes[ 0]=m[3]+m[0]; frustum_planes[ 1]=m[7]+m[4]; frustum_planes[ 2]=m[11]+m[ 8]; frustum_planes[ 3]=m[15]+m[12];
+            frustum_planes[ 4]=m[3]-m[0]; frustum_planes[ 5]=m[7]-m[4]; frustum_planes[ 6]=m[11]-m[ 8]; frustum_planes[ 7]=m[15]-m[12];
+            frustum_planes[ 8]=m[3]-m[1]; frustum_planes[ 9]=m[7]-m[5]; frustum_planes[10]=m[11]-m[ 9]; frustum_planes[11]=m[15]-m[13];
+            frustum_planes[12]=m[3]+m[1]; frustum_planes[13]=m[7]+m[5]; frustum_planes[14]=m[11]+m[ 9]; frustum_planes[15]=m[15]+m[13];
+        }
+        // Ogre-quadtree: static, not a stack array -- see the game-side
+        // call site's own comment (npc_render_frame_prep.cpp) for why
+        // kMaxNodesPublic entries must not live on the stack.
+        static TerrainQuadtree::VisibleNode s_visible_nodes[TerrainQuadtree::kMaxNodesPublic];
+        float cam_pos[3] = { eye_x, eye_y, eye_z };
+        // task БОРГ-VISUAL-3 (2026-09-06): TerrainQuadtree::
+        // kGameplayMaxRenderDistance (3000m, fog-tied) culled EVERY
+        // zone at this viewport's normal 8000m+ aerial altitude --
+        // full 3D distance (cam_pos includes altitude) always exceeds
+        // 3000m looking straight down from there, so the "3D World"
+        // tab rendered pure sky, no terrain at all. This viewport is
+        // a 64x64 full-world aerial overview by design (Q/E=up/down,
+        // default alt shown in its own HUD), not ground-level
+        // gameplay -- pass a value covering the whole 29.5km world's
+        // diagonal (~41.7km) plus generous altitude headroom instead
+        // of the gameplay default.
+        constexpr float kAerialMaxRenderDistance = 60000.f;
+        int qt_count = s_quadtree.SelectVisible(cam_pos, frustum_planes,
+                                                  s_visible_nodes, TerrainQuadtree::kMaxNodesPublic,
+                                                  kAerialMaxRenderDistance);
+
+        // task БОРГ-VISUAL-3 follow-up (2026-09-06, FPS investigation):
+        // this viewport used to draw ONE individual (non-instanced,
+        // non-batched) DrawNode call per visible tile -- fine when the
+        // max_render_distance/kMaxNodesPublic bugs above silently capped
+        // qt_count at a few hundred, catastrophic once those were fixed
+        // and real aerial views started emitting 60-70k+ tiles (measured
+        // live via a temporary qt_count diagnostic: 71296 nodes at a
+        // normal 8000m view, ~63k of those falling through DrawBatched's
+        // per-node fallback before kMaxBatchedNodes was raised below --
+        // confirmed as the direct cause of a 6 FPS regression, NOT
+        // texture resolution as first suspected). Switched to the SAME
+        // instanced-batched path the game's G-buffer pass already uses
+        // (npc_render_frame_prep.cpp) -- upload all node data in ONE
+        // copy pass BEFORE opening the render pass (SDL_GPU disallows
+        // nesting a copy pass inside an active render pass), then ONE
+        // instanced draw call covers every node. kMaxBatchedNodes now
+        // equals kMaxNodesPublic exactly, so there is no per-node
+        // fallback path left to fall into at all.
+        bool use_batched = s_quadtree_renderer.IsBatchedReady() && qt_count > 0;
+        if (use_batched) {
+            GpuCopyPass node_cp;
+            node_cp.Begin(cmd);
+            if (node_cp.SDLPass()) {
+                s_quadtree_renderer.UploadNodeData(
+                    md::GpuDevice::Get().SDLDevice(), node_cp.SDLPass(), s_visible_nodes, qt_count);
+                node_cp.End();
+            } else {
+                use_batched = false;
+            }
+        }
+
         SDL_GPURenderPass* gbuf_pass = s_terrain_shading.BeginGBufferPass(cmd);
         if (gbuf_pass) {
-            // Minimal-variant Part B (per-tile culling): same Gribb &
-            // Hartmann plane extraction as MdCamera::FrustumPlanes
-            // (engine/include/monkey_dust/render/md_camera.h) applied
-            // directly to this viewport's already-built vp.m -- no
-            // MdCamera object exists here (eye_x/y/z + vp.m is this
-            // file's own camera representation), so inlined rather than
-            // constructing one just to call that method.
-            float frustum_planes[16];
-            {
-                const float* m = vp.m;
-                frustum_planes[ 0]=m[3]+m[0]; frustum_planes[ 1]=m[7]+m[4]; frustum_planes[ 2]=m[11]+m[ 8]; frustum_planes[ 3]=m[15]+m[12];
-                frustum_planes[ 4]=m[3]-m[0]; frustum_planes[ 5]=m[7]-m[4]; frustum_planes[ 6]=m[11]-m[ 8]; frustum_planes[ 7]=m[15]-m[12];
-                frustum_planes[ 8]=m[3]-m[1]; frustum_planes[ 9]=m[7]-m[5]; frustum_planes[10]=m[11]-m[ 9]; frustum_planes[11]=m[15]-m[13];
-                frustum_planes[12]=m[3]+m[1]; frustum_planes[13]=m[7]+m[5]; frustum_planes[14]=m[11]+m[ 9]; frustum_planes[15]=m[15]+m[13];
-            }
-            // Ogre-quadtree: static, not a stack array -- see the game-side
-            // call site's own comment (npc_render_frame_prep.cpp) for why
-            // kMaxNodesPublic(16384) entries must not live on the stack.
-            static TerrainQuadtree::VisibleNode s_visible_nodes[TerrainQuadtree::kMaxNodesPublic];
-            float cam_pos[3] = { eye_x, eye_y, eye_z };
-            int qt_count = s_quadtree.SelectVisible(cam_pos, frustum_planes,
-                                                      s_visible_nodes, TerrainQuadtree::kMaxNodesPublic);
-            for (int i = 0; i < qt_count; ++i) {
-                s_quadtree_renderer.DrawNode(gbuf_pass, cmd, s_granite_hmap, vp.m,
-                    s_visible_nodes[i], eye_x, eye_y, eye_z);
+            if (use_batched) {
+                s_quadtree_renderer.BeginBatched(gbuf_pass, cmd, s_granite_hmap, vp.m, eye_x, eye_y, eye_z);
+                s_quadtree_renderer.DrawBatched(gbuf_pass, cmd, qt_count);
+            } else {
+                for (int i = 0; i < qt_count; ++i) {
+                    s_quadtree_renderer.DrawNode(gbuf_pass, cmd, s_granite_hmap, vp.m,
+                        s_visible_nodes[i], eye_x, eye_y, eye_z);
+                }
             }
             SDL_EndGPURenderPass(gbuf_pass);
         }
