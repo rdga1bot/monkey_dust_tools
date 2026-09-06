@@ -1,5 +1,25 @@
+#include <monkey_dust/render/backend/sdl_gpu_backend.h>
+#include <memory>
 #include "editor_char_preview_sdlgpu_internal.h"
 #ifdef MD_SDL_GPU
+
+// RENDER-BACKEND-STAGE-2g (docs/RENDER_BACKEND_ABSTRACTION.md §5.4): this
+// viewport's OWN SdlGpuBackend instance, independent of NpcRender's AND of
+// WorldEditor3D_SDLGPU's -- unlike world_3d, this render path is ONE
+// continuous render pass (background + pole + body + clothing + hair, all
+// in the same SDL_GPURenderPass), no natural G-buffer/deferred split, so
+// the whole thing is wired through RenderGBufferPass() as one callback
+// (same "doesn't split cleanly, fold into one call" precedent as game/'s
+// DrawScene -> RenderGBufferPass, §3.2's own doc comment). No context
+// struct needed -- unlike world_3d/NpcRender, every input this render pass
+// reads (camera orbit, morphs, bone scales, clothing/hair state) is a
+// file-static already, RenderFrame's own signature takes nothing but cmd.
+static std::unique_ptr<md::render_backend::SdlGpuBackend> s_backend;
+
+// Forward decl -- Init() (below) registers a callback pointing at this;
+// full definition (renamed from the original RenderFrame body) follows
+// RenderFrame's new thin wrapper further down this file.
+static void DrawCharPreview(md::GpuCommandBufferHandle cmd);
 
 bool Init(const char* glb_path, const char* tex_path) {
     s_sex = (glb_path && strstr(glb_path, "female")) ? 1 : 0;
@@ -17,13 +37,19 @@ bool Init(const char* glb_path, const char* tex_path) {
     // Load hair shading params from file (falls back to defaults if missing)
     HairShading::Load("game/data/chars/hair_shading.txt");
 
+    s_backend = std::make_unique<md::render_backend::SdlGpuBackend>();
+    s_backend->SetGBufferPassCallback(
+        [](void*, const md::render_backend::RenderFrameParams& params) {
+            DrawCharPreview(params.cmd);
+        },
+        nullptr);
+
     s_ok=true;
     return true;
 }
 
 // ── RenderFrame: render T-pose to RTT (call before ImGui render) ──────────────
-void RenderFrame(md::GpuCommandBufferHandle cmd) {
-    if (!s_ok||!s_color.SDLTexture()||s_rtt_w<4||s_rtt_h<4) return;
+static void DrawCharPreview(md::GpuCommandBufferHandle cmd) {
 
     // Upload morphed vertex positions if any blend shape weights changed
     if (s_morphs_dirty && s_base_verts_cpu && s_morph_count > 0 && s_vbo.SDLBuffer()) {
@@ -242,6 +268,17 @@ void RenderFrame(md::GpuCommandBufferHandle cmd) {
     }
 
     cb.EndPass();
+}
+
+// RENDER-BACKEND-STAGE-2g: call site перенесено на backend_->
+// RenderGBufferPass(), яка викликає зареєстрований callback
+// (DrawCharPreview above) -- та сама логіка, нова точка виклику.
+void RenderFrame(md::GpuCommandBufferHandle cmd) {
+    if (!s_ok||!s_color.SDLTexture()||s_rtt_w<4||s_rtt_h<4) return;
+    md::render_backend::RenderFrameParams rbp;
+    rbp.cmd = cmd;
+    s_backend->SetFrameParams(rbp);
+    s_backend->RenderGBufferPass();
 }
 
 // ── Hot-reload: recreate all char-preview pipelines from current SPV files ───
