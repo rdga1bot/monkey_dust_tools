@@ -71,6 +71,7 @@ void MapViewPanel::Init() {
     LoadMap(path_buf_);
 #ifdef MD_SDL_GPU
     backend_ = std::make_unique<md::render_backend::SdlGpuBackend>();
+    backend_->Init();
     backend_->SetGBufferPassCallback(
         [](void* user, const md::render_backend::RenderFrameParams& params) {
             static_cast<MapViewPanel*>(user)->DrawMapView(params.cmd);

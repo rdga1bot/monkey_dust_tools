@@ -38,6 +38,7 @@ bool Init(const char* glb_path, const char* tex_path) {
     HairShading::Load("game/data/chars/hair_shading.txt");
 
     s_backend = std::make_unique<md::render_backend::SdlGpuBackend>();
+    s_backend->Init();
     s_backend->SetGBufferPassCallback(
         [](void*, const md::render_backend::RenderFrameParams& params) {
             DrawCharPreview(params.cmd);

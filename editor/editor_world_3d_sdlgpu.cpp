@@ -408,6 +408,7 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
     // this viewport's OWN SdlGpuBackend instance + callbacks, independent
     // of NpcRender's (see World3DFrameCtx's doc comment above for why).
     s_backend = std::make_unique<md::render_backend::SdlGpuBackend>();
+    s_backend->Init();
     s_backend->SetGBufferPassCallback(
         [](void*, const md::render_backend::RenderFrameParams& params) {
             auto* ctx = static_cast<World3DFrameCtx*>(params.frame_ctx);
