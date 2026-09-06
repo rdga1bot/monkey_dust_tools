@@ -23,6 +23,7 @@
 #include <monkey_dust/render/gpu_device.h>
 #include <monkey_dust/render/gpu_hal.h>
 #include <monkey_dust/render/light_system.h>
+#include <monkey_dust/render/backend/sdl_gpu_backend.h>
 #include <monkey_dust/world/terrain_gen.h>
 #include <monkey_dust/world/terrain_chunk.h>
 #include <monkey_dust/world/chunk_def.h>
@@ -31,6 +32,7 @@
 #include <SDL3/SDL_gpu.h>
 #include <algorithm>
 #include <atomic>
+#include <memory>
 #include <thread>
 #include <cstring>
 #include <cstdio>
@@ -285,6 +287,18 @@ static bool  s_focused  = false;
 static bool  s_terrain_dirty   = false;
 static float s_terrain_dirty_t = 0.f;
 
+// RENDER-BACKEND-STAGE-2g (docs/RENDER_BACKEND_ABSTRACTION.md §5.4): this
+// viewport's OWN SdlGpuBackend instance, independent of NpcRender's --
+// this render path never touches NpcRender at all (no shadows/NPCs/
+// deferred-lighting/SSAO here, just terrain G-buffer + sky+resolve). Same
+// class, same callback-based IoC mechanism, separate registered callbacks.
+static std::unique_ptr<md::render_backend::SdlGpuBackend> s_backend;
+// Sky/fog colour -- hoisted from RenderFrame (was function-local
+// constexpr) so the extracted DrawTerrainGBuffer/DrawSkyAndResolve
+// functions below can read it too without threading it through the
+// callback's opaque context struct.
+static constexpr float kSkyR = 0.38f, kSkyG = 0.58f, kSkyB = 0.82f;
+
 // ── Mat4 helpers (column-major) ────────────────────────────────────────────────
 struct M4 { float m[16] = {1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1}; };
 static M4 m4_mul(const M4& a, const M4& b) {
@@ -357,6 +371,12 @@ static void ensure_rtt(int w, int h) {
     fprintf(stdout, "[W3D-SDLGPU] RTT %dx%d\n", w, h);
 }
 
+// Forward decls -- Init() (below) registers callbacks pointing at these;
+// full definitions live just before RenderFrame(), further down this file.
+struct World3DFrameCtx;
+static void DrawTerrainGBuffer(md::GpuCommandBufferHandle cmd, const World3DFrameCtx& ctx);
+static void DrawSkyAndResolve(md::GpuCommandBufferHandle cmd, const World3DFrameCtx& ctx);
+
 // ── Init — background: renderer thread does the heavy chunk build ───────────
 bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
     s_cx = 11750.f;
@@ -383,6 +403,23 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
         sd.layout.count       = 0;
         s_sky_pipeline.Create(sd);
     }
+
+    // RENDER-BACKEND-STAGE-2g (docs/RENDER_BACKEND_ABSTRACTION.md §5.4):
+    // this viewport's OWN SdlGpuBackend instance + callbacks, independent
+    // of NpcRender's (see World3DFrameCtx's doc comment above for why).
+    s_backend = std::make_unique<md::render_backend::SdlGpuBackend>();
+    s_backend->SetGBufferPassCallback(
+        [](void*, const md::render_backend::RenderFrameParams& params) {
+            auto* ctx = static_cast<World3DFrameCtx*>(params.frame_ctx);
+            DrawTerrainGBuffer(params.cmd, *ctx);
+        },
+        nullptr);
+    s_backend->SetDeferredPassCallback(
+        [](void*, const md::render_backend::RenderFrameParams& params) {
+            auto* ctx = static_cast<World3DFrameCtx*>(params.frame_ctx);
+            DrawSkyAndResolve(params.cmd, *ctx);
+        },
+        nullptr);
 
     const char* op = overlay_path;
     s_loader_thread = std::thread([op]() {
@@ -561,6 +598,184 @@ static void handle_input(float dt) {
     }
 }
 
+// RENDER-BACKEND-STAGE-2g: opaque per-call context for s_backend's two
+// callbacks below -- same pattern as game/'s NpcRender::FrameCtx (engine/'s
+// RenderFrameParams.frame_ctx is a type-erased void*, only the callback
+// that registered itself knows the real type). This viewport has no
+// MdCamera object (deliberately, see the old inline comment this carries
+// forward) -- eye_x/y/z + raw view/vp matrices are its own camera
+// representation.
+struct World3DFrameCtx {
+    float eye_x = 0.f, eye_y = 0.f, eye_z = 0.f;
+    M4    view;
+    M4    vp;
+    float asp = 1.f;
+};
+
+// RENDER-BACKEND-STAGE-2g: Variant A G-buffer pass -- must run in its OWN
+// render pass, BEFORE the main color pass below (TerrainShadingProjected's
+// doc comment). Nothing else in this viewport draws into the shared depth
+// before or after terrain (s_props is loaded but never drawn), so unlike
+// game/src/render/npc_render.cpp's CullAndPrepass this doesn't need a
+// separate depth-only Early-Z prepass into the shared `s_depth`: it's
+// still at its LOAD_OP_CLEAR 1.0 when the resolve pass below runs, so its
+// gl_FragDepth-forwarded depth test trivially passes everywhere real
+// terrain exists. Registered as s_backend's GBufferPass callback.
+static void DrawTerrainGBuffer(md::GpuCommandBufferHandle cmd, const World3DFrameCtx& ctx) {
+    if (!(s_granite_ready && s_terrain.IsReady())) return;
+    // Minimal-variant Part B (per-tile culling): same Gribb & Hartmann
+    // plane extraction as MdCamera::FrustumPlanes (engine/include/
+    // monkey_dust/render/md_camera.h) applied directly to this viewport's
+    // already-built vp.m -- no MdCamera object exists here, so inlined
+    // rather than constructing one just to call that method.
+    float frustum_planes[16];
+    {
+        const float* m = ctx.vp.m;
+        frustum_planes[ 0]=m[3]+m[0]; frustum_planes[ 1]=m[7]+m[4]; frustum_planes[ 2]=m[11]+m[ 8]; frustum_planes[ 3]=m[15]+m[12];
+        frustum_planes[ 4]=m[3]-m[0]; frustum_planes[ 5]=m[7]-m[4]; frustum_planes[ 6]=m[11]-m[ 8]; frustum_planes[ 7]=m[15]-m[12];
+        frustum_planes[ 8]=m[3]-m[1]; frustum_planes[ 9]=m[7]-m[5]; frustum_planes[10]=m[11]-m[ 9]; frustum_planes[11]=m[15]-m[13];
+        frustum_planes[12]=m[3]+m[1]; frustum_planes[13]=m[7]+m[5]; frustum_planes[14]=m[11]+m[ 9]; frustum_planes[15]=m[15]+m[13];
+    }
+    // Ogre-quadtree: static, not a stack array -- see the game-side call
+    // site's own comment (npc_render_frame_prep.cpp) for why kMaxNodesPublic
+    // entries must not live on the stack.
+    static TerrainQuadtree::VisibleNode s_visible_nodes[TerrainQuadtree::kMaxNodesPublic];
+    float cam_pos[3] = { ctx.eye_x, ctx.eye_y, ctx.eye_z };
+    // task БОРГ-VISUAL-3 (2026-09-06): TerrainQuadtree::
+    // kGameplayMaxRenderDistance (3000m, fog-tied) culled EVERY zone at
+    // this viewport's normal 8000m+ aerial altitude -- full 3D distance
+    // (cam_pos includes altitude) always exceeds 3000m looking straight
+    // down from there, so the "3D World" tab rendered pure sky, no terrain
+    // at all. This viewport is a 64x64 full-world aerial overview by
+    // design (Q/E=up/down, default alt shown in its own HUD), not
+    // ground-level gameplay -- pass a value covering the whole 29.5km
+    // world's diagonal (~41.7km) plus generous altitude headroom instead
+    // of the gameplay default.
+    constexpr float kAerialMaxRenderDistance = 60000.f;
+    int qt_count = s_quadtree.SelectVisible(cam_pos, frustum_planes,
+                                              s_visible_nodes, TerrainQuadtree::kMaxNodesPublic,
+                                              kAerialMaxRenderDistance);
+
+    // task БОРГ-VISUAL-3 follow-up (2026-09-06, FPS investigation): this
+    // viewport used to draw ONE individual (non-instanced, non-batched)
+    // DrawNode call per visible tile -- fine when the max_render_distance/
+    // kMaxNodesPublic bugs above silently capped qt_count at a few
+    // hundred, catastrophic once those were fixed and real aerial views
+    // started emitting 60-70k+ tiles (measured live via a temporary
+    // qt_count diagnostic: 71296 nodes at a normal 8000m view, ~63k of
+    // those falling through DrawBatched's per-node fallback before
+    // kMaxBatchedNodes was raised below -- confirmed as the direct cause
+    // of a 6 FPS regression, NOT texture resolution as first suspected).
+    // Switched to the SAME instanced-batched path the game's G-buffer
+    // pass already uses (npc_render_frame_prep.cpp) -- upload all node
+    // data in ONE copy pass BEFORE opening the render pass (SDL_GPU
+    // disallows nesting a copy pass inside an active render pass), then
+    // ONE instanced draw call covers every node. kMaxBatchedNodes now
+    // equals kMaxNodesPublic exactly, so there is no per-node fallback
+    // path left to fall into at all.
+    bool use_batched = s_quadtree_renderer.IsBatchedReady() && qt_count > 0;
+    if (use_batched) {
+        GpuCopyPass node_cp;
+        node_cp.Begin(cmd);
+        if (node_cp.SDLPass()) {
+            s_quadtree_renderer.UploadNodeData(
+                md::GpuDevice::Get().SDLDevice(), node_cp.SDLPass(), s_visible_nodes, qt_count);
+            node_cp.End();
+        } else {
+            use_batched = false;
+        }
+    }
+
+    SDL_GPURenderPass* gbuf_pass = s_terrain_shading.BeginGBufferPass(cmd);
+    if (gbuf_pass) {
+        if (use_batched) {
+            s_quadtree_renderer.BeginBatched(gbuf_pass, cmd, s_granite_hmap, ctx.vp.m, ctx.eye_x, ctx.eye_y, ctx.eye_z);
+            s_quadtree_renderer.DrawBatched(gbuf_pass, cmd, qt_count);
+        } else {
+            for (int i = 0; i < qt_count; ++i) {
+                s_quadtree_renderer.DrawNode(gbuf_pass, cmd, s_granite_hmap, ctx.vp.m,
+                    s_visible_nodes[i], ctx.eye_x, ctx.eye_y, ctx.eye_z);
+            }
+        }
+        SDL_EndGPURenderPass(gbuf_pass);
+    }
+    s_terrain_shading.EndGBufferPass();
+}
+
+// RENDER-BACKEND-STAGE-2g: sky + Variant A resolve into s_color. This IS
+// this viewport's "deferred lighting" equivalent (screen-space resolve of
+// the G-buffer pass above into final shaded colour) -- registered as
+// s_backend's DeferredPass callback.
+static void DrawSkyAndResolve(md::GpuCommandBufferHandle cmd, const World3DFrameCtx& ctx) {
+    const auto& ls = LightSystem::Get();
+    GpuCommandBuffer cb;
+    GpuCommandBuffer::ColorPassDesc cpd;
+    cpd.cmd            = cmd;
+    cpd.color_tex[0]      = s_color;
+    cpd.depth_tex      = s_depth;
+    cpd.clear_color[0] = kSkyR; cpd.clear_color[1] = kSkyG;
+    cpd.clear_color[2] = kSkyB; cpd.clear_color[3] = 1.f;
+    cpd.clear_depth    = 1.f;
+    cpd.load_color     = false; // CLEAR, matches original exactly
+    cpd.load_depth     = false; // CLEAR
+    cb.BeginColorPass(cpd);
+    SDL_GPURenderPass* rp = cb.SDLPass();
+    if (rp) {
+        // ── Sky — same shader + SkyUBO as game ───────────────────────────────
+        if (s_sky_pipeline.SDLPipeline()) {
+            EditorSkyUBO sky{};
+            // View matrix rows → camera basis vectors for sky ray generation
+            const float* v = ctx.view.m;  // column-major
+            sky.cam_right[0]=v[0]; sky.cam_right[1]=v[4]; sky.cam_right[2]=v[8];
+            sky.cam_up[0]   =v[1]; sky.cam_up[1]   =v[5]; sky.cam_up[2]   =v[9];
+            sky.cam_fwd[0]  =-v[2];sky.cam_fwd[1]  =-v[6];sky.cam_fwd[2]  =-v[10];
+            sky.sun_dir[0]  = ls.sun_dir.x;
+            sky.sun_dir[1]  = ls.sun_dir.y;
+            sky.sun_dir[2]  = ls.sun_dir.z;
+            sky.horizon_col[0] = kSkyR;
+            sky.horizon_col[1] = kSkyG;
+            sky.horizon_col[2] = kSkyB;
+            sky.fov_tan = tanf(0.80f * 0.5f);
+            sky.aspect  = ctx.asp;
+            GpuPassView pv = GpuPassView::FromRaw(rp, cmd);
+            pv.BindPipeline(&s_sky_pipeline);
+            pv.PushVertexUniforms(0, &sky, sizeof(sky));
+            pv.PushFragmentUniforms(0, &sky, sizeof(sky));
+            pv.Draw(3, 1, 0, 0);
+        }
+
+        if (s_granite_ready && s_terrain.IsReady()) {
+            static constexpr float W2UV = 1.f / (64.f * CHUNK_SIZE);
+            static constexpr float WCX  = 32.f * CHUNK_SIZE;
+            static constexpr float WCZ  = 32.f * CHUNK_SIZE;
+            TerrainRenderer::SunParams sun;
+            // terrain shaders expect surface→sun (positive Y up); LightSystem = sun→surface → negate.
+            sun.dir[0] = -ls.sun_dir.x; sun.dir[1] = -ls.sun_dir.y; sun.dir[2] = -ls.sun_dir.z;
+            sun.strength   = 1.1f;
+            sun.ambient[0] = kSkyR * 0.2f + 0.22f;
+            sun.ambient[1] = kSkyG * 0.2f + 0.23f;
+            sun.ambient[2] = kSkyB * 0.2f + 0.26f;
+
+            // Variant A resolve: fullscreen draw reading back the G-buffer
+            // pass rasterized above (before this render pass opened).
+            // fog_far=60000m / fog_near=0: same aerial-altitude fog
+            // override the old forward draw used (WCX/WCZ/W2UV, an
+            // absolute-space world-centre convention, is exactly this
+            // file's own kWorldCenter equivalent -- the editor camera is
+            // already absolute, so no COL_OX/COL_OZ-style local conversion
+            // is needed the way game/src/render/npc_render.cpp needs for
+            // its own granite draw).
+            static const float kFogColor[3] = { kSkyR, kSkyG, kSkyB };
+            s_terrain_shading.DrawShadingResolve(rp, cmd, sun, ctx.eye_x, ctx.eye_y, ctx.eye_z,
+                WCX, WCZ, W2UV,
+                60000.f, kFogColor, 0.f,
+                s_terrain, s_vt_cache);
+        }
+
+        cb.EndPass();
+    }
+}
+
 // ── Render terrain to RTT (call AFTER ImGui build, BEFORE ImGui present) ────────
 // ensure_rtt() is called from DrawImGui (during ImGui build) so s_color is stable.
 void RenderFrame(md::GpuCommandBufferHandle cmd, float dt, bool tab_active) {
@@ -569,11 +784,12 @@ void RenderFrame(md::GpuCommandBufferHandle cmd, float dt, bool tab_active) {
     int w = s_rtt_w, h = s_rtt_h;  // use already-created RTT dimensions
     if (w < 8 || h < 8) return;
 
-    float asp = (float)w / (float)h;
-    M4 proj = m4_persp(0.80f, asp, 5.f, 350000.f);
-    M4 view = m4_view(s_cx, s_cy, s_cz, s_yaw, s_pitch);
-    M4 vp   = m4_mul(proj, view);
-    float eye_x = s_cx, eye_y = s_cy, eye_z = s_cz;
+    World3DFrameCtx ctx;
+    ctx.asp  = (float)w / (float)h;
+    M4 proj  = m4_persp(0.80f, ctx.asp, 5.f, 350000.f);
+    ctx.view = m4_view(s_cx, s_cy, s_cz, s_yaw, s_pitch);
+    ctx.vp   = m4_mul(proj, ctx.view);
+    ctx.eye_x = s_cx; ctx.eye_y = s_cy; ctx.eye_z = s_cz;
 
     // Granite terrain migration, Phase 7: no per-window rebuild/re-centre
     // trigger needed at all -- the static world heightmap is always fully
@@ -614,177 +830,16 @@ void RenderFrame(md::GpuCommandBufferHandle cmd, float dt, bool tab_active) {
         }
     }
 
-    // Sun direction from LightSystem. Sky/fog/ambient colour used to use
-    // per-biome BiomeDef::fog_r/g/b + sky_horizon_r/g/b, but real Kenshi's
-    // fog/sky is a global screen-space post-process driven by sun angle and
-    // time of day (confirmed from the real uncompiled shader source,
-    // tmp_/kenshi/data/materials/post/{fog,atmospherefog}.hlsl — no per-biome
-    // colour field exists there at all) -- so this uses one fixed neutral
-    // sky-blue constant for every zone instead, matching
-    // GraphicsSettings::fog_color's default.
-    const auto& ls  = LightSystem::Get();
-    static constexpr float kSkyR = 0.38f, kSkyG = 0.58f, kSkyB = 0.82f;
-
-    // Variant A G-buffer pass -- must run in its OWN render pass, BEFORE
-    // the main color pass below (TerrainShadingProjected's doc comment).
-    // Nothing else in this viewport draws into the shared depth before or
-    // after terrain (s_props is loaded but never drawn -- see this file's
-    // RenderFrame), so unlike game/src/render/npc_render.cpp's
-    // CullAndPrepass this doesn't need a separate depth-only Early-Z
-    // prepass into the shared `s_depth`: it's still at its LOAD_OP_CLEAR
-    // 1.0 when the resolve pass below runs, so its gl_FragDepth-forwarded
-    // depth test trivially passes everywhere real terrain exists.
-    if (s_granite_ready && s_terrain.IsReady()) {
-        // Minimal-variant Part B (per-tile culling): same Gribb &
-        // Hartmann plane extraction as MdCamera::FrustumPlanes
-        // (engine/include/monkey_dust/render/md_camera.h) applied
-        // directly to this viewport's already-built vp.m -- no
-        // MdCamera object exists here (eye_x/y/z + vp.m is this
-        // file's own camera representation), so inlined rather than
-        // constructing one just to call that method.
-        float frustum_planes[16];
-        {
-            const float* m = vp.m;
-            frustum_planes[ 0]=m[3]+m[0]; frustum_planes[ 1]=m[7]+m[4]; frustum_planes[ 2]=m[11]+m[ 8]; frustum_planes[ 3]=m[15]+m[12];
-            frustum_planes[ 4]=m[3]-m[0]; frustum_planes[ 5]=m[7]-m[4]; frustum_planes[ 6]=m[11]-m[ 8]; frustum_planes[ 7]=m[15]-m[12];
-            frustum_planes[ 8]=m[3]-m[1]; frustum_planes[ 9]=m[7]-m[5]; frustum_planes[10]=m[11]-m[ 9]; frustum_planes[11]=m[15]-m[13];
-            frustum_planes[12]=m[3]+m[1]; frustum_planes[13]=m[7]+m[5]; frustum_planes[14]=m[11]+m[ 9]; frustum_planes[15]=m[15]+m[13];
-        }
-        // Ogre-quadtree: static, not a stack array -- see the game-side
-        // call site's own comment (npc_render_frame_prep.cpp) for why
-        // kMaxNodesPublic entries must not live on the stack.
-        static TerrainQuadtree::VisibleNode s_visible_nodes[TerrainQuadtree::kMaxNodesPublic];
-        float cam_pos[3] = { eye_x, eye_y, eye_z };
-        // task БОРГ-VISUAL-3 (2026-09-06): TerrainQuadtree::
-        // kGameplayMaxRenderDistance (3000m, fog-tied) culled EVERY
-        // zone at this viewport's normal 8000m+ aerial altitude --
-        // full 3D distance (cam_pos includes altitude) always exceeds
-        // 3000m looking straight down from there, so the "3D World"
-        // tab rendered pure sky, no terrain at all. This viewport is
-        // a 64x64 full-world aerial overview by design (Q/E=up/down,
-        // default alt shown in its own HUD), not ground-level
-        // gameplay -- pass a value covering the whole 29.5km world's
-        // diagonal (~41.7km) plus generous altitude headroom instead
-        // of the gameplay default.
-        constexpr float kAerialMaxRenderDistance = 60000.f;
-        int qt_count = s_quadtree.SelectVisible(cam_pos, frustum_planes,
-                                                  s_visible_nodes, TerrainQuadtree::kMaxNodesPublic,
-                                                  kAerialMaxRenderDistance);
-
-        // task БОРГ-VISUAL-3 follow-up (2026-09-06, FPS investigation):
-        // this viewport used to draw ONE individual (non-instanced,
-        // non-batched) DrawNode call per visible tile -- fine when the
-        // max_render_distance/kMaxNodesPublic bugs above silently capped
-        // qt_count at a few hundred, catastrophic once those were fixed
-        // and real aerial views started emitting 60-70k+ tiles (measured
-        // live via a temporary qt_count diagnostic: 71296 nodes at a
-        // normal 8000m view, ~63k of those falling through DrawBatched's
-        // per-node fallback before kMaxBatchedNodes was raised below --
-        // confirmed as the direct cause of a 6 FPS regression, NOT
-        // texture resolution as first suspected). Switched to the SAME
-        // instanced-batched path the game's G-buffer pass already uses
-        // (npc_render_frame_prep.cpp) -- upload all node data in ONE
-        // copy pass BEFORE opening the render pass (SDL_GPU disallows
-        // nesting a copy pass inside an active render pass), then ONE
-        // instanced draw call covers every node. kMaxBatchedNodes now
-        // equals kMaxNodesPublic exactly, so there is no per-node
-        // fallback path left to fall into at all.
-        bool use_batched = s_quadtree_renderer.IsBatchedReady() && qt_count > 0;
-        if (use_batched) {
-            GpuCopyPass node_cp;
-            node_cp.Begin(cmd);
-            if (node_cp.SDLPass()) {
-                s_quadtree_renderer.UploadNodeData(
-                    md::GpuDevice::Get().SDLDevice(), node_cp.SDLPass(), s_visible_nodes, qt_count);
-                node_cp.End();
-            } else {
-                use_batched = false;
-            }
-        }
-
-        SDL_GPURenderPass* gbuf_pass = s_terrain_shading.BeginGBufferPass(cmd);
-        if (gbuf_pass) {
-            if (use_batched) {
-                s_quadtree_renderer.BeginBatched(gbuf_pass, cmd, s_granite_hmap, vp.m, eye_x, eye_y, eye_z);
-                s_quadtree_renderer.DrawBatched(gbuf_pass, cmd, qt_count);
-            } else {
-                for (int i = 0; i < qt_count; ++i) {
-                    s_quadtree_renderer.DrawNode(gbuf_pass, cmd, s_granite_hmap, vp.m,
-                        s_visible_nodes[i], eye_x, eye_y, eye_z);
-                }
-            }
-            SDL_EndGPURenderPass(gbuf_pass);
-        }
-        s_terrain_shading.EndGBufferPass();
-    }
-
-    // ── Terrain render pass ──────────────────────────────────────────────────
-    GpuCommandBuffer cb;
-    GpuCommandBuffer::ColorPassDesc cpd;
-    cpd.cmd            = cmd;
-    cpd.color_tex[0]      = s_color;
-    cpd.depth_tex      = s_depth;
-    cpd.clear_color[0] = kSkyR; cpd.clear_color[1] = kSkyG;
-    cpd.clear_color[2] = kSkyB; cpd.clear_color[3] = 1.f;
-    cpd.clear_depth    = 1.f;
-    cpd.load_color     = false; // CLEAR, matches original exactly
-    cpd.load_depth     = false; // CLEAR
-    cb.BeginColorPass(cpd);
-    SDL_GPURenderPass* rp = cb.SDLPass();
-    if (rp) {
-        // ── Sky — same shader + SkyUBO as game ───────────────────────────────
-        if (s_sky_pipeline.SDLPipeline()) {
-            EditorSkyUBO sky{};
-            // View matrix rows → camera basis vectors for sky ray generation
-            const float* v = view.m;  // column-major
-            sky.cam_right[0]=v[0]; sky.cam_right[1]=v[4]; sky.cam_right[2]=v[8];
-            sky.cam_up[0]   =v[1]; sky.cam_up[1]   =v[5]; sky.cam_up[2]   =v[9];
-            sky.cam_fwd[0]  =-v[2];sky.cam_fwd[1]  =-v[6];sky.cam_fwd[2]  =-v[10];
-            sky.sun_dir[0]  = ls.sun_dir.x;
-            sky.sun_dir[1]  = ls.sun_dir.y;
-            sky.sun_dir[2]  = ls.sun_dir.z;
-            sky.horizon_col[0] = kSkyR;
-            sky.horizon_col[1] = kSkyG;
-            sky.horizon_col[2] = kSkyB;
-            sky.fov_tan = tanf(0.80f * 0.5f);
-            sky.aspect  = asp;
-            GpuPassView pv = GpuPassView::FromRaw(rp, cmd);
-            pv.BindPipeline(&s_sky_pipeline);
-            pv.PushVertexUniforms(0, &sky, sizeof(sky));
-            pv.PushFragmentUniforms(0, &sky, sizeof(sky));
-            pv.Draw(3, 1, 0, 0);
-        }
-
-        if (s_granite_ready && s_terrain.IsReady()) {
-            static constexpr float W2UV = 1.f / (64.f * CHUNK_SIZE);
-            static constexpr float WCX  = 32.f * CHUNK_SIZE;
-            static constexpr float WCZ  = 32.f * CHUNK_SIZE;
-            TerrainRenderer::SunParams sun;
-            // terrain shaders expect surface→sun (positive Y up); LightSystem = sun→surface → negate.
-            sun.dir[0] = -ls.sun_dir.x; sun.dir[1] = -ls.sun_dir.y; sun.dir[2] = -ls.sun_dir.z;
-            sun.strength   = 1.1f;
-            sun.ambient[0] = kSkyR * 0.2f + 0.22f;
-            sun.ambient[1] = kSkyG * 0.2f + 0.23f;
-            sun.ambient[2] = kSkyB * 0.2f + 0.26f;
-
-            // Variant A resolve: fullscreen draw reading back the G-buffer
-            // pass rasterized above (before this render pass opened).
-            // fog_far=60000m / fog_near=0: same aerial-altitude fog
-            // override the old forward draw used (WCX/WCZ/W2UV, an
-            // absolute-space world-centre convention, is exactly this
-            // file's own kWorldCenter equivalent -- the editor camera is
-            // already absolute, so no COL_OX/COL_OZ-style local conversion
-            // is needed the way game/src/render/npc_render.cpp needs for
-            // its own granite draw).
-            static const float kFogColor[3] = { kSkyR, kSkyG, kSkyB };
-            s_terrain_shading.DrawShadingResolve(rp, cmd, sun, eye_x, eye_y, eye_z,
-                WCX, WCZ, W2UV,
-                60000.f, kFogColor, 0.f,
-                s_terrain, s_vt_cache);
-        }
-
-        cb.EndPass();
-    }
+    // RENDER-BACKEND-STAGE-2g: call sites перенесено на backend_->
+    // RenderGBufferPass()/RenderDeferredLighting(), які викликають
+    // зареєстровані callback'и (DrawTerrainGBuffer/DrawSkyAndResolve вище)
+    // -- та сама логіка, нова точка виклику.
+    md::render_backend::RenderFrameParams rbp;
+    rbp.cmd       = cmd;
+    rbp.frame_ctx = &ctx;
+    s_backend->SetFrameParams(rbp);
+    s_backend->RenderGBufferPass();
+    s_backend->RenderDeferredLighting();
 
     (void)dt;
 }
