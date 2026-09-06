@@ -115,8 +115,13 @@ def cmd_compare(compare_id: str, baseline_id: Optional[str]) -> int:
         return 1
 
     compare_frames = frames_for(compare_id)
-    baseline_frames = sorted(baseline_dir.glob("frame_*.png")) or \
-                      sorted(baseline_dir.glob("cap_*.png"))
+    # Same 3-pattern fallback as frames_for() (fixed 2026-09-06) -- this was a
+    # SEPARATE inline glob that got missed when that fix landed, so baselines
+    # saved from a real game_capture.py run (0001.png, not frame_*/cap_*)
+    # read as "no frames" here even though frames_for() found them fine.
+    baseline_frames = (sorted(baseline_dir.glob("frame_*.png"))
+                        or sorted(baseline_dir.glob("cap_*.png"))
+                        or sorted(baseline_dir.glob("[0-9]*.png")))
 
     if not compare_frames:
         print(f"[regression] ERROR: no frames in compare capture {compare_id}")
