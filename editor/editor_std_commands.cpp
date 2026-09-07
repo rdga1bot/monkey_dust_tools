@@ -47,11 +47,15 @@ CmdResult DuplicateSelectedCmd(const CmdArgs&, MdRegistry& reg, uint8_t[64]) {
 CmdResult SelectAllCmd(const CmdArgs&, MdRegistry& reg, uint8_t[64]) {
     auto& ec = EditorCore::Get();
     ec.DeselectAll();
+#if defined(MD_ECS_GAIA)
+    static auto q_all = reg.Raw().query().all<MdManagedTag&>();
+#else
     static auto q_all = reg.Raw().query<MdManagedTag>();
+#endif
     int n = 0;
-    q_all.each([&](flecs::entity fe, MdManagedTag) {
+    MdEach(q_all, [&](MdEntity fe, MdManagedTag) {
         if (ec.selected_count >= EditorCore::MAX_SELECTED) return;
-        ec.selected[ec.selected_count++] = MdEntity(fe.id());
+        ec.selected[ec.selected_count++] = fe;
         ++n;
     });
     CmdResult r;

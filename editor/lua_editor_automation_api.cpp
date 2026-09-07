@@ -193,8 +193,12 @@ int l_md_editor_camera(lua_State* L) {
 int l_md_editor_status(lua_State* L) {
     auto& reg = MdRegistry::Get();
     int entity_count = 0;
+#if defined(MD_ECS_GAIA)
+    static auto q = reg.Raw().query().all<MdManagedTag&>();
+#else
     static auto q = reg.Raw().query<MdManagedTag>();
-    q.each([&](flecs::entity, MdManagedTag) { ++entity_count; });
+#endif
+    MdEach(q, [&](MdManagedTag) { ++entity_count; });
     lua_newtable(L);
     lua_pushinteger(L, entity_count); lua_setfield(L, -2, "entity_count");
     lua_pushboolean(L, NavSystem::Get().IsReady()); lua_setfield(L, -2, "nav_ready");
@@ -221,8 +225,12 @@ int l_md_editor_dump(lua_State* L) {
 
     auto& ec = EditorCore::Get();
     int entity_count = 0;
+#if defined(MD_ECS_GAIA)
+    static auto q = MdRegistry::Get().Raw().query().all<MdManagedTag&>();
+#else
     static auto q = MdRegistry::Get().Raw().query<MdManagedTag>();
-    q.each([&](flecs::entity, MdManagedTag) { ++entity_count; });
+#endif
+    MdEach(q, [&](MdManagedTag) { ++entity_count; });
 
     bool camFlyMode = ec.cam_flying && !ec.cam_game_mode;
     double camYawDeg   = camFlyMode ? ec.fly_yaw   * (180.0 / 3.14159265358979) : ec.cam_yaw;

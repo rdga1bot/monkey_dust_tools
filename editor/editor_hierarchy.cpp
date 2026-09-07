@@ -24,10 +24,16 @@
 void EditorHierarchy::RefreshCache() {
     auto& reg = MdRegistry::Get();
     entity_cache_count_ = 0;
+#if defined(MD_ECS_GAIA)
+    // MdManagedTag by value -> mdeach_view_for routes to view_mut<T>(),
+    // query must declare & to match (docs/GAIA_SEAM_AUDIT.md).
+    static auto q_all = reg.Raw().query().all<MdManagedTag&>();
+#else
     static auto q_all = reg.Raw().query<MdManagedTag>();
-    q_all.each([&](flecs::entity fe, MdManagedTag) {
+#endif
+    MdEach(q_all, [&](MdEntity fe, MdManagedTag) {
         if (entity_cache_count_ >= MAX_CACHE) return;
-        entity_cache_[entity_cache_count_++] = MdEntity(fe.id());
+        entity_cache_[entity_cache_count_++] = fe;
     });
 }
 
