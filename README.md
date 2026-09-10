@@ -3,7 +3,7 @@ id: kb-tools-readme
 type: reference
 status: active
 date: 2026-05-14
-updated: 2026-09-03
+updated: 2026-09-10
 repo: tools
 tags: [tools, readme, editor, public-repo, shader-hot-reload]
 summary: "Public tools/ README: editor panels, shader hot-reload, QA scripts, build targets, repo architecture"
@@ -17,6 +17,14 @@ Depends on [monkey\_dust\_engine](https://github.com/rdga1bot/monkey_dust_engine
 All tool names use the `md_` prefix (no proprietary asset branding in public repos).
 
 > **Render backend: SDL3/SDL_GPU, permanently.**
+
+> **ECS backend:** flecs by default. The editor's reflection/inspector layer
+> (`EcsReflectBridge`, `editor_reflect_bridge.h`) and Lua automation API
+> (`md.ecs.*`) also compile and work under the experimental
+> [gaia-ecs](https://github.com/richardbiely/gaia-ecs) backend
+> (`-DMD_ECS_GAIA=ON`, branch `gaia/phase-0` across all 3 repos, not the
+> default) — verified through a live hot-reload cycle (paced and rapid-fire
+> F5), not just a unit test.
 
 > **Full documentation →** [rdga1bot.github.io/monkey\_dust\_engine/monkey\_dust\_docs.html](https://rdga1bot.github.io/monkey_dust_engine/monkey_dust_docs.html)
 
