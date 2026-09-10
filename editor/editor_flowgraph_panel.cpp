@@ -55,11 +55,7 @@ void EditorFlowGraphPanel::DrawContent() {
     if (sel != MdEntity::Null() && reg.Valid(sel) && (reg.Handle(sel).has<FlowGraph>()))
         target = sel;
     if (target == MdEntity::Null()) {
-#if defined(MD_ECS_GAIA)
         static auto q_fg = reg.Raw().query().all<FlowGraph>();
-#else
-        static auto q_fg = reg.Raw().query<FlowGraph>();
-#endif
         target = MdFirst(q_fg);
     }
 

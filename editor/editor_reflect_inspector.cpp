@@ -93,11 +93,7 @@ void EditorReflectInspector::DrawContent(EcsBridgeWorldT* world) {
         return;
     }
 
-#if defined(MD_ECS_GAIA)
     ImGui::Text("Entity #%u", (unsigned)eid.id());
-#else
-    ImGui::Text("Entity #%u", (unsigned)eid);
-#endif
     ImGui::Separator();
 
     EcsReflectBridge& bridge = EcsReflectBridge::Get();
@@ -167,7 +163,6 @@ void EditorReflectInspector::DrawContent(EcsBridgeWorldT* world) {
     // ── Unreflected components (read-only) ───────────────────────────────
     ImGui::Separator();
     ImGui::TextDisabled("Unreflected");
-#if defined(MD_ECS_GAIA)
     // Deliberately not ported: this listing needs "every id on entity `e`,
     // full archetype walk" (flecs: ecs_get_type()), and gaia's equivalent
     // (World::archetype(Entity)/Archetype::ids_view()) is private -- no
@@ -178,24 +173,5 @@ void EditorReflectInspector::DrawContent(EcsBridgeWorldT* world) {
     // than guessing at an internal API to reach into; revisit if gaia adds
     // (or this codebase's own facade grows) a public accessor for it.
     ImGui::TextDisabled("(not available under gaia backend yet)");
-#else
-    const ecs_type_t* type = ecs_get_type(world, eid);
-    if (type) {
-        for (int i = 0; i < type->count; ++i) {
-            ecs_id_t id = type->array[i];
-            if (ECS_IS_PAIR(id)) continue;
-
-            bool covered = false;
-            for (int j = 0; j < bridge.Count(); ++j) {
-                if (bridge.Id(j) == id) { covered = true; break; }
-            }
-            if (covered) continue;
-
-            const char* nm = ecs_get_name(world, id);
-            if (!nm || strcmp(nm, "MdManagedTag") == 0) continue;
-            ImGui::TextDisabled("%s", nm);
-        }
-    }
-#endif
 }
 #endif

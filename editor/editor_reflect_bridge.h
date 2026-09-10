@@ -19,11 +19,7 @@
 // statics (they reset), so Init() must be called fresh from
 // editor_panels_init() on every load/reload — never memoize ids past that.
 #include <monkey_dust/ecs/component_reflect.h>
-#if defined(MD_ECS_GAIA)
 #include <gaia.h>
-#else
-#include <flecs.h>
-#endif
 #include <cstring>
 #include <cctype>
 
@@ -32,106 +28,60 @@
 // and its consumers (editor_reflect_inspector.cpp, editor_std_commands.cpp)
 // stay branch-free at the call site — same shape as flecs's own
 // free-function C API either way, only the implementation differs.
-#if defined(MD_ECS_GAIA)
 using EcsBridgeWorldT = gaia::ecs::World;
 using EcsBridgeIdT    = gaia::ecs::Entity;
-#else
-using EcsBridgeWorldT = ecs_world_t;
-using EcsBridgeIdT    = ecs_entity_t;
-#endif
 
 inline bool EcsBridgeIdValid(EcsBridgeIdT id) {
-#if defined(MD_ECS_GAIA)
     return id != gaia::ecs::EntityBad;
-#else
-    return id != 0;
-#endif
 }
 
 inline EcsBridgeIdT EcsBridgeResolve(EcsBridgeWorldT* world, const char* name) {
-#if defined(MD_ECS_GAIA)
     if (world == nullptr) return gaia::ecs::EntityBad;
     return world->resolve(name);
-#else
-    if (world == nullptr) return 0;
-    return ecs_lookup(world, name);
-#endif
 }
 
 // Raw 64-bit round-trip for the command-args ABI (CmdArgs::entity_id) --
 // both backends' entity handles are 64-bit POD, so this is a lossless
 // reinterpretation, not a lookup. Reconstruct with EcsBridgeIdFromRaw().
 inline uint64_t EcsBridgeIdRaw(EcsBridgeIdT id) {
-#if defined(MD_ECS_GAIA)
     return id.val;
-#else
-    return id;
-#endif
 }
 inline EcsBridgeIdT EcsBridgeIdFromRaw(uint64_t raw) {
-#if defined(MD_ECS_GAIA)
     return gaia::ecs::Entity((gaia::ecs::Identifier)raw);
-#else
-    return (ecs_entity_t)raw;
-#endif
 }
 
 inline bool EcsBridgeIsAlive(EcsBridgeWorldT* world, EcsBridgeIdT e) {
-#if defined(MD_ECS_GAIA)
     return world->valid(e);
-#else
-    return ecs_is_alive(world, e);
-#endif
 }
 
 // entity has component/tag id `c` (plain id, not a wildcard/pair query).
 inline bool EcsBridgeHas(EcsBridgeWorldT* world, EcsBridgeIdT e, EcsBridgeIdT c) {
-#if defined(MD_ECS_GAIA)
     return world->has(e, c);
-#else
-    return ecs_has_id(world, e, c);
-#endif
 }
 
 // Read-only pointer to component `c`'s payload on entity `e`, or nullptr
 // if absent. Same re-fetch-every-frame caveat as EcsBridgeGetMut().
 inline const void* EcsBridgeGet(EcsBridgeWorldT* world, EcsBridgeIdT e, EcsBridgeIdT c) {
-#if defined(MD_ECS_GAIA)
     auto view = world->get_raw(e, c);
     return view.valid() ? view.data : nullptr;
-#else
-    return ecs_get_id(world, e, c);
-#endif
 }
 
 // Mutable pointer to component `c`'s payload on entity `e`, or nullptr if
 // absent. Re-fetch every frame -- never hold across a structural change
 // (both backends invalidate on archetype/table move).
 inline void* EcsBridgeGetMut(EcsBridgeWorldT* world, EcsBridgeIdT e, EcsBridgeIdT c) {
-#if defined(MD_ECS_GAIA)
     auto view = world->mut_raw(e, c);
     return view.valid() ? view.data : nullptr;
-#else
-    return ecs_get_mut_id(world, e, c);
-#endif
 }
 
 // Marks component `c`'s payload on entity `e` modified after a direct
 // write through EcsBridgeGetMut()'s pointer -- runs OnSet observers/hooks.
 inline void EcsBridgeModified(EcsBridgeWorldT* world, EcsBridgeIdT e, EcsBridgeIdT c) {
-#if defined(MD_ECS_GAIA)
     world->modify_raw(e, c);
-#else
-    ecs_modified_id(world, e, c);
-#endif
 }
 
 inline void EcsBridgeRemove(EcsBridgeWorldT* world, EcsBridgeIdT e, EcsBridgeIdT c) {
-#if defined(MD_ECS_GAIA)
     world->del(e, c);
-#else
-    ecs_remove_id(world, e, c);
-#endif
 }
 
 // Adds component `c` to entity `e` with a zero-initialized payload of
@@ -149,17 +99,11 @@ inline void EcsBridgeRemove(EcsBridgeWorldT* world, EcsBridgeIdT e, EcsBridgeIdT
 // MAX_ADD_PAYLOAD comfortably covers every reflected component today
 // (largest is well under 128 bytes) with headroom.
 inline bool EcsBridgeAddDefault(EcsBridgeWorldT* world, EcsBridgeIdT e, EcsBridgeIdT c, uint16_t size) {
-#if defined(MD_ECS_GAIA)
     static constexpr uint16_t MAX_ADD_PAYLOAD = 256;
     if (size > MAX_ADD_PAYLOAD)
         return false;
     uint8_t zero[MAX_ADD_PAYLOAD] = {};
     return world->add_raw(e, c, zero, size);
-#else
-    (void)size;
-    ecs_add_id(world, e, c);
-    return true;
-#endif
 }
 
 class EcsReflectBridge {

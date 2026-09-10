@@ -12,7 +12,6 @@
 #ifdef MONKEY_DUST_EDITOR_HOT_RELOAD
 #include <monkey_dust/hot/editor_module.h>
 #endif
-#include <flecs.h>
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
@@ -193,11 +192,7 @@ int l_md_editor_camera(lua_State* L) {
 int l_md_editor_status(lua_State* L) {
     auto& reg = MdRegistry::Get();
     int entity_count = 0;
-#if defined(MD_ECS_GAIA)
     static auto q = reg.Raw().query().all<MdManagedTag&>();
-#else
-    static auto q = reg.Raw().query<MdManagedTag>();
-#endif
     MdEach(q, [&](MdManagedTag) { ++entity_count; });
     lua_newtable(L);
     lua_pushinteger(L, entity_count); lua_setfield(L, -2, "entity_count");
@@ -225,11 +220,7 @@ int l_md_editor_dump(lua_State* L) {
 
     auto& ec = EditorCore::Get();
     int entity_count = 0;
-#if defined(MD_ECS_GAIA)
     static auto q = MdRegistry::Get().Raw().query().all<MdManagedTag&>();
-#else
-    static auto q = MdRegistry::Get().Raw().query<MdManagedTag>();
-#endif
     MdEach(q, [&](MdManagedTag) { ++entity_count; });
 
     bool camFlyMode = ec.cam_flying && !ec.cam_game_mode;
@@ -450,11 +441,7 @@ void WriteFieldValue(lua_State* L, int idx, void* comp, const md::FieldDesc& f) 
     }
 }
 
-#if defined(MD_ECS_GAIA)
 static EcsBridgeWorldT* LuaEcsWorld() { return &MdRegistry::Get().Raw(); }
-#else
-static EcsBridgeWorldT* LuaEcsWorld() { return MdRegistry::Get().Raw().c_ptr(); }
-#endif
 
 int l_md_ecs_get(lua_State* L) {
     lua_Integer eid = luaL_checkinteger(L, 1);

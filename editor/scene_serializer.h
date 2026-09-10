@@ -41,11 +41,7 @@ inline bool Export(const char* path) {
     bool first = true;
     bool truncated_logged = false;
 
-#if defined(MD_ECS_GAIA)
     static auto q_all = reg.Raw().query().all<MdManagedTag&>();
-#else
-    static auto q_all = reg.Raw().query<MdManagedTag>();
-#endif
     MdEach(q_all, [&](MdEntity e, MdManagedTag) {
         if (!reg.Valid(e)) return;
         if (!(reg.Handle(e).has<WorldTransform>())) return;

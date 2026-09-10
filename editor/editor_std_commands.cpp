@@ -15,7 +15,6 @@
 #include <monkey_dust/platform/md_log.h>
 #include "scene_serializer.h"
 #include <monkey_dust/editor/cmd_path_validate.h>
-#include <flecs.h>
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
@@ -47,11 +46,7 @@ CmdResult DuplicateSelectedCmd(const CmdArgs&, MdRegistry& reg, uint8_t[64]) {
 CmdResult SelectAllCmd(const CmdArgs&, MdRegistry& reg, uint8_t[64]) {
     auto& ec = EditorCore::Get();
     ec.DeselectAll();
-#if defined(MD_ECS_GAIA)
     static auto q_all = reg.Raw().query().all<MdManagedTag&>();
-#else
-    static auto q_all = reg.Raw().query<MdManagedTag>();
-#endif
     int n = 0;
     MdEach(q_all, [&](MdEntity fe, MdManagedTag) {
         if (ec.selected_count >= EditorCore::MAX_SELECTED) return;
@@ -326,11 +321,7 @@ CmdResult GotoCameraBookmarkCmd(const CmdArgs& args, MdRegistry&, uint8_t[64]) {
 // add_raw() with a zeroed default payload is the one path that works for
 // both storage kinds uniformly (verified by reading World::add_raw()'s body).
 CmdResult AddComponentCmd(const CmdArgs& args, MdRegistry& reg, uint8_t[64]) {
-#if defined(MD_ECS_GAIA)
     EcsBridgeWorldT* world = &reg.Raw();
-#else
-    EcsBridgeWorldT* world = reg.Raw().c_ptr();
-#endif
     EcsBridgeIdT eid = EcsBridgeIdFromRaw(args.values[0].entity_id);
     CmdResult r;
     if (!EcsBridgeIdValid(eid) || !EcsBridgeIsAlive(world, eid)) {

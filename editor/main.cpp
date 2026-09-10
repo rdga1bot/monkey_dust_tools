@@ -229,11 +229,7 @@ int main(int argc, char** argv) {
         // equivalent -- reinterpreted on the far side of the dlopen
         // boundary as EcsBridgeWorldT* (editor_reflect_bridge.h), matching
         // flecs's ecs_world_t* void*-cast exactly.
-#if defined(MD_ECS_GAIA)
         ecfg.ecs_world   = &Registry::Get();
-#else
-        ecfg.ecs_world   = Registry::Get().c_ptr();
-#endif
         ecfg.gpu         = gpu;
         ecfg.window      = _wnd::ptr();
         ecfg.overlay_top = s_overlay_top;

@@ -126,20 +126,6 @@ if(MONKEY_DUST_EDITOR_HOT_RELOAD)
         MONKEY_DUST_STANDALONE_EDITOR MONKEY_DUST_EDITOR
         MD_SDL_GPU USE_SDL3 IMGUI_DEFINE_MATH_OPERATORS USE_GLM MD_LOG_NO_RAYLIB
         DEBUG)  # MONKEY_DUST_EDITOR always enables DEBUG (see engine/CMakeLists.txt)
-    # This target intentionally does not target_link_libraries(monkey_dust_engine)
-    # (dlopen'd .so, symbols resolved from the host exe at load time via
-    # -Wl,--allow-shlib-undefined below), so it does NOT inherit
-    # monkey_dust_engine's PUBLIC MD_ECS_GAIA define the normal CMake way --
-    # propagate it explicitly. Found 2026-09-10 via a real SIGSEGV: without
-    # this, editor_reflect_bridge.h's inline EcsBridgeResolve/EcsBridgeWorldT/
-    # etc. compiled here with the flecs branch while the host exe (which DOES
-    # get MD_ECS_GAIA via monkey_dust_engine) passed a real gaia::ecs::World*
-    # across the dlopen boundary -- an ODR violation on the shared inline
-    # definitions that crashed inside flecs's ecs_lookup_path_w_sep on a
-    # gaia World pointer it misinterpreted as ecs_world_t*.
-    if(MD_ECS_GAIA)
-        target_compile_definitions(monkey_dust_editor_panels PRIVATE MD_ECS_GAIA)
-    endif()
     target_include_directories(monkey_dust_editor_panels PRIVATE
         editor/
         ${CMAKE_SOURCE_DIR}/tools/third_party/imgui
@@ -153,7 +139,6 @@ if(MONKEY_DUST_EDITOR_HOT_RELOAD)
         ${CMAKE_SOURCE_DIR}/engine/src/vendor
         ${CMAKE_SOURCE_DIR}/engine/src/render
         ${CMAKE_SOURCE_DIR}/engine/src/audio
-        ${CMAKE_SOURCE_DIR}/engine/third_party/flecs
         ${CMAKE_SOURCE_DIR}/engine/third_party/gaia-ecs/single_include
         ${CMAKE_SOURCE_DIR}/engine/third_party/glm
         ${CMAKE_SOURCE_DIR}/engine/third_party/JoltPhysics
