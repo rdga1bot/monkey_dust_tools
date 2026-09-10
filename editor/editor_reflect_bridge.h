@@ -1,34 +1,178 @@
 #pragma once
 #ifdef MONKEY_DUST_EDITOR
 // EcsReflectBridge — resolves md::ComponentReflect entries against a live
-// ecs_world_t*, entirely through the untyped flecs C API.
+// ecs world, entirely through each backend's untyped/runtime-id API
+// (flecs: the C API; gaia: World::resolve()+runtime Entity ids, just as
+// boundary-safe as flecs's ecs_entity_t -- both are POD 64-bit handles, no
+// template instantiation of the component type itself).
 //
-// Why untyped: libeditor_panels.so does not link monkey_dust::engine
-// statically (dlopen-resolved symbols only), so caching a flecs component id
-// via flecs::_::type<T>::id() inside this .so would instantiate the type's
-// registration independently of the host binary's copy — the exact
-// vague-linkage risk editor_module.h's Config::ecs_world now avoids for the
-// world pointer itself. ecs_lookup() by name is the boundary-safe path.
+// Why untyped/runtime-id, not compile-time flecs::_::type<T>::id() / gaia
+// w.add<T>(): libeditor_panels.so does not link monkey_dust::engine
+// statically (dlopen-resolved symbols only), so caching a component id via
+// a compile-time-typed registration call inside this .so would instantiate
+// the type's registration independently of the host binary's copy — the
+// exact vague-linkage risk editor_module.h's Config::ecs_world now avoids
+// for the world pointer itself. Runtime by-name resolution
+// (ecs_lookup()/World::resolve()) is the boundary-safe path either way.
 //
 // Ids are NOT stable across a dlopen/dlclose cycle for this .so's own
 // statics (they reset), so Init() must be called fresh from
 // editor_panels_init() on every load/reload — never memoize ids past that.
 #include <monkey_dust/ecs/component_reflect.h>
+#if defined(MD_ECS_GAIA)
+#include <gaia.h>
+#else
 #include <flecs.h>
+#endif
 #include <cstring>
 #include <cctype>
+
+// gaia-ecs migration (Phase 5, PROMPT_GAIA_MIGRATION.md §7 p.2): thin,
+// backend-conditional aliases + free-function wrappers so EcsReflectBridge
+// and its consumers (editor_reflect_inspector.cpp, editor_std_commands.cpp)
+// stay branch-free at the call site — same shape as flecs's own
+// free-function C API either way, only the implementation differs.
+#if defined(MD_ECS_GAIA)
+using EcsBridgeWorldT = gaia::ecs::World;
+using EcsBridgeIdT    = gaia::ecs::Entity;
+#else
+using EcsBridgeWorldT = ecs_world_t;
+using EcsBridgeIdT    = ecs_entity_t;
+#endif
+
+inline bool EcsBridgeIdValid(EcsBridgeIdT id) {
+#if defined(MD_ECS_GAIA)
+    return id != gaia::ecs::EntityBad;
+#else
+    return id != 0;
+#endif
+}
+
+inline EcsBridgeIdT EcsBridgeResolve(EcsBridgeWorldT* world, const char* name) {
+#if defined(MD_ECS_GAIA)
+    if (world == nullptr) return gaia::ecs::EntityBad;
+    return world->resolve(name);
+#else
+    if (world == nullptr) return 0;
+    return ecs_lookup(world, name);
+#endif
+}
+
+// Raw 64-bit round-trip for the command-args ABI (CmdArgs::entity_id) --
+// both backends' entity handles are 64-bit POD, so this is a lossless
+// reinterpretation, not a lookup. Reconstruct with EcsBridgeIdFromRaw().
+inline uint64_t EcsBridgeIdRaw(EcsBridgeIdT id) {
+#if defined(MD_ECS_GAIA)
+    return id.val;
+#else
+    return id;
+#endif
+}
+inline EcsBridgeIdT EcsBridgeIdFromRaw(uint64_t raw) {
+#if defined(MD_ECS_GAIA)
+    return gaia::ecs::Entity((gaia::ecs::Identifier)raw);
+#else
+    return (ecs_entity_t)raw;
+#endif
+}
+
+inline bool EcsBridgeIsAlive(EcsBridgeWorldT* world, EcsBridgeIdT e) {
+#if defined(MD_ECS_GAIA)
+    return world->valid(e);
+#else
+    return ecs_is_alive(world, e);
+#endif
+}
+
+// entity has component/tag id `c` (plain id, not a wildcard/pair query).
+inline bool EcsBridgeHas(EcsBridgeWorldT* world, EcsBridgeIdT e, EcsBridgeIdT c) {
+#if defined(MD_ECS_GAIA)
+    return world->has(e, c);
+#else
+    return ecs_has_id(world, e, c);
+#endif
+}
+
+// Read-only pointer to component `c`'s payload on entity `e`, or nullptr
+// if absent. Same re-fetch-every-frame caveat as EcsBridgeGetMut().
+inline const void* EcsBridgeGet(EcsBridgeWorldT* world, EcsBridgeIdT e, EcsBridgeIdT c) {
+#if defined(MD_ECS_GAIA)
+    auto view = world->get_raw(e, c);
+    return view.valid() ? view.data : nullptr;
+#else
+    return ecs_get_id(world, e, c);
+#endif
+}
+
+// Mutable pointer to component `c`'s payload on entity `e`, or nullptr if
+// absent. Re-fetch every frame -- never hold across a structural change
+// (both backends invalidate on archetype/table move).
+inline void* EcsBridgeGetMut(EcsBridgeWorldT* world, EcsBridgeIdT e, EcsBridgeIdT c) {
+#if defined(MD_ECS_GAIA)
+    auto view = world->mut_raw(e, c);
+    return view.valid() ? view.data : nullptr;
+#else
+    return ecs_get_mut_id(world, e, c);
+#endif
+}
+
+// Marks component `c`'s payload on entity `e` modified after a direct
+// write through EcsBridgeGetMut()'s pointer -- runs OnSet observers/hooks.
+inline void EcsBridgeModified(EcsBridgeWorldT* world, EcsBridgeIdT e, EcsBridgeIdT c) {
+#if defined(MD_ECS_GAIA)
+    world->modify_raw(e, c);
+#else
+    ecs_modified_id(world, e, c);
+#endif
+}
+
+inline void EcsBridgeRemove(EcsBridgeWorldT* world, EcsBridgeIdT e, EcsBridgeIdT c) {
+#if defined(MD_ECS_GAIA)
+    world->del(e, c);
+#else
+    ecs_remove_id(world, e, c);
+#endif
+}
+
+// Adds component `c` to entity `e` with a zero-initialized payload of
+// `size` bytes (size comes from ComponentDesc::component_size -- the
+// reflected struct's real size, so the zero payload is a valid default
+// value for every field type this project's reflection covers: numeric
+// fields read as 0/0.f/false, which matches each field's own declared
+// in-struct default for every reflected component checked against
+// component_reflect.cpp's RegisterCoreComponents()).
+// gaia: World::add_raw() -- verified by reading its body -- correctly
+// branches on Table vs Sparse storage internally (the exact distinction
+// task #54's move_entity_data investigation was about), unlike the plain
+// tag-only World::add(Entity,Entity) which asserts when target is a
+// Sparse-storage component. size must stay within the stack buffer below;
+// MAX_ADD_PAYLOAD comfortably covers every reflected component today
+// (largest is well under 128 bytes) with headroom.
+inline bool EcsBridgeAddDefault(EcsBridgeWorldT* world, EcsBridgeIdT e, EcsBridgeIdT c, uint16_t size) {
+#if defined(MD_ECS_GAIA)
+    static constexpr uint16_t MAX_ADD_PAYLOAD = 256;
+    if (size > MAX_ADD_PAYLOAD)
+        return false;
+    uint8_t zero[MAX_ADD_PAYLOAD] = {};
+    return world->add_raw(e, c, zero, size);
+#else
+    (void)size;
+    ecs_add_id(world, e, c);
+    return true;
+#endif
+}
 
 class EcsReflectBridge {
 public:
     static EcsReflectBridge& Get() { static EcsReflectBridge inst; return inst; }
 
     static constexpr int MAX_COMPONENTS = md::ComponentReflect::MAX_COMPONENTS;
-    using DrawerFn = bool (*)(ecs_world_t*, ecs_entity_t, void*);
+    using DrawerFn = bool (*)(EcsBridgeWorldT*, EcsBridgeIdT, void*);
 
-    // Re-resolves every reflected component's flecs id against `world` and
+    // Re-resolves every reflected component's id against `world` and
     // rebinds any previously-registered custom drawers. Call on every
     // editor_panels_init() (initial load AND every F5/auto reload).
-    void Init(ecs_world_t* world) {
+    void Init(EcsBridgeWorldT* world) {
         count_ = 0;
         const md::ComponentReflect& reg = md::ComponentReflect::Get();
         int n = reg.Count();
@@ -36,8 +180,7 @@ public:
             const md::ComponentDesc& desc = reg.GetDesc(i);
             char pascal[40];
             ToPascalCase(desc.name, pascal, sizeof(pascal));
-            ecs_entity_t id = world ? ecs_lookup(world, pascal) : 0;
-            ids_[count_]   = id;
+            ids_[count_]   = EcsBridgeResolve(world, pascal);
             descs_[count_] = &desc;
             customs_[count_] = nullptr;
             ++count_;
@@ -48,14 +191,14 @@ public:
     }
 
     int Count() const { return count_; }
-    ecs_entity_t              Id(int i)   const { return ids_[i]; }
+    EcsBridgeIdT              Id(int i)   const { return ids_[i]; }
     const md::ComponentDesc&  Desc(int i) const { return *descs_[i]; }
     DrawerFn                  CustomFor(int i) const { return customs_[i]; }
 
     // Register (or replace) a custom drawer for a reflected component name.
     // Persists across Init() calls — rebound against the new id/desc list
     // each time. fn returns true if it edited the component (caller must
-    // then call ecs_modified_id).
+    // then call EcsBridgeModified(), defined in editor_reflect_inspector.cpp).
     void BindCustom(const char* reflect_name, DrawerFn fn) {
         for (int b = 0; b < custom_binding_count_; ++b) {
             if (strncmp(custom_binding_[b].name, reflect_name, sizeof(custom_binding_[b].name)) == 0) {
@@ -118,7 +261,7 @@ private:
         }
     }
 
-    ecs_entity_t             ids_[MAX_COMPONENTS]     = {};
+    EcsBridgeIdT             ids_[MAX_COMPONENTS]     = {};
     const md::ComponentDesc* descs_[MAX_COMPONENTS]   = {};
     DrawerFn                 customs_[MAX_COMPONENTS] = {};
     int                      count_ = 0;

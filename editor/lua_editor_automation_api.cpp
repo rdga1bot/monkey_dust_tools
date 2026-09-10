@@ -370,14 +370,14 @@ int l_md_editor_end_batch(lua_State* L) {
 }
 
 // ── md.ecs.get/set/has/components ───────────────────────────────────────────
-// Via EcsReflectBridge (Id(i)=flecs component id, Desc(i)=field metadata) +
-// raw flecs C API — same pattern as editor_reflect_inspector.cpp's Inspector
-// panel, which already proves both READ (DrawReflectedFields) and WRITE
-// (ecs_get_mut_id + ecs_modified_id) work generically across every
-// reflected component. field.offset/size make byte-level get/set possible
-// without per-component glue code.
+// Via EcsReflectBridge (Id(i)=backend component id, Desc(i)=field metadata) +
+// the EcsBridge* wrappers (editor_reflect_bridge.h) — same pattern as
+// editor_reflect_inspector.cpp's Inspector panel, which already proves both
+// READ (DrawReflectedFields) and WRITE (EcsBridgeGetMut + EcsBridgeModified)
+// work generically across every reflected component. field.offset/size make
+// byte-level get/set possible without per-component glue code.
 
-const md::ComponentDesc* FindComponentDesc(const char* name, ecs_entity_t* out_cid) {
+const md::ComponentDesc* FindComponentDesc(const char* name, EcsBridgeIdT* out_cid) {
     auto& bridge = EcsReflectBridge::Get();
     for (int i = 0; i < bridge.Count(); ++i) {
         if (strncmp(bridge.Desc(i).name, name, sizeof(bridge.Desc(i).name)) == 0) {
@@ -450,16 +450,23 @@ void WriteFieldValue(lua_State* L, int idx, void* comp, const md::FieldDesc& f) 
     }
 }
 
+#if defined(MD_ECS_GAIA)
+static EcsBridgeWorldT* LuaEcsWorld() { return &MdRegistry::Get().Raw(); }
+#else
+static EcsBridgeWorldT* LuaEcsWorld() { return MdRegistry::Get().Raw().c_ptr(); }
+#endif
+
 int l_md_ecs_get(lua_State* L) {
     lua_Integer eid = luaL_checkinteger(L, 1);
     const char* comp_name = luaL_checkstring(L, 2);
     const char* field_name = luaL_checkstring(L, 3);
-    ecs_entity_t cid = 0;
+    EcsBridgeIdT cid{};
     const md::ComponentDesc* desc = FindComponentDesc(comp_name, &cid);
-    if (!desc || !cid) { lua_pushnil(L); return 1; }
-    ecs_world_t* world = MdRegistry::Get().Raw().c_ptr();
-    if (!ecs_is_alive(world, (ecs_entity_t)eid)) { lua_pushnil(L); return 1; }
-    const void* comp = ecs_get_id(world, (ecs_entity_t)eid, cid);
+    if (!desc || !EcsBridgeIdValid(cid)) { lua_pushnil(L); return 1; }
+    EcsBridgeWorldT* world = LuaEcsWorld();
+    EcsBridgeIdT e = EcsBridgeIdFromRaw((uint64_t)eid);
+    if (!EcsBridgeIsAlive(world, e)) { lua_pushnil(L); return 1; }
+    const void* comp = EcsBridgeGet(world, e, cid);
     if (!comp) { lua_pushnil(L); return 1; }
     const md::FieldDesc* f = FindField(*desc, field_name);
     if (!f) { lua_pushnil(L); return 1; }
@@ -471,40 +478,43 @@ int l_md_ecs_set(lua_State* L) {
     lua_Integer eid = luaL_checkinteger(L, 1);
     const char* comp_name = luaL_checkstring(L, 2);
     const char* field_name = luaL_checkstring(L, 3);
-    ecs_entity_t cid = 0;
+    EcsBridgeIdT cid{};
     const md::ComponentDesc* desc = FindComponentDesc(comp_name, &cid);
-    if (!desc || !cid) return luaL_error(L, "md.ecs.set: unknown component %s", comp_name);
-    ecs_world_t* world = MdRegistry::Get().Raw().c_ptr();
-    if (!ecs_is_alive(world, (ecs_entity_t)eid)) return luaL_error(L, "md.ecs.set: entity %lld not alive", (long long)eid);
-    void* comp = ecs_get_mut_id(world, (ecs_entity_t)eid, cid);
+    if (!desc || !EcsBridgeIdValid(cid)) return luaL_error(L, "md.ecs.set: unknown component %s", comp_name);
+    EcsBridgeWorldT* world = LuaEcsWorld();
+    EcsBridgeIdT e = EcsBridgeIdFromRaw((uint64_t)eid);
+    if (!EcsBridgeIsAlive(world, e)) return luaL_error(L, "md.ecs.set: entity %lld not alive", (long long)eid);
+    void* comp = EcsBridgeGetMut(world, e, cid);
     if (!comp) return luaL_error(L, "md.ecs.set: entity has no component %s", comp_name);
     const md::FieldDesc* f = FindField(*desc, field_name);
     if (!f) return luaL_error(L, "md.ecs.set: unknown field %s.%s", comp_name, field_name);
     WriteFieldValue(L, 4, comp, *f);
-    ecs_modified_id(world, (ecs_entity_t)eid, cid);
+    EcsBridgeModified(world, e, cid);
     return 0;
 }
 
 int l_md_ecs_has(lua_State* L) {
     lua_Integer eid = luaL_checkinteger(L, 1);
     const char* comp_name = luaL_checkstring(L, 2);
-    ecs_entity_t cid = 0;
-    if (!FindComponentDesc(comp_name, &cid) || !cid) { lua_pushboolean(L, false); return 1; }
-    ecs_world_t* world = MdRegistry::Get().Raw().c_ptr();
-    lua_pushboolean(L, ecs_is_alive(world, (ecs_entity_t)eid) && ecs_has_id(world, (ecs_entity_t)eid, cid));
+    EcsBridgeIdT cid{};
+    if (!FindComponentDesc(comp_name, &cid) || !EcsBridgeIdValid(cid)) { lua_pushboolean(L, false); return 1; }
+    EcsBridgeWorldT* world = LuaEcsWorld();
+    EcsBridgeIdT e = EcsBridgeIdFromRaw((uint64_t)eid);
+    lua_pushboolean(L, EcsBridgeIsAlive(world, e) && EcsBridgeHas(world, e, cid));
     return 1;
 }
 
 int l_md_ecs_components(lua_State* L) {
     lua_Integer eid = luaL_checkinteger(L, 1);
-    ecs_world_t* world = MdRegistry::Get().Raw().c_ptr();
+    EcsBridgeWorldT* world = LuaEcsWorld();
     lua_newtable(L);
-    if (!ecs_is_alive(world, (ecs_entity_t)eid)) return 1;
+    EcsBridgeIdT e = EcsBridgeIdFromRaw((uint64_t)eid);
+    if (!EcsBridgeIsAlive(world, e)) return 1;
     auto& bridge = EcsReflectBridge::Get();
     int n = 0;
     for (int i = 0; i < bridge.Count(); ++i) {
-        ecs_entity_t cid = bridge.Id(i);
-        if (cid && ecs_has_id(world, (ecs_entity_t)eid, cid)) {
+        EcsBridgeIdT cid = bridge.Id(i);
+        if (EcsBridgeIdValid(cid) && EcsBridgeHas(world, e, cid)) {
             lua_pushstring(L, bridge.Desc(i).name);
             lua_seti(L, -2, ++n);
         }

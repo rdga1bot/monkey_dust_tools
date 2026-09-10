@@ -7,7 +7,6 @@
 #include <monkey_dust/ecs/md_registry.h>
 #include <monkey_dust/editor/cmd_registry.h>
 #include "editor_std_commands.h"
-#include <flecs.h>
 #include <cstdio>
 #include <cstring>
 
@@ -15,7 +14,7 @@ namespace {
 
 // Draws every field of a reflected component via the generic FieldType
 // switch. Returns true if any widget reported an edit — caller is
-// responsible for calling ecs_modified_id() exactly once afterward.
+// responsible for calling EcsBridgeModified() exactly once afterward.
 bool DrawReflectedFields(void* comp, const md::ComponentDesc& desc) {
     bool edited = false;
     uint8_t* base = static_cast<uint8_t*>(comp);
@@ -84,35 +83,39 @@ bool DrawReflectedFields(void* comp, const md::ComponentDesc& desc) {
 
 } // namespace
 
-void EditorReflectInspector::DrawContent(ecs_world_t* world) {
+void EditorReflectInspector::DrawContent(EcsBridgeWorldT* world) {
     if (!world) { ImGui::TextDisabled("No ECS world bound"); return; }
 
     MdEntity sel = EditorCore::Get().GetPrimary();
-    ecs_entity_t eid = sel.Raw();
-    if (eid == 0 || !ecs_is_alive(world, eid)) {
+    EcsBridgeIdT eid = sel.Raw();
+    if (!EcsBridgeIdValid(eid) || !EcsBridgeIsAlive(world, eid)) {
         ImGui::TextDisabled("No entity selected");
         return;
     }
 
+#if defined(MD_ECS_GAIA)
+    ImGui::Text("Entity #%u", (unsigned)eid.id());
+#else
     ImGui::Text("Entity #%u", (unsigned)eid);
+#endif
     ImGui::Separator();
 
     EcsReflectBridge& bridge = EcsReflectBridge::Get();
 
     static constexpr int MAX_STRUCT_OPS = 8;
-    ecs_entity_t remove_ops[MAX_STRUCT_OPS]; int remove_count = 0;
+    EcsBridgeIdT remove_ops[MAX_STRUCT_OPS]; int remove_count = 0;
     // Names, not ids: queued adds now go through the registered "Add
     // Component" command (EDITOR_AUTOMATION_PLAN_v1.md Phase 1.3.4), which
     // re-resolves the id from the name itself — see AddComponentCmd's doc
     // comment (editor_std_commands.cpp) for why it takes a name, not a raw
-    // ecs_entity_t, across the command-args ABI. Pointers into
-    // bridge.Desc(i).name are stable for the remainder of this frame.
+    // id, across the command-args ABI. Pointers into bridge.Desc(i).name
+    // are stable for the remainder of this frame.
     const char* add_names[MAX_STRUCT_OPS];   int add_count = 0;
 
     // ── Reflected components present on this entity ─────────────────────
     for (int i = 0; i < bridge.Count(); ++i) {
-        ecs_entity_t cid = bridge.Id(i);
-        if (cid == 0 || !ecs_has_id(world, eid, cid)) continue;
+        EcsBridgeIdT cid = bridge.Id(i);
+        if (!EcsBridgeIdValid(cid) || !EcsBridgeHas(world, eid, cid)) continue;
         const md::ComponentDesc& desc = bridge.Desc(i);
 
         ImGui::PushID(i);
@@ -126,13 +129,13 @@ void EditorReflectInspector::DrawContent(ecs_world_t* world) {
         if (open) {
             // Re-fetched every frame — never held across a structural op
             // (see class header comment / md_registry.h B3.4).
-            void* comp = ecs_get_mut_id(world, eid, cid);
+            void* comp = EcsBridgeGetMut(world, eid, cid);
             if (comp) {
                 bool edited;
                 EcsReflectBridge::DrawerFn custom = bridge.CustomFor(i);
                 if (custom) edited = custom(world, eid, comp);
                 else        edited = DrawReflectedFields(comp, desc);
-                if (edited) ecs_modified_id(world, eid, cid);
+                if (edited) EcsBridgeModified(world, eid, cid);
             }
         }
         ImGui::PopID();
@@ -142,8 +145,8 @@ void EditorReflectInspector::DrawContent(ecs_world_t* world) {
     ImGui::Separator();
     if (ImGui::BeginCombo("##add_component", "+ Add component")) {
         for (int i = 0; i < bridge.Count(); ++i) {
-            ecs_entity_t cid = bridge.Id(i);
-            if (cid == 0 || ecs_has_id(world, eid, cid)) continue;
+            EcsBridgeIdT cid = bridge.Id(i);
+            if (!EcsBridgeIdValid(cid) || EcsBridgeHas(world, eid, cid)) continue;
             if (ImGui::Selectable(bridge.Desc(i).name)) {
                 if (add_count < MAX_STRUCT_OPS) add_names[add_count++] = bridge.Desc(i).name;
             }
@@ -152,10 +155,10 @@ void EditorReflectInspector::DrawContent(ecs_world_t* world) {
     }
 
     // ── Apply structural ops AFTER the draw pass ─────────────────────────
-    for (int i = 0; i < remove_count; ++i) ecs_remove_id(world, eid, remove_ops[i]);
+    for (int i = 0; i < remove_count; ++i) EcsBridgeRemove(world, eid, remove_ops[i]);
     for (int i = 0; i < add_count; ++i) {
         CmdArgs args; args.count = 2;
-        args.values[0].type = CmdArgType::Entity; args.values[0].entity_id = eid;
+        args.values[0].type = CmdArgType::Entity; args.values[0].entity_id = EcsBridgeIdRaw(eid);
         args.values[1].type = CmdArgType::Str;
         snprintf(args.values[1].str, sizeof(args.values[1].str), "%s", add_names[i]);
         DispatchEditorCmd("Add Component", args);
@@ -164,6 +167,18 @@ void EditorReflectInspector::DrawContent(ecs_world_t* world) {
     // ── Unreflected components (read-only) ───────────────────────────────
     ImGui::Separator();
     ImGui::TextDisabled("Unreflected");
+#if defined(MD_ECS_GAIA)
+    // Deliberately not ported: this listing needs "every id on entity `e`,
+    // full archetype walk" (flecs: ecs_get_type()), and gaia's equivalent
+    // (World::archetype(Entity)/Archetype::ids_view()) is private -- no
+    // public World-level entity-to-ids enumeration surface was found in a
+    // reasonable search. Read-only/informational only (no correctness risk
+    // for the reflected get/set/has/add/remove paths above, which ARE
+    // fully ported and don't depend on this). Left as an honest gap rather
+    // than guessing at an internal API to reach into; revisit if gaia adds
+    // (or this codebase's own facade grows) a public accessor for it.
+    ImGui::TextDisabled("(not available under gaia backend yet)");
+#else
     const ecs_type_t* type = ecs_get_type(world, eid);
     if (type) {
         for (int i = 0; i < type->count; ++i) {
@@ -181,5 +196,6 @@ void EditorReflectInspector::DrawContent(ecs_world_t* world) {
             ImGui::TextDisabled("%s", nm);
         }
     }
+#endif
 }
 #endif

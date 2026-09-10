@@ -25,8 +25,11 @@ void EditorHierarchy::RefreshCache() {
     auto& reg = MdRegistry::Get();
     entity_cache_count_ = 0;
 #if defined(MD_ECS_GAIA)
-    // MdManagedTag by value -> mdeach_view_for routes to view_mut<T>(),
-    // query must declare & to match (docs/GAIA_SEAM_AUDIT.md).
+    // MdManagedTag is a genuinely empty/zero-size tag -- MdEach's gaia
+    // dispatch (md_registry.h, 2026-09-08 rewrite for Sparse-storage
+    // support) special-cases this: never asks gaia for the tag's "value"
+    // at all (gaia can't hand one out for an empty type), matching
+    // remains driven by this query's own .all<MdManagedTag&>() term.
     static auto q_all = reg.Raw().query().all<MdManagedTag&>();
 #else
     static auto q_all = reg.Raw().query<MdManagedTag>();

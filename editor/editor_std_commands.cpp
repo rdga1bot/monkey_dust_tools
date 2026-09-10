@@ -317,12 +317,23 @@ CmdResult GotoCameraBookmarkCmd(const CmdArgs& args, MdRegistry&, uint8_t[64]) {
 
 // args: [0]=entity_id(entity), [1]=component_name(str) — matches
 // EcsReflectBridge::Desc(i).name (snake_case reflect name, not the
-// PascalCase flecs type name used internally for ecs_lookup()).
+// PascalCase internal type name used for by-name resolution).
+// gaia-ecs migration (Phase 5, PROMPT_GAIA_MIGRATION.md §7 p.2): ported off
+// the flecs-only stub via the same EcsBridge* wrappers editor_reflect_inspector.cpp
+// uses. EcsBridgeAddDefault() (not the plain tag-only add) is required here
+// specifically because some reflected components are GAIA_STORAGE(Sparse)
+// (Phase 2) -- gaia's bare add(entity, componentEntity) asserts for those,
+// add_raw() with a zeroed default payload is the one path that works for
+// both storage kinds uniformly (verified by reading World::add_raw()'s body).
 CmdResult AddComponentCmd(const CmdArgs& args, MdRegistry& reg, uint8_t[64]) {
-    ecs_world_t* world = reg.Raw().c_ptr();
-    ecs_entity_t eid = (ecs_entity_t)args.values[0].entity_id;
+#if defined(MD_ECS_GAIA)
+    EcsBridgeWorldT* world = &reg.Raw();
+#else
+    EcsBridgeWorldT* world = reg.Raw().c_ptr();
+#endif
+    EcsBridgeIdT eid = EcsBridgeIdFromRaw(args.values[0].entity_id);
     CmdResult r;
-    if (!eid || !ecs_is_alive(world, eid)) {
+    if (!EcsBridgeIdValid(eid) || !EcsBridgeIsAlive(world, eid)) {
         r.ok = false;
         snprintf(r.msg, sizeof(r.msg), "Invalid or dead entity");
         return r;
@@ -331,13 +342,17 @@ CmdResult AddComponentCmd(const CmdArgs& args, MdRegistry& reg, uint8_t[64]) {
     auto& bridge = EcsReflectBridge::Get();
     for (int i = 0; i < bridge.Count(); ++i) {
         if (strncmp(bridge.Desc(i).name, name, sizeof(bridge.Desc(i).name)) != 0) continue;
-        ecs_entity_t cid = bridge.Id(i);
-        if (!cid) {
+        EcsBridgeIdT cid = bridge.Id(i);
+        if (!EcsBridgeIdValid(cid)) {
             r.ok = false;
             snprintf(r.msg, sizeof(r.msg), "Component '%s' has no resolved id", name);
             return r;
         }
-        ecs_add_id(world, eid, cid);
+        if (!EcsBridgeAddDefault(world, eid, cid, bridge.Desc(i).component_size)) {
+            r.ok = false;
+            snprintf(r.msg, sizeof(r.msg), "Failed to add component '%s'", name);
+            return r;
+        }
         r.ok = true;
         snprintf(r.msg, sizeof(r.msg), "Added %s to entity", name);
         return r;

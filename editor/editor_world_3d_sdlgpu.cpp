@@ -422,8 +422,25 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
         },
         nullptr);
 
+    // gaia-migration Phase 5 GATE 5 follow-up (2026-09-10), step (a): this
+    // body used to run on s_loader_thread, async, while the main thread
+    // kept calling RenderFrame()/GpuDevice::Submit() every frame. The
+    // s_master_ready fix (Shutdown(), above) closed the "main thread reads
+    // half-torn-down C++ state" half of the race, but a second reload still
+    // crashed with the SAME main-thread-vs-loader-thread pair (this time in
+    // PropMesh::LoadGLB/GpuStaticBuffer::Init instead of TerrainRenderer::
+    // Init) -- evidence the two threads were issuing SDL_GPU calls
+    // concurrently without the synchronization the API requires, not just
+    // racing on C++ object state. Running this synchronously on the calling
+    // thread (EditorModule::Load(), itself only ever called from the main
+    // thread's Tick()) removes the second thread from the picture entirely
+    // for both the initial load and every reload -- trades the original
+    // async non-blocking startup for correctness. See CLAUDE_STATE.md for
+    // the two coredumps this replaces and step (b): confirm whether the
+    // GPU backend actually requires this exclusion, or a narrower fix
+    // (e.g. a mutex around SDL_GPU calls) would have sufficed.
     const char* op = overlay_path;
-    s_loader_thread = std::thread([op]() {
+    [op]() {
         if (!s_terrain.Init()) {
             fprintf(stderr, "[W3D-SDLGPU] TerrainRenderer init failed\n"); return;
         }
@@ -469,7 +486,7 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
         s_rebuild_granite_hmap();
         s_master_ready = true;
         s_build_prop_positions();
-    });
+    }();
     return true;
 }
 
@@ -487,6 +504,21 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
 // ~1s load window; --exec scenarios that render+screenshot take just long
 // enough for main() to race ahead to shutdown before the load finishes.
 void Shutdown() {
+    // gaia-migration Phase 5 GATE 5 follow-up (2026-09-10): s_master_ready
+    // was set true once by the loader thread (below) and never reset —
+    // RenderFrame()/DrawImGui() gate all GPU access on it, but on a hot
+    // reload this Shutdown() tears down every resource below (and Init()
+    // then rebuilds them asynchronously in a fresh loader thread) while the
+    // main thread kept seeing s_master_ready==true the whole time, so it
+    // kept rendering through the teardown and into the new thread's
+    // half-built state. Reproduced as a reliable SIGSEGV (main thread in
+    // GpuDevice::Submit, loader thread concurrently in TerrainRenderer::
+    // Init) across two consecutive reloads spaced ~5s apart, 2 identical
+    // coredumps. Must be cleared before anything below is touched so the
+    // gate is closed for the full teardown+rebuild window, not just part
+    // of it.
+    s_master_ready = false;
+
     if (s_loader_thread.joinable()) s_loader_thread.join();
 
     // audit S2 (2026-08-27, Phase 2 sanitizer follow-up): this used to only

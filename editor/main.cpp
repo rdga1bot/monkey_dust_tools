@@ -222,7 +222,18 @@ int main(int argc, char** argv) {
     {
         EditorModule::Config ecfg;
         ecfg.imgui_ctx   = ImGui::GetCurrentContext();
+        // gaia-ecs migration (Phase 5, PROMPT_GAIA_MIGRATION.md §7 p.2):
+        // gaia::ecs::World IS the concrete world object already (no opaque
+        // C-pointer wrapper layer the way flecs::world::c_ptr() unwraps),
+        // so the address of Registry::Get()'s reference is the direct
+        // equivalent -- reinterpreted on the far side of the dlopen
+        // boundary as EcsBridgeWorldT* (editor_reflect_bridge.h), matching
+        // flecs's ecs_world_t* void*-cast exactly.
+#if defined(MD_ECS_GAIA)
+        ecfg.ecs_world   = &Registry::Get();
+#else
         ecfg.ecs_world   = Registry::Get().c_ptr();
+#endif
         ecfg.gpu         = gpu;
         ecfg.window      = _wnd::ptr();
         ecfg.overlay_top = s_overlay_top;

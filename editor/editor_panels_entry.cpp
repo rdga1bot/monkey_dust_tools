@@ -42,10 +42,11 @@ static constexpr const char* CFG_PATH = "data/editor_config.json";
 // exactly (and only) this module's commands before dlclose.
 static constexpr uint32_t kPanelsModuleId = 1;
 
-// ecs_world_t*, opaque across the dlopen boundary (see editor_module.h's
-// Config::ecs_world doc comment). Stored so BuildUI can pass it into the
-// Inspector tab every frame; re-set on every editor_panels_init() call.
-static ecs_world_t* s_ecs_world = nullptr;
+// Backend world pointer, opaque across the dlopen boundary (see
+// editor_module.h's Config::ecs_world doc comment). Stored so BuildUI can
+// pass it into the Inspector tab every frame; re-set on every
+// editor_panels_init() call.
+static EcsBridgeWorldT* s_ecs_world = nullptr;
 
 // Persistent panel layout (all tabs).  Loaded on init, saved on shutdown.
 static EditorLayout::Layout s_lay;
@@ -54,8 +55,10 @@ extern "C" {
 
 // ── Init — called after dlopen ────────────────────────────────────────────────
 // ctx:         ImGuiContext* from host (must share for ImGui calls to work)
-// ecs_world:   ecs_world_t* from host (Registry::Get().c_ptr()) — untyped
-//              flecs C API only past this point; see editor_reflect_bridge.h
+// ecs_world:   backend world pointer from host (flecs: Registry::Get().c_ptr();
+//              gaia: &Registry::Get()) — reinterpreted as EcsBridgeWorldT*,
+//              untyped/runtime-id API only past this point; see
+//              editor_reflect_bridge.h
 // gpu:         SDL_GPUDevice* (for RTT init)
 // window:      SDL_Window*
 // overlay_top: Y offset when running under RenderDoc overlay
@@ -67,7 +70,7 @@ void editor_panels_init(void* ctx, void* ecs_world, void* /*gpu*/, void* /*windo
 
     // Re-resolve every reflected component id fresh on every load/reload —
     // ids from a previous dlopen cycle are not valid in this one.
-    s_ecs_world = static_cast<ecs_world_t*>(ecs_world);
+    s_ecs_world = static_cast<EcsBridgeWorldT*>(ecs_world);
     EcsReflectBridge::Get().Init(s_ecs_world);
 
     // Autonomy system (Etap 4): register md.editor_* into the HOST's
