@@ -18,13 +18,12 @@ All tool names use the `md_` prefix (no proprietary asset branding in public rep
 
 > **Render backend: SDL3/SDL_GPU, permanently.**
 
-> **ECS backend:** flecs by default. The editor's reflection/inspector layer
-> (`EcsReflectBridge`, `editor_reflect_bridge.h`) and Lua automation API
-> (`md.ecs.*`) also compile and work under the experimental
-> [gaia-ecs](https://github.com/richardbiely/gaia-ecs) backend
-> (`-DMD_ECS_GAIA=ON`, branch `gaia/phase-0` across all 3 repos, not the
-> default) — verified through a live hot-reload cycle (paced and rapid-fire
-> F5), not just a unit test.
+> **ECS backend:** [gaia-ecs](https://github.com/richardbiely/gaia-ecs) by
+> default since 2026-09-10; [flecs](https://github.com/SanderMertens/flecs)
+> fully supported via `-DMD_ECS_GAIA=OFF`. The editor's reflection/inspector
+> layer (`EcsReflectBridge`, `editor_reflect_bridge.h`) and Lua automation
+> API (`md.ecs.*`) compile and work under both — verified through live
+> hot-reload cycles (paced and rapid-fire F5), not just a unit test.
 
 > **Full documentation →** [rdga1bot.github.io/monkey\_dust\_engine/monkey\_dust\_docs.html](https://rdga1bot.github.io/monkey_dust_engine/monkey_dust_docs.html)
 
