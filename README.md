@@ -3,7 +3,7 @@ id: kb-tools-readme
 type: reference
 status: active
 date: 2026-05-14
-updated: 2026-09-10
+updated: 2026-09-12
 repo: tools
 tags: [tools, readme, editor, public-repo, shader-hot-reload]
 summary: "Public tools/ README: editor panels, shader hot-reload, QA scripts, build targets, repo architecture"
@@ -66,6 +66,12 @@ Zero dependencies on `game/` sources — compiles without the game repo present 
 > brush both painted a separate, now-removed synthetic `md_master_hmap` layer that only ever guided
 > procedural generation (also removed) — neither ever touched real terrain, so removing them lost no
 > real editing capability.
+
+> **3D World terrain load is async** (restored 2026-09-12) — the viewport's GPU-resource loader
+> runs on a background thread (`s_loader_thread`), so opening the panel no longer blocks the editor's
+> main thread/UI (previously a ~6.5s freeze on every open/reload, 2026-09-10 → 2026-09-12, forced
+> synchronous as a workaround for two real `GpuDevice` thread-safety crashes — now fixed with a mutex
+> in the engine repo, see its README).
 
 **Toolbar:**
 - New Entity popup (Transform / NPC Bandit / NPC Trader / NPC Holy / Building)
