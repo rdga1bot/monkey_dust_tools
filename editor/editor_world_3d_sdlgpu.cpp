@@ -422,25 +422,28 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
         },
         nullptr);
 
-    // gaia-migration Phase 5 GATE 5 follow-up (2026-09-10), step (a): this
-    // body used to run on s_loader_thread, async, while the main thread
-    // kept calling RenderFrame()/GpuDevice::Submit() every frame. The
-    // s_master_ready fix (Shutdown(), above) closed the "main thread reads
-    // half-torn-down C++ state" half of the race, but a second reload still
-    // crashed with the SAME main-thread-vs-loader-thread pair (this time in
-    // PropMesh::LoadGLB/GpuStaticBuffer::Init instead of TerrainRenderer::
-    // Init) -- evidence the two threads were issuing SDL_GPU calls
-    // concurrently without the synchronization the API requires, not just
-    // racing on C++ object state. Running this synchronously on the calling
-    // thread (EditorModule::Load(), itself only ever called from the main
-    // thread's Tick()) removes the second thread from the picture entirely
-    // for both the initial load and every reload -- trades the original
-    // async non-blocking startup for correctness. See CLAUDE_STATE.md for
-    // the two coredumps this replaces and step (b): confirm whether the
-    // GPU backend actually requires this exclusion, or a narrower fix
-    // (e.g. a mutex around SDL_GPU calls) would have sufficed.
+    // gaia-migration Phase 5 GATE 5 follow-up (2026-09-10), step (a)+(b):
+    // this body used to run on s_loader_thread, async, while the main
+    // thread kept calling RenderFrame()/GpuDevice::Submit() every frame.
+    // Two coredumps (TerrainRenderer::Init, then PropMesh::LoadGLB --
+    // CLAUDE_STATE.md GATE 5) traced to GpuDevice::AcquireCommandBuffer/
+    // Submit's prev_fence_/cmd_buffer_active_/frame_slot_ being plain,
+    // unsynchronized fields shared by both this loader thread and the main
+    // render thread -- not a wider "SDL_GPU isn't thread-safe" problem
+    // (confirmed: SDL_gpu.h documents no such restriction on
+    // CreateGPUTexture/CreateGPUBuffer, only on window/swapchain calls).
+    // step (a)'s fix (running synchronously on the caller, freezing the
+    // editor for the ~6.5s this load takes) traded correctness for UX.
+    // step (b), now done: GpuDevice gained its own mutex (gpu_device.h/
+    // .cpp, 2026-09-12) guarding exactly those fields plus the underlying
+    // SDL_SubmitGPUCommandBufferAndAcquireFence call (Vulkan itself
+    // requires external sync for concurrent queue submission) -- restoring
+    // this to a real background thread is safe against the SPECIFIC race
+    // that was confirmed and fixed. Re-verify with the same GATE 5
+    // criterion (5 consecutive F5 reloads, no crash/leak) before trusting
+    // this long-term.
     const char* op = overlay_path;
-    [op]() {
+    s_loader_thread = std::thread([op]() {
         if (!s_terrain.Init()) {
             fprintf(stderr, "[W3D-SDLGPU] TerrainRenderer init failed\n"); return;
         }
@@ -486,7 +489,7 @@ bool Init(const char* overlay_path, int /*zone_ox*/, int /*zone_oz*/) {
         s_rebuild_granite_hmap();
         s_master_ready = true;
         s_build_prop_positions();
-    }();
+    });
     return true;
 }
 
