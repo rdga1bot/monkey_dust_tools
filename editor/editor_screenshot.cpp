@@ -142,8 +142,13 @@ bool EditorScreenshot_CaptureAndSubmit(md::GpuDeviceHandle dev, md::GpuCommandBu
     SDL_UnmapGPUTransferBuffer(dev, tb);
     SDL_ReleaseGPUTransferBuffer(dev, tb);
 
-    int ok = stbi_write_png(out_path, (int)w, (int)h, 4, rgba, (int)(w * 4));
+    bool ok = EditorScreenshot_WriteRGBA(rgba, w, h, out_path);
     free(rgba);
+    return ok;
+}
+
+bool EditorScreenshot_WriteRGBA(const void* rgba, uint32_t w, uint32_t h, const char* out_path) {
+    int ok = stbi_write_png(out_path, (int)w, (int)h, 4, rgba, (int)(w * 4));
     if (!ok) {
         fprintf(stderr, "[EditorScreenshot] stbi_write_png failed: %s\n", out_path);
         return false;

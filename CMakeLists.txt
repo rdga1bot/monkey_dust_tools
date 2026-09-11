@@ -29,6 +29,18 @@ set(EDITOR_IMGUI_SRC
     ${CMAKE_SOURCE_DIR}/tools/third_party/imgui/backends/imgui_impl_sdlgpu3.cpp
 )
 
+# RENDER-BACKEND-STAGE-6 (docs/GRANITE_IRENDERBACKEND_INTEGRATION.md §2.3):
+# permanent Granite+ImGui bridge (tools/editor/editor_granite_imgui_bridge.cpp)
+# needs imgui's raw-Vulkan backend (NOT imgui_impl_sdlgpu3.cpp above, which
+# only knows SDL_GPU's opaque handles) and real Vulkan headers for
+# ImGui_ImplVulkan_InitInfo's VkInstance/VkDevice/etc fields. Zero cost when
+# USE_GRANITE=OFF (the default) -- matches every other USE_GRANITE-gated
+# block in this repo (root CMakeLists.txt, engine/CMakeLists.txt).
+if(USE_GRANITE)
+    find_package(Vulkan REQUIRED)
+    list(APPEND EDITOR_IMGUI_SRC ${CMAKE_SOURCE_DIR}/tools/third_party/imgui/backends/imgui_impl_vulkan.cpp)
+endif()
+
 if(NOT MONKEY_DUST_TOOLS_NEED_SDL3)
     message(STATUS "[tools] SDL3 disabled — skipping monkey_dust_editor + md_flare_demo")
     # Only flare_convert builds without SDL3
@@ -62,11 +74,13 @@ target_compile_definitions(monkey_dust_editor PRIVATE
     MD_SDL_GPU
     USE_SDL3
     IMGUI_DEFINE_MATH_OPERATORS
+    $<$<BOOL:${USE_GRANITE}>:IMGUI_IMPL_VULKAN_NO_PROTOTYPES>
 )
 target_link_libraries(monkey_dust_editor PRIVATE
     monkey_dust::engine
     Recast Detour DetourCrowd
     $<IF:$<BOOL:${MD_STATIC_DEPS}>,SDL3::SDL3-static,SDL3::SDL3>
+    $<$<BOOL:${USE_GRANITE}>:Vulkan::Vulkan>
 )
 target_include_directories(monkey_dust_editor PRIVATE
     editor/
@@ -125,7 +139,8 @@ if(MONKEY_DUST_EDITOR_HOT_RELOAD)
     target_compile_definitions(monkey_dust_editor_panels PRIVATE
         MONKEY_DUST_STANDALONE_EDITOR MONKEY_DUST_EDITOR
         MD_SDL_GPU USE_SDL3 IMGUI_DEFINE_MATH_OPERATORS USE_GLM MD_LOG_NO_RAYLIB
-        DEBUG)  # MONKEY_DUST_EDITOR always enables DEBUG (see engine/CMakeLists.txt)
+        DEBUG  # MONKEY_DUST_EDITOR always enables DEBUG (see engine/CMakeLists.txt)
+        $<$<BOOL:${USE_GRANITE}>:IMGUI_IMPL_VULKAN_NO_PROTOTYPES>)
     target_include_directories(monkey_dust_editor_panels PRIVATE
         editor/
         ${CMAKE_SOURCE_DIR}/tools/third_party/imgui
