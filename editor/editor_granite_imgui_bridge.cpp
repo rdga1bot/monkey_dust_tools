@@ -10,21 +10,16 @@
 #include <vulkan/vulkan.h>
 
 #include "imgui.h"
-#include "backends/imgui_impl_sdl3.h"
 #include "backends/imgui_impl_vulkan.h"
 
-// RENDER-BACKEND-STAGE-6 (docs/GRANITE_IRENDERBACKEND_INTEGRATION.md §2.3).
-// Permanent port of probes/granite_m3_imgui_dynamic_rendering.cpp -- see
-// that file's doc comment for the two non-obvious pitfalls (is_legacy_
-// layout() rejecting VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, and
-// vkCmdBeginRendering/EndRendering needing Device::get_device_table()
-// instead of the global volk-resolved symbols) already fixed here by
-// reusing md::GraniteBackend::RenderFrameWithOverlay() (engine/src/render/
-// granite_backend.cpp), which owns that exact sequence now.
+// RENDER-BACKEND-STAGE-6 (docs/GRANITE_IRENDERBACKEND_INTEGRATION.md
+// §2.3/§2.4). See header's doc comment for the two pitfalls already fixed
+// by reusing md::GraniteBackend::RenderFrameWithOverlay() (engine/src/
+// render/granite_backend.cpp), which owns the exact sequence probes/
+// granite_m3_imgui_dynamic_rendering.cpp proved live.
 namespace md::editor {
 namespace {
 
-ImGuiContext* s_ctx = nullptr;
 bool s_ready = false;
 
 PFN_vkVoidFunction ImGuiVulkanLoader(const char* function_name, void* user_data) {
@@ -57,19 +52,10 @@ bool GraniteImGuiBridge_Init(SDL_Window* window) {
         return false;
     }
 
-    // Own, dedicated context -- see header's doc comment for why (two
-    // independent GPU devices on one window, not a replacement for the
-    // real editor's SDL_GPU-backed ImGui context).
-    ImGuiContext* prev = ImGui::GetCurrentContext();
-    s_ctx = ImGui::CreateContext();
-    ImGui::SetCurrentContext(s_ctx);
-    ImGui_ImplSDL3_InitForVulkan(window);
-
+    // Operates on whatever ImGui context is CURRENT -- the caller (main.cpp)
+    // already created the real editor's own context before calling this.
     if (!ImGui_ImplVulkan_LoadFunctions(VK_API_VERSION_1_3, &ImGuiVulkanLoader, h.instance)) {
         MD_LOG(MD_LOG_WARNING, "[GraniteImGuiBridge] ImGui_ImplVulkan_LoadFunctions failed");
-        ImGui::SetCurrentContext(prev);
-        ImGui::DestroyContext(s_ctx);
-        s_ctx = nullptr;
         return false;
     }
 
@@ -94,53 +80,32 @@ bool GraniteImGuiBridge_Init(SDL_Window* window) {
 
     if (!ImGui_ImplVulkan_Init(&init_info)) {
         MD_LOG(MD_LOG_WARNING, "[GraniteImGuiBridge] ImGui_ImplVulkan_Init failed");
-        ImGui::SetCurrentContext(prev);
-        ImGui::DestroyContext(s_ctx);
-        s_ctx = nullptr;
         return false;
     }
 
-    ImGui::SetCurrentContext(prev);
     s_ready = true;
     return true;
 }
 
 void GraniteImGuiBridge_Shutdown() {
     if (!s_ready) return;
-    ImGuiContext* prev = ImGui::GetCurrentContext();
-    ImGui::SetCurrentContext(s_ctx);
     ImGui_ImplVulkan_Shutdown();
-    ImGui_ImplSDL3_Shutdown();
-    ImGui::SetCurrentContext(prev);
-    ImGui::DestroyContext(s_ctx);
-    s_ctx = nullptr;
     s_ready = false;
 }
 
-void GraniteImGuiBridge_RenderEditorOverlay(void* /*user*/, const md::render_backend::RenderFrameParams& /*params*/) {
+void GraniteImGuiBridge_NewFrame() {
+    if (!s_ready) return;
+    ImGui_ImplVulkan_NewFrame();
+}
+
+void GraniteImGuiBridge_RenderCurrentDrawData() {
     if (!s_ready) {
-        MD_LOG(MD_LOG_WARNING, "[GraniteImGuiBridge] RenderEditorOverlay: not initialized");
+        MD_LOG(MD_LOG_WARNING, "[GraniteImGuiBridge] RenderCurrentDrawData: not initialized");
         return;
     }
-
-    ImGuiContext* prev = ImGui::GetCurrentContext();
-    ImGui::SetCurrentContext(s_ctx);
-
-    ImGui_ImplVulkan_NewFrame();
-    ImGui_ImplSDL3_NewFrame();
-    ImGui::NewFrame();
-    ImGui::SetNextWindowPos(ImVec2(20, 20), ImGuiCond_Always);
-    ImGui::Begin("Granite backend (Крок 3)");
-    ImGui::Text("ImGui over Granite via VK_KHR_dynamic_rendering");
-    ImGui::Text("Permanent code -- docs/GRANITE_IRENDERBACKEND_INTEGRATION.md §2.3");
-    ImGui::End();
-    ImGui::Render();
-
     if (!md::GraniteBackend::Get().RenderFrameWithOverlay(&DrawIntoActiveDynamicRenderingScope, nullptr)) {
         MD_LOG(MD_LOG_WARNING, "[GraniteImGuiBridge] RenderFrameWithOverlay: no work this tick");
     }
-
-    ImGui::SetCurrentContext(prev);
 }
 
 }  // namespace md::editor
@@ -150,7 +115,8 @@ void GraniteImGuiBridge_RenderEditorOverlay(void* /*user*/, const md::render_bac
 namespace md::editor {
 bool GraniteImGuiBridge_Init(SDL_Window*) { return false; }
 void GraniteImGuiBridge_Shutdown() {}
-void GraniteImGuiBridge_RenderEditorOverlay(void*, const md::render_backend::RenderFrameParams&) {}
+void GraniteImGuiBridge_NewFrame() {}
+void GraniteImGuiBridge_RenderCurrentDrawData() {}
 }  // namespace md::editor
 
 #endif  // MD_USE_GRANITE

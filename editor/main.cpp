@@ -3,6 +3,8 @@
 #include <monkey_dust/platform/input.h>
 #include <monkey_dust/render/gpu_device.h>
 #include <monkey_dust/render/gpu_hal.h>
+#include <monkey_dust/render/granite_backend.h>
+#include "editor_granite_imgui_bridge.h"
 #include <monkey_dust/render/light_system.h>
 #include <monkey_dust/world/terrain_gen.h>
 #include <monkey_dust/ecs/component_reflect.h>
@@ -157,9 +159,31 @@ int main(int argc, char** argv) {
     EditorUI::font_mono    = MdFonts::mono;
 
     ImGui_ImplSDL3_InitForSDLGPU(_wnd::ptr());
+#if defined(MD_RENDER_BACKEND_GRANITE) && defined(MD_USE_GRANITE)
+    // RENDER-BACKEND-STAGE-4 (docs/GRANITE_IRENDERBACKEND_INTEGRATION.md
+    // §2.4): the editor's own UI chrome (toolbar/panels/menus, built below
+    // via EditorModule::Get().BuildUI() against THIS SAME ImGui context)
+    // renders through Granite instead of imgui_impl_sdlgpu3 when selected --
+    // ImGui_ImplSDLGPU3_Init() is skipped entirely in this branch (not just
+    // unused): both backends write their own state into the SAME io.
+    // BackendRendererUserData slot, so initializing both on one context
+    // would have the second call's init silently clobber the first's,
+    // leaking whatever GPU resources (font texture, sampler) the first
+    // one had already created. The 3D viewports (editor_world_3d_sdlgpu.cpp
+    // etc) keep their own SdlGpuBackend instances regardless (§5.4 "власний
+    // екземпляр"), so they stay blank this frame (their SDL_GPU present is
+    // skipped below too, not just their content -- Granite and SDL_GPU are
+    // two independent swapchains on the same window; whichever presents
+    // last is what's actually visible, they don't composite).
+    if (!md::GraniteBackend::Get().Init(_wnd::ptr()))
+        fprintf(stderr, "[Editor] GraniteBackend::Init failed -- Крок 4 UI switch will not render\n");
+    else if (!md::editor::GraniteImGuiBridge_Init(_wnd::ptr()))
+        fprintf(stderr, "[Editor] GraniteImGuiBridge_Init failed -- Крок 4 UI switch will not render\n");
+#else
     ImGui_ImplSDLGPU3_InitInfo info = {};
     info.Device = gpu; info.ColorTargetFormat = sc_fmt;
     ImGui_ImplSDLGPU3_Init(&info);
+#endif
     EditorUI::SetupTheme();
 
     // ── Data ──────────────────────────────────────────────────────────────────
@@ -407,7 +431,11 @@ int main(int argc, char** argv) {
         }
 
         // ── ImGui frame ───────────────────────────────────────────────────────
+#if defined(MD_RENDER_BACKEND_GRANITE) && defined(MD_USE_GRANITE)
+        md::editor::GraniteImGuiBridge_NewFrame();
+#else
         ImGui_ImplSDLGPU3_NewFrame();
+#endif
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
 
@@ -427,6 +455,17 @@ int main(int argc, char** argv) {
             uint32_t prev_flags = s_active_flags;
             s_active_flags = new_flags;
             ImGui::Render();
+#if defined(MD_RENDER_BACKEND_GRANITE) && defined(MD_USE_GRANITE)
+            // RENDER-BACKEND-STAGE-4 (docs/GRANITE_IRENDERBACKEND_INTEGRATION.md
+            // §2.4): SDL_GPU's own swapchain acquire/present is skipped
+            // entirely this frame -- EditorModule::Get().Render() (3D
+            // viewports) does NOT run, so they show nothing (deliberate,
+            // documented, see the #if block above ImGui_ImplSDLGPU3_Init).
+            // Screenshot capture (EditorScreenshot_ConsumePending below)
+            // also does not apply here -- it captures SDL_GPU's swapchain,
+            // which has no current frame to capture in this branch.
+            md::editor::GraniteImGuiBridge_RenderCurrentDrawData();
+#else
             md::GpuCommandBufferHandle cmd = md::GpuDevice::Get().AcquireCommandBuffer();
             if (cmd) {
                 EditorModule::Get().Render(cmd, dt, prev_flags);
@@ -465,6 +504,7 @@ int main(int argc, char** argv) {
                     md::GpuDevice::Get().Submit(cmd);
                 }
             }
+#endif  // MD_RENDER_BACKEND_GRANITE && MD_USE_GRANITE
             window_end_frame();
             continue;  // skip non-hot-reload UI code below
         }
@@ -593,7 +633,12 @@ int main(int argc, char** argv) {
     WorldEditor3D_SDLGPU::Shutdown();
     EditorCore::Get().Shutdown();
 #endif
+#if defined(MD_RENDER_BACKEND_GRANITE) && defined(MD_USE_GRANITE)
+    md::editor::GraniteImGuiBridge_Shutdown();
+    md::GraniteBackend::Get().Shutdown();
+#else
     ImGui_ImplSDLGPU3_Shutdown();
+#endif
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();
     md::GpuDevice::Get().Shutdown();
