@@ -461,10 +461,28 @@ int main(int argc, char** argv) {
             // entirely this frame -- EditorModule::Get().Render() (3D
             // viewports) does NOT run, so they show nothing (deliberate,
             // documented, see the #if block above ImGui_ImplSDLGPU3_Init).
-            // Screenshot capture (EditorScreenshot_ConsumePending below)
-            // also does not apply here -- it captures SDL_GPU's swapchain,
-            // which has no current frame to capture in this branch.
-            md::editor::GraniteImGuiBridge_RenderCurrentDrawData();
+            {
+                // §5 item 5 (screenshot comparison): same md.editor_screenshot
+                // request path EditorScreenshot_CaptureAndSubmit consumes on
+                // the SDL_GPU side -- md::GraniteBackend's own capture (engine/
+                // src/render/granite_backend.cpp's RenderFrameWithOverlay(),
+                // Granite's swapchain, unreachable from SDL_GPU's own
+                // DownloadFromGPUTexture path) picks it up here instead.
+                char shot_path[256];
+                bool want_shot = EditorScreenshot_ConsumePending(shot_path, sizeof(shot_path));
+                if (want_shot) md::GraniteBackend::Get().RequestScreenshot();
+                md::editor::GraniteImGuiBridge_RenderCurrentDrawData();
+                if (want_shot) {
+                    unsigned sw = 0, sh = 0;
+                    void* rgba = md::GraniteBackend::Get().ConsumeScreenshotRGBA(&sw, &sh);
+                    if (rgba) {
+                        EditorScreenshot_WriteRGBA(rgba, sw, sh, shot_path);
+                        free(rgba);
+                    } else {
+                        fprintf(stderr, "[Editor] Granite screenshot capture failed (no work this tick?)\n");
+                    }
+                }
+            }
 #else
             md::GpuCommandBufferHandle cmd = md::GpuDevice::Get().AcquireCommandBuffer();
             if (cmd) {

@@ -49,4 +49,13 @@ bool EditorScreenshot_CaptureAndSubmit(md::GpuDeviceHandle dev, md::GpuCommandBu
                                        uint32_t w, uint32_t h,
                                        SDL_GPUTextureFormat fmt,
                                        const char* out_path);
+
+// docs/GRANITE_IRENDERBACKEND_INTEGRATION.md §5 item 5 (screenshot
+// comparison SDL_GPU vs Granite). Shared PNG-encode tail end, factored out
+// of EditorScreenshot_CaptureAndSubmit so the Granite path (main.cpp,
+// md::GraniteBackend::RequestScreenshot()/ConsumeScreenshotRGBA() --
+// already-tight-packed true-RGBA8, no format-dependent swap needed) can
+// reuse it instead of duplicating the stb_image_write call. Does NOT take
+// ownership of rgba -- caller frees it.
+bool EditorScreenshot_WriteRGBA(const void* rgba, uint32_t w, uint32_t h, const char* out_path);
 #endif // MD_SDL_GPU
